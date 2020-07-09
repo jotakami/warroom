@@ -1,0 +1,107 @@
+XML = [[
+<Defaults>
+    <Image scale="0.1 0.1" height="90" active="false" />
+    <Image class="top" rotation="0 0 0" />
+    <Image class="bottom" rotation="0 180 0" />
+    <Image class="ground" width="80" />
+    <Image class="air" width="80" />
+    <Image class="bomb" width="90" />
+    <Image class="surface" width="90" />
+    <Text scale="0.08 0.1" />
+    <Text class="top" rotation="0 0 180" />
+    <Text class="bottom" rotation="0 180 180" />
+    <Text class="dice" height="90" width="100" fontSize="68" fontStyle="Bold" active="false" />
+    <Text class="ground" color="#42352D" shadow="#D2C6B6" shadowDistance="1 -3" />
+    <Text class="air" color="#4D5959" />
+    <Text class="bomb" color="#CC6B58" shadow="#6A4F46" shadowDistance="3 -1" />
+    <Text class="surface" color="#202040" shadow="#A0A0FF" />
+    <Button class="confirm" rotation="0 0 -135" fontSize="28" active="false" />
+    <Button class="roll" onClick="rollClick" />
+    <Button class="axis" colors="clear|rgba(0.8,0.4,0.4,0.25)|rgba(0.8,0.4,0.4,0.4)|#A04040" />
+    <Button class="allies" colors="clear|rgba(0.4,0.4,0.8,0.25)|rgba(0.4,0.4,0.8,0.4)|#4040A0" />
+    <Panel class="confirm" scale="0.1 0.1" height="85" width="85" />
+    <Panel class="roll-frame" padding="0 0 25 25" />
+    <VerticalLayout class="roll-frame" scale="0.1 0.1" height="1725" width="90" />
+    <VerticalLayout class="top" rotation="0 0 180" />
+    <VerticalLayout class="bottom" rotation="0 180 0" />
+</Defaults>
+
+<VerticalLayout class="roll-frame top" id="land-axis-roll-frame" position="145 -9 -21">
+    <Panel class="roll-frame"><Button class="roll axis" id="land-roll-axis-10" /></Panel>
+    <Panel class="roll-frame"><Button class="roll axis" id="land-roll-axis-9" /></Panel>
+    <Panel class="roll-frame"><Button class="roll axis" id="land-roll-axis-8" /></Panel>
+    <Panel class="roll-frame"><Button class="roll axis" id="land-roll-axis-7" /></Panel>
+    <Panel class="roll-frame"><Button class="roll axis" id="land-roll-axis-6" /></Panel>
+    <Panel class="roll-frame"><Button class="roll axis" id="land-roll-axis-5" /></Panel>
+    <Panel class="roll-frame"><Button class="roll axis" id="land-roll-axis-4" /></Panel>
+    <Panel class="roll-frame"><Button class="roll axis" id="land-roll-axis-3" /></Panel>
+    <Panel class="roll-frame"><Button class="roll axis" id="land-roll-axis-2" /></Panel>
+    <Panel class="roll-frame"><Button class="roll axis" id="land-roll-axis-1" /></Panel>
+</VerticalLayout>
+<VerticalLayout class="roll-frame top" id="land-allies-roll-frame" position="-144 -9 -21">
+    <Panel class="roll-frame"><Button class="roll allies" id="land-roll-allies-10" /></Panel>
+    <Panel class="roll-frame"><Button class="roll allies" id="land-roll-allies-9" /></Panel>
+    <Panel class="roll-frame"><Button class="roll allies" id="land-roll-allies-8" /></Panel>
+    <Panel class="roll-frame"><Button class="roll allies" id="land-roll-allies-7" /></Panel>
+    <Panel class="roll-frame"><Button class="roll allies" id="land-roll-allies-6" /></Panel>
+    <Panel class="roll-frame"><Button class="roll allies" id="land-roll-allies-5" /></Panel>
+    <Panel class="roll-frame"><Button class="roll allies" id="land-roll-allies-4" /></Panel>
+    <Panel class="roll-frame"><Button class="roll allies" id="land-roll-allies-3" /></Panel>
+    <Panel class="roll-frame"><Button class="roll allies" id="land-roll-allies-2" /></Panel>
+    <Panel class="roll-frame"><Button class="roll allies" id="land-roll-allies-1" /></Panel>
+</VerticalLayout>
+<VerticalLayout class="roll-frame bottom" id="sea-axis-roll-frame" position="-144 -9 1">
+    <Panel class="roll-frame"><Button class="roll axis" id="sea-roll-axis-1" /></Panel>
+    <Panel class="roll-frame"><Button class="roll axis" id="sea-roll-axis-2" /></Panel>
+    <Panel class="roll-frame"><Button class="roll axis" id="sea-roll-axis-3" /></Panel>
+    <Panel class="roll-frame"><Button class="roll axis" id="sea-roll-axis-4" /></Panel>
+    <Panel class="roll-frame"><Button class="roll axis" id="sea-roll-axis-5" /></Panel>
+    <Panel class="roll-frame"><Button class="roll axis" id="sea-roll-axis-6" /></Panel>
+    <Panel class="roll-frame"><Button class="roll axis" id="sea-roll-axis-7" /></Panel>
+    <Panel class="roll-frame"><Button class="roll axis" id="sea-roll-axis-8" /></Panel>
+    <Panel class="roll-frame"><Button class="roll axis" id="sea-roll-axis-9" /></Panel>
+    <Panel class="roll-frame"><Button class="roll axis" id="sea-roll-axis-10" /></Panel>
+</VerticalLayout>
+<VerticalLayout class="roll-frame bottom" id="sea-allies-roll-frame" position="144 -9 1">
+    <Panel class="roll-frame"><Button class="roll allies" id="sea-roll-allies-1" /></Panel>
+    <Panel class="roll-frame"><Button class="roll allies" id="sea-roll-allies-2" /></Panel>
+    <Panel class="roll-frame"><Button class="roll allies" id="sea-roll-allies-3" /></Panel>
+    <Panel class="roll-frame"><Button class="roll allies" id="sea-roll-allies-4" /></Panel>
+    <Panel class="roll-frame"><Button class="roll allies" id="sea-roll-allies-5" /></Panel>
+    <Panel class="roll-frame"><Button class="roll allies" id="sea-roll-allies-6" /></Panel>
+    <Panel class="roll-frame"><Button class="roll allies" id="sea-roll-allies-7" /></Panel>
+    <Panel class="roll-frame"><Button class="roll allies" id="sea-roll-allies-8" /></Panel>
+    <Panel class="roll-frame"><Button class="roll allies" id="sea-roll-allies-9" /></Panel>
+    <Panel class="roll-frame"><Button class="roll allies" id="sea-roll-allies-10" /></Panel>
+</VerticalLayout>
+
+<Image class="ground top" id="land-axis-ground-image" image="ground-dice" position="93 -12 -21" />
+<Text class="dice ground top" id="land-axis-ground-dice" position="93 -12 -21" />
+<Image class="air top" id="land-axis-air-image" image="air-dice" position="93 -21 -21" />
+<Text class="dice air top" id="land-axis-air-dice" position="93 -21 -21" />
+<Image class="bomb top" id="land-axis-bomb-image" image="bomb-dice" position="102 -21 -21" />
+<Text class="dice bomb top" id="land-axis-bomb-dice" position="102 -21 -21" />
+
+<Image class="ground top" id="land-allies-ground-image" image="ground-dice" position="-93 -12 -21" />
+<Text class="dice ground top" id="land-allies-ground-dice" position="-93 -12 -21" />
+<Image class="air top" id="land-allies-air-image" image="air-dice" position="-93 -21 -21" />
+<Text class="dice air top" id="land-allies-air-dice" position="-93 -21 -21" />
+<Image class="bomb top" id="land-allies-bomb-image" image="bomb-dice" position="-102 -21 -21" />
+<Text class="dice bomb top" id="land-allies-bomb-dice" position="-102 -21 -21" />
+
+<Panel class="confirm" position="132 -17 -21"><Button class="confirm axis" id="land-confirm-axis" /></Panel>
+<Panel class="confirm" position="-130 -17 -21"><Button class="confirm allies" id="land-confirm-allies" /></Panel>
+
+<Image class="surface bottom" id="sea-axis-surface-image" image="surface-dice" position="-85 -30 1" />
+<Text class="dice surface bottom" id="sea-axis-surface-dice" position="-85 -30 1" />
+<Image class="air bottom" id="sea-axis-air-image" image="air-dice" position="-85 -39 1" />
+<Text class="dice air bottom" id="sea-axis-air-dice" position="-85 -39 1" />
+
+<Image class="surface bottom" id="sea-allies-surface-image" image="surface-dice" position="85 -30 1" />
+<Text class="dice surface bottom" id="sea-allies-surface-dice" position="85 -30 1" />
+<Image class="air bottom" id="sea-allies-air-image" image="air-dice" position="85 -39 1" />
+<Text class="dice air bottom" id="sea-allies-air-dice" position="85 -39 1" />
+
+<Panel class="confirm" position="-104 -35 1" rotation="0 180 0"><Button class="confirm axis" id="sea-confirm-axis" /></Panel>
+<Panel class="confirm" position="103 -35 1" rotation="0 180 0"><Button class="confirm allies" id="sea-confirm-allies" /></Panel>
+]]

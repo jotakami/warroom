@@ -1,0 +1,1295 @@
+#include setup
+#include guids
+
+function onLoad()
+    state = {}
+    UnitQueues = {}
+    Map = getObjectFromGUID(GUIDs.Map)
+    MoraleBoard = getObjectFromGUID(GUIDs.MoraleBoard)
+    BattleBoards = {getObjectFromGUID(GUIDs.BattleBoards[1]), getObjectFromGUID(GUIDs.BattleBoards[2])}
+end
+
+-- Game and Scenario Setup
+
+function chooseScenario(_, value, id)
+    for _, label in ipairs{'global', 'europe', 'pacific', 'eastern'} do Map.UI.setAttribute(label, 'active', false) end
+    for i = 1, 4, 1 do for _, label in ipairs{'status', 'advance'} do Map.UI.setAttribute(label .. '-' .. i, 'active', true) end end
+    setStatus('Unpacking components')
+    setAdvance('round', 'Start round')
+    unpackComponents(id)
+end
+
+function unpackComponents(scenario)
+    state.scenario = scenario or 'global'
+    state.round = 0
+    state.objects = {
+        orders = {},
+        resources = {},
+        homeland_tokens = {},
+        turn_tokens = {},
+        commands = {}
+    }
+    if state.scenario == 'europe' or state.scenario == 'pacific' then MoraleBoard.setState(2) end
+    local region_data = Map.getTable('MapData').Regions
+    local i = 1
+    for nation, guids in pairs(GUIDs.Nations) do if checkScenario(nation) then
+        state.objects.orders[nation] = getObjectFromGUID(guids.orders)
+        state.objects.resources[nation] = getObjectFromGUID(guids.resources)
+        local order = i
+        Wait.time(function ()
+            local components = getObjectFromGUID(guids.components)
+            state.objects.homeland_tokens[nation] = placeHomelandToken(components, order)
+            state.objects.turn_tokens[nation] = placeTurnToken(components, order)
+            placeResourcePegs(components, state.objects.resources[nation], nation == 'china')
+            placeCards(components, nation, region_data)
+            placeCommands(components, nation)
+            components.destruct()
+        end, (i - 1) * 0.5)
+        i = i + 1
+    end end
+end
+
+function placeHomelandToken(components, order)
+    local point = Map.getSnapPoints()[order + 7]
+    return components.takeObject({
+        position = Map.positionToWorld(point.position) + vector(0, 0.2, 0),
+        rotation = point.rotation + Map.getRotation()
+    })
+end
+
+function placeTurnToken(components, order)
+    local point = Map.getSnapPoints()[order]
+    return components.takeObject({
+        position = Map.positionToWorld(point.position) + vector(0, 0.2, 0),
+        rotation = point.rotation + Map.getRotation()
+    })
+end
+
+function placeResourcePegs(components, resources, is_china)
+    local snaps, up = resources.getSnapPoints(), vector(0, 0.2, 0)
+    if not is_china then components.takeObject({position = resources.positionToWorld(snaps[1].position) + up}) end
+    components.takeObject({position = resources.positionToWorld(snaps[22].position) + up})
+    components.takeObject({position = resources.positionToWorld(snaps[43].position) + up})
+end
+
+function placeCards(components, nation, region_data)
+    local guids = GUIDs.Nations[nation]
+    local rack, up = getObjectFromGUID(guids.territories[1]), vector(0, 0.2, 0)
+    local forward = rack.getTransformForward()
+    local prefix = nation:gsub('uk', 'b'):gsub('ussr', 'r'):sub(1, 1):gsub('i', 't')
+    components.takeObject({
+        position = rack.positionToWorld(rack.getSnapPoints()[1].position) + up * 2,
+        callback_function = function (deck)
+            deck.use_gravity = false
+            deck.setVelocity({0, 0, 0})
+            local total = #deck.getObjects()
+            filterCards(deck, prefix)
+            local count = #deck.getObjects()
+            local points = addCardPoints({}, guids.territories[1], math.min(count, 12))
+            if count > 12 then addCardPoints(points, guids.territories[2], math.min(count - 12, 12)) end
+            if count > 24 then addCardPoints(points, guids.territories[3], count - 24) end
+            for i = 1, count, 1 do
+                Wait.frames(function ()
+                    if state.scenario ~= 'global' then while not Scenarios[state.scenario].regions[prefix](total) do
+                        total = total - 1
+                    end end
+                    local id = prefix .. total
+                    if count > 1 then
+                        deck.takeObject({
+                            position = points[count],
+                            callback_function = function (card)
+                                card.setVar('id', id)
+                                if region_data[id].resources then card.setTable('resources', region_data[id].resources) end
+                            end
+                        })
+                        count = count - 1
+                    else
+                        local card = Physics.cast({
+                            origin = points[count] - vector(0, 0.21, 0) + forward,
+                            direction = {0, 1, 0},
+                            max_distance = 2,
+                            debug = true
+                        })[1].hit_object
+                        card.setPositionSmooth(points[count] + vector(0, 1, 0), false, false)
+                        card.setVar('id', id)
+                        if region_data[id].resources then card.setTable('resources', region_data[id].resources) end
+                    end
+                    total = total - 1
+                end, (i - 1) * 5)
+    end end})
+end
+
+function filterCards(deck, prefix)
+    local total, offset = #deck.getObjects(), 0
+    for i, card in ipairs(deck.getObjects()) do
+        if state.scenario ~= 'global' and not Scenarios[state.scenario].regions[prefix](total - i + 1) then
+            deck.takeObject({
+                position = deck.getPosition() + vector(0, 0.5, 0),
+                index = i - offset,
+                callback_function = |obj| obj.destruct()
+            })
+            offset = offset + 1
+        end
+    end
+end
+
+function addCardPoints(t, guid, limit)
+    local obj = getObjectFromGUID(guid)
+    for _, point in ipairs(obj.getSnapPoints()) do
+        if limit == 0 then break end
+        point = obj.positionToWorld(point.position)
+        table.insert(t, point + vector(0, 0.2, 0))
+        limit = limit - 1
+    end
+    return t
+end
+
+function placeCommands(components, nation)
+    local forward, right = components.getTransformForward(), components.getTransformRight() * 1.273
+    local position = components.getPosition() - forward + right * 5.5 + vector(0, 1, 0)
+    state.objects.commands[nation] = {}
+    for i = 1, #components.getObjects(), 1 do components.takeObject({
+        position = position - (i - 1) % 12 * right + math.floor((i - 1) / 12) * forward,
+        callback_function = function (command)
+            local num = command.getName():match('%s(%d+)%a%a') + 0
+            local data = CommandSetup[nation][num]
+            state.objects.commands[nation][num] = command
+            if data and (state.scenario == 'global' or Scenarios[state.scenario].regions[data.region:sub(1,1)](data.region:sub(2) + 0)) then
+                local pos = Map.positionToWorld({data.position.x, 0.6, data.position.z})
+                local rot = vector(0, Map.call('rotationToCenter', data.position), 0)
+                local height = 1
+                for _, count in pairs(data.units) do height = height + count end
+                command.use_gravity = false
+                Wait.condition(function ()
+                    command.setPositionSmooth(pos + vector(0, height * 0.21, 0))
+                    command.setRotationSmooth(rot)
+                    buildStack(data.units, pos, rot, function (units)
+                        command.use_gravity = true
+                        Wait.frames(|| mergeStack(command, units), 10)
+                end) end, || not command.loading_custom)
+            else returnPiece(command) end
+        end
+    }) end
+end
+
+-- -- Status updates and phase control
+
+function setStatus(msg)
+    for i = 1, 4, 1 do Map.UI.setValue('status-' .. i, msg) end
+end
+
+function setAdvance(value, label)
+    for i = 1, 4, 1 do Map.UI.setAttributes('advance-' .. i, {
+        onClick = 'Global/advancePhase(' .. value .. ')',
+        text = label or ''
+    }) end
+end
+
+function advancePhase(_, value)
+    if value == 'round' then startNewRound()
+    elseif value == 'refit' then landAirCommands()
+    elseif value == 'deploy' then deployUnits()
+    elseif value == 'morale' then morale()
+    elseif value == 'production' then production() end
+end
+
+-- Phase 0: Round Setup
+
+function startNewRound()
+    state.round = state.round + 1
+    setRound(state.round)
+    resetTurnOrder()
+    resourceIncome()
+end
+
+function setRound(round)
+    for nation, orders in pairs(state.objects.orders) do orders.call('setRound', {round}) end
+end
+
+function resetTurnOrder()
+    TurnOrder = nil
+    local shift, center, points = Map.getPosition(), Map.getTable('MapData').center, Map.getSnapPoints()
+    local i, p = 0
+    for _, token in pairs(state.objects.turn_tokens) do
+        i = i + 1
+        token.setPositionSmooth(Map.positionToWorld(points[i].position:lerp(center, 0.225)), false, false)
+        token.setRotationSmooth(points[i].rotation + Map.getRotation(), false, false)
+    end
+end
+
+-- Phase 1: Direct National Economy
+
+function resourceIncome()
+    setStatus('Tallying resource income')
+    setAdvance('', 'Please wait')
+    local delay = 0
+    for nation, guids in pairs(GUIDs.Nations) do if checkScenario(nation) then
+        local totals = {oil = 0, iron = 0, osr = 0}
+        for _, card in ipairs(getObjectFromGUID(guids.card_zone).getObjects()) do
+            local resources = card.getTable('resources')
+            if resources then
+                for resource, value in pairs(totals) do totals[resource] = value + (resources[resource] or 0) end
+                if card.is_face_down then
+                    if (resources.oil or 0) > 0 then totals.oil = totals.oil - 1
+                    elseif (resources.iron or 0) > 0 then totals.iron = totals.iron - 1
+                    elseif (resources.osr or 0) > 0 then totals.osr = totals.osr - 1 end
+        end end end
+        if totals.oil + totals.iron + totals.osr > 0 then
+            Wait.time(function ()
+                state.objects.resources[nation].call('addResources', totals)
+                local msg = colorize(properName(nation), nation) .. ' gained '
+                for resource, value in pairs(totals) do if value > 0 then
+                    msg = msg .. colorize(value, resource) .. ' ' .. resource .. ', '
+                end end
+                broadcastToAll(msg:sub(1, -3))
+            end, delay)
+            delay = delay + 0.5
+    end end end
+    Wait.time(|| writeOrders(), delay)
+end
+
+-- Phase 2: Strategic Planning
+
+function writeOrders()
+    setStatus('Strategic planning')
+    setAdvance('', '')
+    local ready = {}
+    for nation, orders in pairs(state.objects.orders) do
+        orders.call('writeOrders')
+        ready[nation] = false
+    end
+    playerReady = function (data)
+        local all_ready = true
+        for nation, value in pairs(ready) do if data[nation] ~= nil then
+            ready[nation] = data[nation]
+            all_ready = all_ready and data[nation]
+        else all_ready = all_ready and ready[nation] end end
+        if all_ready then
+            playerReady = nil
+            revealBids()
+    end end
+end
+
+function revealBids()
+    setStatus('Revealing bids')
+    local bids, delay = {}, 0
+    for nation, orders in pairs(state.objects.orders) do
+        Wait.time(function ()
+            bids[nation] = orders.call('revealBid')
+            broadcastToAll(colorize(properName(nation), nation) .. ' bid ' .. colorize(bids[nation], 'oil') .. ' oil')
+        end, delay)
+        delay = delay + 0.5
+    end
+    Wait.time(|| setTurnOrder(bids), delay)
+end
+
+function setTurnOrder(bids)
+    setStatus('Choose turn order')
+    TurnOrder = {}
+    local order, turns, points = {}, {}, {}
+    for nation, bid in pairs(bids) do table.insert(order, {bid = bid + math.random(), nation = nation}) end
+    table.sort(order, |a, b| a.bid < b.bid)
+    for i, point in ipairs(Map.getSnapPoints()) do if i > #order then break else table.insert(points, {
+        position = Map.positionToWorld(point.position),
+        rotation = point.rotation + Map.getRotation()
+    }) end end
+    for i = 1, #order, 1 do
+        table.insert(turns, i)
+        Map.UI.setAttribute('turn' .. i, 'active', true)
+    end
+    chooseTurn = function (_, nation, id)
+        local choice, choice_index = id:sub(-1) + 0
+        TurnOrder[nation] = choice
+        TurnOrder[choice] = nation
+        Map.UI.setAttribute(id, 'active', false)
+        for i, turn in ipairs(turns) do
+            Map.UI.setAttribute('turn' .. turn, 'interactable', false)
+            if turn == choice then choice_index = i end
+        end
+        table.remove(turns, choice_index)
+        state.objects.turn_tokens[nation].setPositionSmooth(points[choice].position)
+        state.objects.turn_tokens[nation].setRotationSmooth(points[choice].rotation)
+        Wait.condition(function ()
+            stopBlinker(state.objects.turn_tokens[nation])
+            chooseTurns(order, turns, points)
+        end, || not state.objects.turn_tokens[nation].isSmoothMoving())
+    end
+    chooseTurns(order, turns)
+end
+
+function chooseTurns(order, turns)
+    if #order == 0 then payBids()
+    else
+        local nation = table.remove(order).nation
+        setBlinker(state.objects.turn_tokens[nation])
+        for _, turn in ipairs(turns) do Map.UI.setAttributes('turn' .. turn, {
+            interactable = true,
+            onClick = 'Global/chooseTurn(' .. nation .. ')'
+        }) end
+        if #turns == 1 then chooseTurn(nil, nation, 'turn' .. turns[1]) end
+    end
+end
+
+function payBids()
+    for nation, orders in pairs(state.objects.orders) do orders.call('payBid') end
+    flipHotspots()
+end
+
+-- Phase 3: Movement Operations
+
+-- -- Step 1: Flip embattled hotspots
+
+function flipHotspots()
+    for _, hotspot in ipairs(Map.call('getHotspots')) do
+        local obj = getObjectFromGUID(hotspot.guid)
+        if obj.is_face_down then obj.flip() end
+    end
+    resolveMovement()
+end
+
+-- -- Step 2: Resolve movement in turn order
+
+function resolveMovement()
+    setStatus('Resolving movement orders')
+    local order = getTurnOrder()
+    movementComplete = |data| resolveOrders(order[order[data.nation] + 1])
+    resolveOrders(order[1])
+end
+
+function resolveOrders(nation)
+    if not nation then
+        movementComplete = nil
+        deployCarrierFighters()
+    else state.objects.orders[nation].call('resolveOrders') end
+end
+
+function hotspotCheck(region)
+    if not Map.getTable('state')[region].hotspot and Map.call('hotspotType', {region}) then
+        local centroid = Map.call('centroid', {region})
+        getObjectFromGUID(GUIDs.Bags.hotspot).takeObject({
+            position = Map.positionToWorld({centroid[1], 0.8, centroid[2]})
+        })
+    end
+end
+
+-- -- Step 3: Carrier fighter movement
+
+function deployCarrierFighters()
+    setStatus('Deploy carrier fighters')
+    local fighterBag = getObjectFromGUID(GUIDs.Bags.Units.cfighter)
+    local remaining = 0
+    for nation, commands in pairs(state.objects.commands) do
+        for i = 1, 9, 1 do if not commands[i] then break else
+            local count = commands[i].getName():match('(%d+)%s%[%w+%]Carrier')
+            local rotation, bump = commands[i].getRotation(), 0
+            if isAxis(nation) then
+                rotation = rotation + vector(0, 0, 180)
+                bump = 0.22
+            end
+            if count then for j = 1, count, 1 do
+                Wait.time(function () fighterBag.takeObject({
+                    position = commands[i].getPosition() + vector(0, j * 0.25 + bump, 0),
+                    rotation = rotation,
+                    callback_function = function (obj)
+                        obj.setVar('nation', nation)
+                        setBlinker(obj)
+                        Wait.condition(function ()
+                            stopBlinker(obj)
+                            remaining = remaining - 1
+                            hotspotCheck(obj.getVar('region'))
+                        end, || obj.getVar('region') ~= nil)
+                    end
+                }) end, remaining * 0.15)
+                remaining = remaining + 1
+    end end end end end
+    Wait.condition(|| Wait.time(|| combatOperations(), 3), || remaining == 0)
+end
+
+-- Phase 4: Combat Operations
+
+function combatOperations()
+    setStatus('Combat operations')
+    setAdvance('refit', 'Refit and Deploy')
+    local hotspots = 0
+    for _, hotspot in ipairs(Map.call('getHotspots')) do
+        hotspots = hotspots + 1
+        local obj = getObjectFromGUID(hotspot.guid)
+        obj.setLock(true)
+        setBlinker(obj, 0.5, 8)
+        obj.UI.setXmlTable({{tag = 'Button', attributes = {
+            position = '0 0 -39',
+            rotation = '0 0 0',
+            height = 150,
+            width = 150,
+            color = 'clear',
+            onClick = 'Global/resolveHotspot(' .. hotspot.guid .. ')'
+        }}})
+    end
+    hotspotResolved = function ()
+        hotspots = hotspots - 1
+        if hotspots == 0 then
+            landAirCommands()
+            hotspotResolved = nil
+        end
+    end
+end
+
+function resolveHotspot(_, guid)
+    local hotspot = getObjectFromGUID(guid)
+    local region = hotspot.getVar('region')
+    local hotspot_type = Map.call('hotspotType', {region})
+    print('Resolving ', hotspot_type, ' hotspot in region ', region)
+    if hotspot_type == 'battle' then resolveBattle(hotspot)
+    else
+        stopBlinker(hotspot)
+        hotspot.UI.setXml('')
+        if hotspot_type == 'garrison' then resolveGarrison(hotspot)
+        elseif hotspot_type == 'raid' then resolveRaid(hotspot)
+        elseif hotspot_type == 'bombing' then resolveBombing(hotspot)
+        elseif hotspot_type == 'transports' then
+            sinkTransports(region)
+            removeCarrierFighters(region)
+            returnPiece(hotspot)
+    end end
+end
+
+-- -- Non-battle hotspots
+
+-- -- -- Garrison defense
+
+function resolveGarrison(hotspot)
+    local region, invaders, commands, unit_types = hotspot.getVar('region'), {}, {}, {}
+    local axis_owned = isAxis(Map.call('getOwner', {region}))
+    for side, forces in pairs(Map.call('getCommands', {region})) do
+        for force, guids in pairs(forces) do for _, guid in ipairs(guids) do
+            local command = getObjectFromGUID(guid)
+            local nation = commandNation(command)
+            if isAxis(nation) ~= axis_owned then
+                if not invaders[nation] then table.insert(invaders, nation) end
+                invaders[nation] = true
+            end
+            if force == 'army' then
+                table.insert(commands, command)
+                for _, unit in ipairs{'Infantry', 'Artillery', 'Armor'} do
+                    if command.getName():find(unit) and not unit_types[unit:lower()] then
+                        unit_types[unit:lower()] = true
+                        table.insert(unit_types, unit:lower())
+    end end end end end end
+    local perp = Map.positionToLocal(hotspot.getPosition()) - Map.getTable('MapData').center
+    local offset = hotspot.getPosition() + vector(0, 0.3, 0)
+    local dice = rollDice({
+        Map.positionToWorld(perp:normalized():rotateOver('y', 90) * 0.15) + offset,
+        Map.positionToWorld(perp:normalized():rotateOver('y', -90) * 0.15) + offset
+    })
+    Wait.condition(function () Wait.time(function ()
+        local values, hit = diceValues(dice)
+        if values[1] == 'black' then hit = values[2]
+        elseif values[2] == 'black' then hit = values[1]
+        elseif values[1] == values[2] then hit = values[1] end
+        if hit == 'black' then if #unit_types == 1 then hit = unit_types[1]
+        else hit = 'any' end
+        elseif hit == 'yellow' and unit_types.infantry then hit = 'infantry'
+        elseif hit == 'blue' and unit_types.artillery then hit = 'artillery'
+        elseif hit == 'green' and unit_types.armor then hit = 'armor'
+        else hit = nil end
+        local callback = function ()
+            destroyObjects(dice)
+            territoryControl(hotspot, invaders)
+        end
+        if hit then assignHit(hotspot, hit, commands, callback)
+        else callback() end
+    end, 1) end, || #dice == 2)
+end
+
+function assignHit(hotspot, hit_type, commands, callback)
+    local targets, count, unique = {}, 0
+    for _, command in ipairs(commands) do
+        local nation = commandNation(command)
+        for ut in command.getName():gmatch('%d%s%b[](%u%a+)%b[]') do
+            local unit_type = ut:lower()
+            if hit_type == 'any' or unit_type == hit_type then
+                if not targets[nation] then targets[nation] = {} end
+                if not targets[nation][unit_type] then
+                    targets[nation][unit_type] = command
+                    count = count + 1
+                    if count == 1 then unique = {command = command, unit = unit_type}
+                    elseif count > 1 then unique = nil end
+    end end end end
+    if count == 0 then callback()
+    elseif unique then removeUnit(unique.command, unique.unit, callback)
+    else
+        local click_fun = 'assignHit' .. hotspot.getVar('region')
+        createHitButtons(hotspot, targets)
+        self.setVar(click_fun, function (_, value)
+            local nation, unit_type = value:match('(%a+)%-(%a+)')
+            hotspot.UI.setXml('')
+            removeUnit(targets[nation][unit_type], unit_type, callback)
+            self.setVar(click_fun, nil)
+        end)
+    end
+end
+
+function createHitButtons(hotspot, targets)
+    local click_fun, height, width = 'Global/assignHit' .. hotspot.getVar('region') .. '(', 0, 0
+    local rotation = Map.call('rotationToCenter', Map.positionToLocal(hotspot.getPosition())) + Map.getRotation().y
+    for _, unit_types in pairs(targets) do
+        width = width + 1
+        for _, _ in pairs(unit_types) do height = height + 1 end
+    end
+    local cols = {}
+    for nation, unit_types in pairs(targets) do
+        local col = {}
+        for unit_type, _ in pairs(unit_types) do table.insert(col, {tag = 'Button', attributes = {
+            text = ' ',
+            icon = nation,
+            image = unit_type,
+            onClick = click_fun .. nation .. '-' .. unit_type .. ')'
+        }}) end
+        if width > 1 and #col < height then
+            local pad = (height - #col) * 50
+            col = {tag = 'Panel', children = col, attributes = {
+                padding = '0 0 ' .. pad .. ' ' .. pad
+            }}
+        end
+        table.insert(cols, {tag = 'VerticalLayout', children = col, attributes = {}})
+    end
+    if width > 1 then cols = {tag = 'HorizontalLayout', children = cols, attributes = {}}
+    else cols = cols[1] end
+    cols.attributes.height = height * 100
+    cols.attributes.width = width * 100
+    cols.attributes.position = '0 0 -220'
+    cols.attributes.rotation = '0 0 ' .. (hotspot.getRotation().y - rotation)
+    hotspot.UI.setXmlTable({cols})
+end
+
+function removeUnit(command, unit_type, callback)
+    local units, nation = breakStack(command), commandNation(command)
+    local spawning, index = #units
+    for i, unit in ipairs(units) do Wait.condition(function () spawning = spawning - 1 end, || not units[i].spawning) end
+    Wait.condition(function ()
+        if #units == 1 and units[1].getName() == unit_type then
+            returnPiece(command)
+            units[1].setVar('nation', nation)
+            MoraleBoard.call('stackCasualties', {units[1].getGUID()})
+            callback()
+        else
+            local index
+            command.setPositionSmooth(command.getPosition() - units[#units].getPosition() + units[#units - 1].getPosition())
+            for i = #units, 1, -1 do if units[i].getName() == unit_type or i == 1 then
+                units[i].setVar('nation', nation)
+                MoraleBoard.call('stackCasualties', {units[i].getGUID()})
+                index = i
+                break
+            else units[i].setPositionSmooth(units[i - 1].getPosition()) end end
+            table.remove(units, index)
+            Wait.condition(function ()
+                mergeStack(command, units)
+                callback()
+            end, || not command.isSmoothMoving())
+    end end, || spawning == 0)
+end
+
+-- -- -- Convoy raids
+
+function resolveRaid(hotspot)
+    stopBlinker(hotspot)
+    hotspot.UI.setXml('')
+    broadcastToAll('Roll dice for convoy raid in ', hotspot.getVar('region'))
+end
+
+-- -- -- Bombing runs
+
+function resolveBombing(hotspot)
+    stopBlinker(hotspot)
+    hotspot.UI.setXml('')
+    broadcastToAll('Roll dice for strategic bombing in ', hotspot.getVar('region'))
+end
+
+-- -- -- Sinking transports
+
+function sinkTransports(hotspot)
+    stopBlinker(hotspot)
+    hotspot.UI.setXml('')
+    checkTransports(hotspot)
+end
+
+-- -- Battle setup
+
+function resolveBattle(hotspot)
+    local Board
+    if BattleBoards[1].call('isReady') then Board = BattleBoards[1]
+    elseif BattleBoards[2].call('isReady') then Board = BattleBoards[2] end
+    if not Board then print('No available battle boards')
+    else
+        stopBlinker(hotspot)
+        hotspot.UI.setXml('')
+        local region, ready = hotspot.getVar('region'), {axis = false, allies = false}
+        local sea_region = Map.call('isSeaRegion', {region})
+        Board.call('setupCombat', {sea_region and 'sea' or 'land', hotspot.getGUID()})
+        local command_guids = Map.call('getCommands', {region})
+        Wait.condition(function () for side, forces in pairs(command_guids) do
+            local units = {}
+            for _, force in ipairs{'air', sea_region and 'fleet' or 'army'} do
+                if forces[force] then for _, guid in ipairs(forces[force]) do
+                    local command = getObjectFromGUID(guid)
+                    Map.call('commandRemoved', {guid, region})
+                    if command.getName() ~= 'cfighter' then table.insert(units, command) end
+                end
+                if force == 'air' then for _, guid in ipairs(forces[force]) do
+                    local command = getObjectFromGUID(guid)
+                    if command.getName() == 'cfighter' then table.insert(units, command) end
+            end end end end
+            moveToBattleBoard(units, getDropPoints(Board), nil, function () ready[side] = true end)
+        end end, || not Board.isSmoothMoving())
+        Wait.condition(function()
+            Board.call('setStances')
+            if sea_region then checkPortAdvantage(region, Board) end
+        end, || ready.axis and ready.allies)
+    end
+end
+
+function getDropPoints(board)
+    local params, points = board.call('getDropPoints'), {}
+    for nation, x in pairs(params.x) do
+        points[nation] = {}
+        for unit_type, z in pairs(params.z) do points[nation][unit_type] = board.positionToWorld({x, params.y, z}) end
+    end
+    points.rotation = vector(0, board.getRotation().y, 0)
+    return points
+end
+
+function moveToBattleBoard(units, drop_points, nation, callback)
+    local unit = table.remove(units)
+    if unit then
+        local unit_type, rotation, step, flipped = unit.getName(), drop_points.rotation, 0.21, 0
+        if unit_type:match('^%b[]') then
+            local guid = unit.getGUID()
+            nation, unit_type, step = commandNation(unit), 'command', 0.23
+            for _, subunit in ipairs(breakStack(unit)) do
+                table.insert(units, subunit)
+                Wait.condition(|| subunit.setVar('command', guid), || not subunit.spawning)
+            end
+            unit.setTable('returnTo', {
+                position = unit.getPosition(),
+                rotation = unit.getRotation()
+            })
+            if unit.getName():find('Fleet') then rotation = rotation + vector(0, 33 * (isAxis(nation) and 1 or -1), 0) end
+        elseif unit_type == 'cfighter' then
+            nation, unit_type, step = unit.getVar('nation'), 'fighter', 0.22
+            unit.setTable('returnTo', {
+                position = unit.getPosition(),
+                rotation = unit.getRotation()
+            })
+            if unit.is_face_down then rotation = rotation + vector(0, 0, 180) end
+        elseif unit_type == 'submarine' or unit_type == 'cruiser' or unit_type == 'carrier' or unit_type == 'battleship' then
+            rotation = rotation + vector(0, 33 * (isAxis(nation) and 1 or -1), 0)
+        end
+        unit.setPositionSmooth(drop_points[nation][unit_type] + vector(0, unit.is_face_down and step or 0, 0))
+        unit.setRotationSmooth(rotation)
+        drop_points[nation][unit_type] = drop_points[nation][unit_type] + vector(0, step, 0)
+        if #units > 0 then Wait.frames(|| moveToBattleBoard(units, drop_points, nation, callback), 3)
+        else Wait.condition(|| callback(), || not unit.isSmoothMoving()) end
+    end
+end
+
+function checkPortAdvantage(region, board)
+    local pa = {}
+    for _, port in ipairs(Map.call('getPorts', {region})) do
+        local owner = Map.call('getOwner', {port})
+        local side = isAxis(owner) and 'axis' or 'allies'
+        if not pa[side] and getHomelandStatus(owner) < 3 then pa[side] = true end
+    end
+    for side, _ in pairs(pa) do board.call('setPortAdvantage', {side}) end
+end
+
+-- -- Battle debrief
+
+function battleDebrief(data)
+    local hotspot, combatants = getObjectFromGUID(data[1]), data[2]
+    local region = hotspot.getVar('region')
+    local sea_region = Map.call('isSeaRegion', {region})
+    if sea_region then checkTransports(hotspot) end
+    debriefAirCommands(hotspot)
+    if not sea_region then
+        local owner = Map.call('getOwner', {region})
+        local invaders = {}
+        for _, nation in ipairs(combatants) do if isAxis(nation) ~= isAxis(owner) then table.insert(invaders, nation) end end
+        territoryControl(hotspot, invaders)
+    else checkEmbattled(hotspot) end
+end
+
+-- -- -- Return carrier fighters and place arrows
+function debriefAirCommands(hotspot)
+    local ArrowBag = getObjectFromGUID(GUIDs.Bags.arrow)
+    local region = hotspot.getVar('region')
+    local command_guids = Map.call('getCommands', {region})
+    for side, forces in pairs(command_guids) do
+        local rotation, bump = vector(0, 0, 0), 0
+        if side == 'axis' then rotation, bump = vector(0, 0, 180), 0.22 end
+        if forces.air then for _, command_guid in ipairs(forces.air) do
+            local command = getObjectFromGUID(command_guid)
+            if command.getName() == 'cfighter' then returnPiece(command)
+            else ArrowBag.takeObject({
+                position = command.getPosition() + vector(0, 0.25 + bump, 0),
+                rotation = rotation + vector(0, math.random(360) - 180, 0)
+            }) end
+    end end end
+end
+
+-- check for lost transports
+function checkTransports(hotspot)
+    broadcastToAll('Check for sunk transports in ' .. hotspot.getVar('region'):upper())
+end
+
+-- update territory control
+function territoryControl(hotspot, invaders)
+    local region = hotspot.getVar('region')
+    local owner, orig_owner = Map.call('getOwner', {region}), Map.call('getOriginalOwner', {region})
+    local command_guids, remaining, side = Map.call('getCommands', {region}), {}
+    if isAxis(owner) then if not command_guids.axis.army then side = 'allies' end
+    elseif not command_guids.allies.army then side = 'axis' end
+    if side then for _, guid in ipairs(command_guids[side].army) do
+        local nation = commandNation(getObjectFromGUID(guid))
+        if not remaining[nation] then
+            remaining[nation] = true
+            table.insert(remaining, nation)
+    end end end
+    if #remaining > 0 then
+        local new_owner
+        if isAxis(orig_owner) == isAxis(remaining[1]) and getHomelandStatus(orig_owner) < 6 then
+            new_owner = orig_owner
+        elseif #remaining == 1 then new_owner = remaining[1]
+        else
+            local click_fun = 'assignControl' .. region
+            createNationButtons(hotspot, remaining, 'Gains control', click_fun)
+            self.setVar(click_fun, function (_, nation)
+                hotspot.UI.setXml('')
+                new_owner = nation
+                self.setVar(click_fun, nil)
+            end)
+        end
+        Wait.condition(function ()
+            transferControl(hotspot, owner, new_owner)
+            MoraleBoard.call('addStress', {nation = owner, value = Map.call('getSV', {region})})
+            awardMedals(hotspot, invaders)
+        end, || new_owner ~= nil)
+    else checkEmbattled(hotspot) end
+end
+
+function createNationButtons(hotspot, nations, text, fun_name)
+    local buttons = {}
+    local rotation = Map.call('rotationToCenter', Map.positionToLocal(hotspot.getPosition())) + Map.getRotation().y
+    for _, nation in ipairs(nations) do
+        local color = Colors[nation]
+        table.insert(buttons, {tag = 'Button', attributes = {
+            text = text,
+            icon = nation,
+            fontSize = '26',
+            colors = '#' .. color .. 'c0|#' .. color .. 'ff|white|clear',
+            onClick = 'Global/' .. fun_name .. '(' .. nation .. ')'
+        }})
+    end
+    hotspot.UI.setXmlTable({{tag = 'VerticalLayout', children = buttons, attributes = {
+        height = #nations * 100,
+        width = 180,
+        position = '0 0 -85',
+        rotation = '0 0 ' .. (hotspot.getRotation().y - rotation)
+    }}})
+end
+
+function transferControl(hotspot, from, to)
+    local region, position = hotspot.getVar('region')
+    broadcastToAll(colorize(properName(to), to) .. ' has taken control of ' .. properName(region) .. ' from ' .. colorize(properName(from), from))
+    local FlagBag = getObjectFromGUID(GUIDs.Nations[to].flag_bag)
+    local card = takeCard(region, from)
+    Wait.condition(|| giveCard(card, to), || not card.isSmoothMoving())
+    local token = Map.call('getFlagToken', {region})
+    if token then
+        token = getObjectFromGUID(token)
+        position = token.getPosition()
+        returnPiece(token)
+        if nationPrefix(to) ~= id:sub(1, 1) then FlagBag.takeObject({position = position}) end
+    else
+        position = hotspot.getPosition()
+        Wait.condition(|| FlagBag.takeObject({position = position}), || hotspot.isSmoothMoving())
+    end
+end
+
+function sortCards(cards, prefix)
+    table.sort(cards, |a, b| compareCards(a, b, prefix))
+end
+
+function compareCards(a, b, prefix)
+    local ap, an = a.getVar('id'):match('(%a)(%d+)')
+    local bp, bn = b.getVar('id'):match('(%a)(%d+)')
+    an, bn = an + 0, bn + 0
+    if ap == bp then return an < bn
+    elseif ap == prefix then return true
+    elseif bp == prefix then return false
+    else return ap < bp end
+end
+
+function getCard(id, nation)
+    for n, guids in pairs(GUIDs.Nations) do if not nation or nation == n then
+        for _, card in ipairs(getObjectFromGUID(guids.card_zone).getObjects()) do
+            if card.getVar('id') == id then return card end
+    end end end
+end
+
+function takeCard(id, nation)
+    local moves, index = {}
+    local cards = getObjectFromGUID(GUIDs.Nations[nation].card_zone).getObjects()
+    sortCards(cards, regionPrefix(nation))
+    for i, card in ipairs(cards) do
+        if card.getVar('id') == id then
+            index = i
+            table.insert(moves, {position = card.getPosition() + vector(0, 5, 0), rotation = {0, card.getRotation().y, 0}})
+        end
+        if index then table.insert(moves, {position = card.getPosition(), rotation = card.getRotation()}) end
+    end
+    local start = math.floor((index - 1) / 12) * 12 + 1
+    for i = start, #cards, 1 do if i < index then
+        cards[i].setLock(true)
+        cards[i].setPosition(cards[i].getPosition() + vector(0, 0.1, 0))
+    else
+        cards[i].setPositionSmooth(moves[i - index + 1].position, false, i % 12 == 1)
+        cards[i].setRotationSmooth(moves[i - index + 1].rotation, false, i % 12 == 1)
+    end end
+    if start < index then Wait.condition(function ()
+        for i = start, index - 1, 1 do cards[i].setLock(false) end
+    end, || not cards[index].isSmoothMoving()) end
+    return cards[index]
+end
+
+function giveCard(new_card, nation)
+    local moves, index = {}
+    local cards = getObjectFromGUID(GUIDs.Nations[nation].card_zone).getObjects()
+    sortCards(cards, regionPrefix(nation))
+    for i, card in ipairs(cards) do
+        if not index and compareCards(new_card, card, regionPrefix(nation)) then index = i end
+        if index then table.insert(moves, {position = card.getPosition(), rotation = card.getRotation()}) end
+    end
+    local rack = getObjectFromGUID(GUIDs.Nations[nation].territories[math.floor(#cards / 12) + 1])
+    table.insert(moves, {
+        position = rack.positionToWorld(rack.getSnapPoints()[#cards % 12 + 1].position),
+        rotation = cards[#cards].getRotation()
+    })
+    new_card.setPositionSmooth(moves[1].position)
+    new_card.setRotationSmooth(moves[1].rotation)
+    if index then
+        local start = math.floor((index - 1) / 12) * 12 + 1
+        for i = start, #cards, 1 do
+            if i < index then
+                cards[i].setLock(true)
+                cards[i].setPosition(cards[i].getPosition() + vector(0, 0.1, 0))
+            else
+                cards[i].setPositionSmooth(moves[i - index + 2].position)
+                cards[i].setRotationSmooth(moves[i - index + 2].rotation)
+        end end
+        if start < index then Wait.condition(function ()
+            for i = start, index - 1, 1 do cards[i].setLock(false) end
+        end, || not new_card.isSmoothMoving()) end
+    end
+end
+
+function awardMedals(hotspot, nations)
+    local medal_count = 1
+    if isCapital(hotspot.getVar('region')) then medal_count = 3 end
+    if not hotspot.getVar('no_medals') then if #nations > 1 then
+        local click_fun = 'awardMedals' .. hotspot.getVar('region')
+        createNationButtons(hotspot, nations, '+1 medal', click_fun)
+        self.setVar(click_fun, function (_, value)
+            MoraleBoard.call('addMedals', {nation = value, value = 1})
+            medal_count = medal_count - 1
+            if medal_count == 0 then
+                hotspot.UI.setXml('')
+                returnPiece(hotspot)
+                self.setVar(click_fun, nil)
+            end
+        end)
+    else
+        MoraleBoard.call('addMedals', {nation = nations[1], value = medal_count})
+        hotspot.UI.setXml('')
+        returnPiece(hotspot)
+    end end
+    hotspotResolved()
+end
+
+-- flip or remove hotspot marker
+
+function checkEmbattled(hotspot)
+    local region = hotspot.getVar('region')
+    local sea_region = Map.call('isSeaRegion', {region})
+    local commands = Map.call('getCommands', {region})
+    if sea_region then
+        if commands.axis and commands.allies and (commands.axis.fleet or commands.axis.army) and (commands.allies.fleet or commands.allies.army) then
+            hotspot.flip()
+        else returnPiece(hotspot) end
+    else
+        local card = getCard(region, Map.call('getOwner', {region}))
+        if commands.axis and commands.allies and commands.axis.army and commands.allies.army then
+            if not card.is_face_down then card.setRotation(card.getRotation() + vector(0, 0, 180)) end
+            hotspot.setLock(false)
+            hotspot.flip()
+        else
+            if card.is_face_down then card.setRotation(card.getRotation() + vector(0, 0, 180)) end
+            returnPiece(hotspot)
+    end end
+    hotspotResolved()
+end
+
+-- Phase 5: Refit and Deploy
+
+-- -- Step 1: Land air commands
+
+function landAirCommands()
+    setStatus('Land air commands')
+    setAdvance('deploy', 'Deploy new units')
+end
+
+-- -- Step 2/3: Deploy units and reorganize commands
+
+function deployUnits()
+    setStatus('Deploy new units')
+    setAdvance('morale', 'Morale')
+end
+
+-- Phase 6: Morale
+
+function morale()
+    setStatus('Morale')
+    setAdvance('production', 'Production')
+end
+
+-- -- Step 1: Convert casualties into stress
+
+-- -- Step 2: Resolve medals and stress tokens
+
+-- -- Step 3: Apply stress zone penalties
+
+function getHomelandStatus(nation)
+    local angle = Map.call('rotationToCenter', Map.positionToLocal(state.objects.homeland_tokens[nation].getPosition()))
+    if angle > 276.25 then return 6 else return math.floor((angle - 0.5) / 45) end
+end
+
+-- (only blue zone and gray zone have immediate consequences)
+
+-- Phase 7: Production
+
+function production()
+    setStatus('Production')
+    setAdvance('round', 'Start new round')
+    writeProduction()
+end
+
+-- -- Step 2: Note purchase of units
+
+function writeProduction()
+    local ready = {}
+    for nation, orders in pairs(state.objects.orders) do
+        orders.call('writeProduction')
+        ready[nation] = false
+    end
+    playerReady = function (data)
+        local all_ready = true
+        for nation, value in pairs(ready) do if data[nation] ~= nil then
+            ready[nation] = data[nation]
+            all_ready = all_ready and data[nation]
+        else all_ready = all_ready and ready[nation] end end
+        if all_ready then
+            playerReady = nil
+            revealPurchases()
+    end end
+end
+
+-- -- Step 3: Reveal purchases and update resources
+
+function revealPurchases()
+    local purchases, delay = {}, 0
+    for nation, orders in pairs(state.objects.orders) do
+        Wait.time(function ()
+            purchases[nation] = orders.call('revealPurchases')
+            local msg = colorize(properName(nation), nation) .. ' purchased '
+            -- append colorized unit totals
+            broadcastToAll(msg)
+        end, delay)
+        delay = delay + 0.5
+    end
+    Wait.time(|| transferUnits(purchases), delay)
+end
+
+-- -- Step 4: Transfer new units to industries
+
+function transferUnits(purchases)
+    setStatus('Transfer purchases to industries')
+end
+
+-- Helper Functions --
+
+function isCapital(region)
+    for _, id in ipairs(Scenarios[state.scenario].capitals) do if id == region then return true end end
+    return false
+end
+
+function commandNation(command)
+    local name = command.getName()
+    if name == 'cfighter' then return command.getVar('nation')
+    else return name:match('^%b[](%a+)'):lower() end
+end
+
+function returnPiece(obj)
+    local name, callback = obj.getName(), || obj.destruct()
+    local bag = GUIDs.Bags.Units[name] or GUIDs.Bags[name]
+    if not bag then
+        if name:find('flag') then bag = GUIDs.Nations[name:match('^%a+'):lower()].flag_bag
+        else
+            local tray = getObjectFromGUID(GUIDs.Nations[commandNation(obj)].trays[3 - math.min(math.floor(name:match('^%b[]%a+%b[]%s(%d+)') / 10), 2)])
+            callback = || obj.setPositionSmooth(tray.getPosition() + vector(math.random() * 3 - 1.5, 1 + math.random() * 2, math.random() * 3 - 1.5))
+    end end
+    obj.setPositionSmooth(obj.getPosition() + vector(0, 3, 0))
+    Wait.condition(|| callback(), || not obj.isSmoothMoving())
+end
+
+function returnPieceGUID(data) returnPiece(getObjectFromGUID(data[1])) end
+
+function destroyObjects(objs)
+    for _, obj in ipairs(objs) do obj.destruct() end
+end
+
+function buildStack(unit_counts, position, rotation, callback)
+    local types, units = {}, {}
+    for _, type in ipairs(StackOrder) do if unit_counts[type] then
+        for i = 1, unit_counts[type], 1 do table.insert(types, type) end
+    end end
+    stackUnits(types, units, position, rotation, callback)
+end
+
+function stackUnits(types, units, position, rotation, callback)
+    if #types == 0 then callback(units)
+    else getUnit(table.remove(types), {
+        position = position,
+        rotation = rotation,
+        callback_function = function (obj)
+            table.insert(units, obj)
+            stackUnits(types, units, position + vector(0, 0.21, 0), rotation, callback)
+        end
+    }) end
+end
+
+function getUnit(unit_type, params)
+    if type(params) == 'table' then if UnitQueues[unit_type] then
+        table.insert(UnitQueues[unit_type], params)
+    else
+        UnitQueues[unit_type] = {params}
+        getUnit(unit_type, 1)
+    end elseif params > #UnitQueues[unit_type] then UnitQueues[unit_type] = nil
+    else
+        getObjectFromGUID(GUIDs.Bags.Units[unit_type]).takeObject(UnitQueues[unit_type][params])
+        Wait.frames(|| getUnit(unit_type, params + 1), 3)
+    end
+end
+
+function getStack(command)
+    command.clearContextMenu()
+    local types, units = '', {}
+    for _, unit_type in ipairs(StackOrder) do types = types .. unit_type .. ',' end
+    for _, hit in ipairs(Physics.cast({
+        origin = command.getPosition() + vector(0, 0.1, 0),
+        direction = {0, -1, 0},
+        max_distance = 2
+    })) do if #hit.hit_object.getName() > 0 and types:find(hit.hit_object.getName()) then
+        table.insert(units, hit.hit_object)
+    end end
+    table.sort(units, function (a, b) return a.getPosition().y < b.getPosition().y end)
+    return units
+end
+
+function mergeStackGUIDs(data)
+    local command, units = getObjectFromGUID(data[1]), {}
+    for _, guid in ipairs(data[2]) do table.insert(units, getObjectFromGUID(guid)) end
+    mergeStack(command, units)
+end
+
+function mergeStack(command, units)
+    local count, desc = {}, ''
+    for _, unit in ipairs(units) do
+        count[unit.getName()] = (count[unit.getName()] or 0) + 1
+        command.addAttachment(unit)
+    end
+    for _, type in ipairs(StackOrder) do if count[type] then
+        table.insert(count, count[type])
+        table.insert(count, type)
+    end end
+    for i, s in ipairs(count) do if i % 2 == 0 then desc = desc .. colorize(properName(s), s) .. '\n'
+    else desc = desc .. '  ' .. s .. ' ' end end
+    command.setName(command.getName() .. '\n' .. desc:sub(1, -2))
+    command.addContextMenuItem('Break stack', || breakStack(command))
+end
+
+function breakStack(stack)
+    stack.clearContextMenu()
+    stack.setName(stack.getName():match('^([^\n]+)\n'))
+    stack.addContextMenuItem('Form stack', || mergeStack(stack, getStack(stack)))
+    return stack.removeAttachments()
+end
+
+function rollDice(positions)
+    local DiceBag = getObjectFromGUID(GUIDs.Bags.Dice)
+    local delay, ready, dice = 0, false, {}
+    for _, pos in ipairs(positions) do
+        Wait.time(function () DiceBag.takeObject({
+            position = pos,
+            rotation = {math.random(360), math.random(360), math.random(360)},
+            smooth = false,
+            callback_function = function (die)
+                die.setVelocity({0, 0, 0})
+                die.use_gravity = false
+                die.angular_drag = 1.6
+                local x, z = math.random() - 0.5, math.random() - 0.5
+                local scale = (math.abs(x) + math.abs(z)) / 8
+                Wait.condition(function ()
+                    die.addTorque({x / scale, 0, z / scale})
+                    Wait.time(function ()
+                        die.setRotationSmooth(die.getRotationValues()[die.getValue()].rotation)
+                        table.insert(dice, die)
+                    end, 2)
+                end, || ready)
+            end
+        }) end, delay)
+        delay = delay + 0.25
+    end
+    Wait.time(function () ready = true end, delay)
+    return dice
+end
+
+function diceValues(dice)
+    local values = {}
+    for _, die in ipairs(dice) do table.insert(values, die.getRotationValue():match('%b[](%a+)'):lower()) end
+    return values
+end
+
+function test()
+    setHomelandSnaps()
+    --[[if not flag then
+        unpackComponents()
+        flag = true
+    else
+        startNewRound()
+    end]]--
+end
+
+function checkScenario(nation)
+    return state.scenario == 'global' or Scenarios[state.scenario].nations[nation]
+end
+
+function getTurnOrder()
+    if TurnOrder then return TurnOrder else
+        -- lookup turn tokens
+        return {'usa', usa = 1}
+    end
+end
+
+function setBlinker(obj, on_time, delay)
+    obj.highlightOn({1, 1, 1}, on_time or 0.5)
+    obj.setVar('blinker', Wait.time(|| obj.highlightOn({1, 1, 1}, on_time or 0.5), delay or 1, -1))
+end
+function stopBlinker(obj) if obj.getVar('blinker') then Wait.stop(obj.getVar('blinker')) end end
+
+function isAxis(nation)
+    return nation == 'germany' or nation == 'italy' or nation == 'japan'
+end
+
+function regionPrefix(nation)
+    return nation:gsub('uk', 'b'):gsub('ussr', 'r'):sub(1, 1):gsub('i', 't')
+end
+
+function properName(s)
+    if type(s) == 'table' then s = s[1] end
+    if s:match('%a%d+') then
+        local name = Map.call('getRegionName', {s})
+        return colorize(s:upper(), Map.getTable('Prefixes')[s:sub(1, 1)]) .. ' - ' .. name
+    elseif #s < 5 then return s:upper()
+    else return s:sub(1, 1):upper() .. s:sub(2) end
+end
+
+function colorize(s, style)
+    if type(s) == 'table' then s, style = s[1], s[2] end
+    if Colors[style] then return '[' .. Colors[style] .. ']' .. s .. '[-]'
+    else return s end
+end
+
+function ordinalize(n)
+    if type(n) == 'table' then n = n[1] end
+    if n > 3 and n < 21 then return n .. 'th'
+    elseif n % 10 == 1 then return n .. 'st'
+    elseif n % 10 == 2 then return n .. 'nd'
+    elseif n % 10 == 3 then return n .. 'rd'
+    else return n .. 'th' end
+end
+
+Orders = {
+    Init = {
+        bid = 0,
+        moves = {},
+        resources = {oil = 0, iron = 0, osr = 0},
+        trade = {plus = nil, minus = nil},
+        post_trade = {oil = 0, iron = 0, osr = 0},
+        cost = {oil = 0, iron = 0, osr = 0},
+        remaining = {oil = 0, iron = 0, osr = 0},
+        production = {
+            cg  = {quantity = 0, oil = 0, iron = 0, osr = 0},
+            inf = {quantity = 0, oil = 0, iron = 0, osr = 0},
+            art = {quantity = 0, oil = 0, iron = 0, osr = 0},
+            arm = {quantity = 0, oil = 0, iron = 0, osr = 0},
+            ftr = {quantity = 0, oil = 0, iron = 0, osr = 0},
+            bmr = {quantity = 0, oil = 0, iron = 0, osr = 0},
+            ss  = {quantity = 0, oil = 0, iron = 0, osr = 0},
+            cr  = {quantity = 0, oil = 0, iron = 0, osr = 0},
+            cv  = {quantity = 0, oil = 0, iron = 0, osr = 0},
+            bb  = {quantity = 0, oil = 0, iron = 0, osr = 0}
+        }
+    },
+    Trades = {oil = 2, iron = 3, osr = 5},
+    Costs = {
+        cg  = 5,
+        inf = {oil = 0, iron = 0, osr = 2},
+        art = {oil = 0, iron = 2, osr = 1},
+        arm = {oil = 1, iron = 2, osr = 1},
+        ftr = {oil = 2, iron = 1, osr = 1},
+        bmr = {oil = 2, iron = 2, osr = 1},
+        ss  = {oil = 1, iron = 2, osr = 1},
+        cr  = {oil = 2, iron = 3, osr = 2},
+        cv  = {oil = 4, iron = 3, osr = 3},
+        bb  = {oil = 3, iron = 4, osr = 3}
+    }
+}
+
+-- function setHomelandSnaps()
+--     local map = getObjectFromGUID(GUIDs.Map)
+--     local snaps, center = {}, map.getTable('MapData').center
+--     for i = 1, 7 do
+--         local theta, r = -129.25 - 14.5 * i, 1.47
+--         if i > 1 and i < 7 then theta = theta - 0.25 end
+--         if i > 2 and i < 6 then theta = theta - 1 end
+--         table.insert(snaps, {
+--             position = {center.x + r * math.sin(theta * math.pi / 180), center.y, center.z + r * math.cos(theta * math.pi / 180)},
+--             rotation = {0, theta, 0},
+--             rotation_snap = true
+--         })
+--     end
+--     for i = 1, 6 do for j = 1, 7 do
+--         local r = 1.325 + 0.225 * (math.floor(j / 3) - math.floor(j / 5))
+--         local theta, tick, delta = 45 * i - 157 - math.max(i - 4, 0) ^ 2 * 2.5, 5.25 - math.floor(i / 5)
+--         if j < 3 then delta = 2.4
+--         elseif j < 5 then delta = 1
+--         elseif j == 5 then delta = 0
+--         else delta = 3 end
+--         theta = theta + delta * tick * (j % 5 % 2 * 2 - 1)
+--         table.insert(snaps, {
+--             position = {center.x + r * math.sin(theta * math.pi / 180), center.y, center.z + r * math.cos(theta * math.pi / 180)},
+--             rotation = {0, theta, 0},
+--             rotation_snap = true
+--         })
+--     end end
+--     map.setSnapPoints(snaps)
+-- end
