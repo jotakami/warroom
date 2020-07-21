@@ -9,6 +9,7 @@ Colors = {
     oil = '9a2829',
     iron = '4276bb',
     osr = 'ddb426',
+    cg = '9bbc62',
     infantry = 'ddb426',
     artillery = '4276bb',
     armor = '558f3a',
@@ -24,6 +25,27 @@ StackOrder = {
     'bomber', 'cfighter', 'fighter',
     'armor', 'artillery', 'infantry',
     'battleship', 'carrier', 'cruiser', 'submarine'
+}
+
+Alliance = {
+    china = 'allies',
+    uk = 'allies',
+    usa = 'allies',
+    ussr = 'allies',
+    germany = 'axis',
+    italy = 'axis',
+    japan = 'axis'
+}
+
+Prefixes = {
+    b = 'uk',
+    c = 'china',
+    g = 'germany',
+    t = 'italy',
+    j = 'japan',
+    n = 'neutral',
+    r = 'ussr',
+    u = 'usa'
 }
 
 Scenarios = {

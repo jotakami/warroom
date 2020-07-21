@@ -1,19 +1,29 @@
 #include setup
 #include guids
 
+Debug = true
+
 function onLoad()
     state = {}
-    UnitQueues = {}
-    Map = getObjectFromGUID(GUIDs.Map)
+    Map = {obj = getObjectFromGUID(GUIDs.Map)}
+    Map.position = Map.obj.getPosition()
+    Map.rotation = Map.obj.getRotation()
+    Map.snaps = Map.obj.getSnapPoints()
+    Wait.condition(function ()
+        Map.data = Map.obj.getTable('MapData')
+        local map_state = Map.obj.call('getState')
+        Map.state = || map_state
+    end, || Map.obj.getVar('loaded') ~= nil)
     MoraleBoard = getObjectFromGUID(GUIDs.MoraleBoard)
     BattleBoards = {getObjectFromGUID(GUIDs.BattleBoards[1]), getObjectFromGUID(GUIDs.BattleBoards[2])}
+    UnitQueues = {}
 end
 
 -- Game and Scenario Setup
 
 function chooseScenario(_, value, id)
-    for _, label in ipairs{'global', 'europe', 'pacific', 'eastern'} do Map.UI.setAttribute(label, 'active', false) end
-    for i = 1, 4, 1 do for _, label in ipairs{'status', 'advance'} do Map.UI.setAttribute(label .. '-' .. i, 'active', true) end end
+    for _, label in ipairs{'global', 'europe', 'pacific', 'eastern'} do Map.obj.UI.setAttribute(label, 'active', false) end
+    for i = 1, 4 do for _, label in ipairs{'status', 'advance'} do Map.obj.UI.setAttribute(label .. '-' .. i, 'active', true) end end
     setStatus('Unpacking components')
     setAdvance('round', 'Start round')
     unpackComponents(id)
@@ -29,8 +39,7 @@ function unpackComponents(scenario)
         turn_tokens = {},
         commands = {}
     }
-    if state.scenario == 'europe' or state.scenario == 'pacific' then MoraleBoard.setState(2) end
-    local region_data = Map.getTable('MapData').Regions
+    if state.scenario == 'europe' or state.scenario == 'pacific' then MoraleBoard.flip() end
     local i = 1
     for nation, guids in pairs(GUIDs.Nations) do if checkScenario(nation) then
         state.objects.orders[nation] = getObjectFromGUID(guids.orders)
@@ -41,7 +50,7 @@ function unpackComponents(scenario)
             state.objects.homeland_tokens[nation] = placeHomelandToken(components, order)
             state.objects.turn_tokens[nation] = placeTurnToken(components, order)
             placeResourcePegs(components, state.objects.resources[nation], nation == 'china')
-            placeCards(components, nation, region_data)
+            placeCards(components, nation)
             placeCommands(components, nation)
             components.destruct()
         end, (i - 1) * 0.5)
@@ -50,18 +59,18 @@ function unpackComponents(scenario)
 end
 
 function placeHomelandToken(components, order)
-    local point = Map.getSnapPoints()[order + 7]
+    local point = Map.snaps[order + 7]
     return components.takeObject({
-        position = Map.positionToWorld(point.position) + vector(0, 0.2, 0),
-        rotation = point.rotation + Map.getRotation()
+        position = Map.obj.positionToWorld(point.position) + vector(0, 0.2, 0),
+        rotation = point.rotation + Map.rotation
     })
 end
 
 function placeTurnToken(components, order)
-    local point = Map.getSnapPoints()[order]
+    local point = Map.snaps[order]
     return components.takeObject({
-        position = Map.positionToWorld(point.position) + vector(0, 0.2, 0),
-        rotation = point.rotation + Map.getRotation()
+        position = Map.obj.positionToWorld(point.position) + vector(0, 0.2, 0),
+        rotation = point.rotation + Map.rotation
     })
 end
 
@@ -72,51 +81,38 @@ function placeResourcePegs(components, resources, is_china)
     components.takeObject({position = resources.positionToWorld(snaps[43].position) + up})
 end
 
-function placeCards(components, nation, region_data)
+function placeCards(components, nation)
     local guids = GUIDs.Nations[nation]
-    local rack, up = getObjectFromGUID(guids.territories[1]), vector(0, 0.2, 0)
-    local forward = rack.getTransformForward()
+    local rack = getObjectFromGUID(guids.territories[1])
     local prefix = nation:gsub('uk', 'b'):gsub('ussr', 'r'):sub(1, 1):gsub('i', 't')
     components.takeObject({
-        position = rack.positionToWorld(rack.getSnapPoints()[1].position) + up * 2,
+        position = rack.positionToWorld(rack.getSnapPoints()[1].position) + vector(0, 0.4, 0),
         callback_function = function (deck)
             deck.use_gravity = false
             deck.setVelocity({0, 0, 0})
-            local total = #deck.getObjects()
+            local total, last = #deck.getObjects()
             filterCards(deck, prefix)
             local count = #deck.getObjects()
             local points = addCardPoints({}, guids.territories[1], math.min(count, 12))
             if count > 12 then addCardPoints(points, guids.territories[2], math.min(count - 12, 12)) end
             if count > 24 then addCardPoints(points, guids.territories[3], count - 24) end
-            for i = 1, count, 1 do
-                Wait.frames(function ()
-                    if state.scenario ~= 'global' then while not Scenarios[state.scenario].regions[prefix](total) do
-                        total = total - 1
-                    end end
-                    local id = prefix .. total
-                    if count > 1 then
-                        deck.takeObject({
-                            position = points[count],
-                            callback_function = function (card)
-                                card.setVar('id', id)
-                                if region_data[id].resources then card.setTable('resources', region_data[id].resources) end
-                            end
-                        })
-                        count = count - 1
-                    else
-                        local card = Physics.cast({
-                            origin = points[count] - vector(0, 0.21, 0) + forward,
-                            direction = {0, 1, 0},
-                            max_distance = 2,
-                            debug = true
-                        })[1].hit_object
-                        card.setPositionSmooth(points[count] + vector(0, 1, 0), false, false)
-                        card.setVar('id', id)
-                        if region_data[id].resources then card.setTable('resources', region_data[id].resources) end
-                    end
+            for i = 1, count do Wait.frames(function ()
+                if state.scenario ~= 'global' then while not Scenarios[state.scenario].regions[prefix](total) do
                     total = total - 1
-                end, (i - 1) * 5)
-    end end})
+                end end
+                local id = prefix .. total
+                local callback = |card| card.setName(id:upper() .. ' - ' .. Map.data.regions[id].name)
+                if count > 1 then
+                    deck.takeObject({position = points[count], callback_function = callback})
+                    count, last = count - 1, deck.remainder
+                elseif last then
+                    callback(last)
+                    last.setPositionSmooth(points[count] + vector(0, 0.4, 0))
+                end
+                total = total - 1
+            end, (i - 1) * 5) end
+        end
+    })
 end
 
 function filterCards(deck, prefix)
@@ -129,8 +125,7 @@ function filterCards(deck, prefix)
                 callback_function = |obj| obj.destruct()
             })
             offset = offset + 1
-        end
-    end
+    end end
 end
 
 function addCardPoints(t, guid, limit)
@@ -148,22 +143,22 @@ function placeCommands(components, nation)
     local forward, right = components.getTransformForward(), components.getTransformRight() * 1.273
     local position = components.getPosition() - forward + right * 5.5 + vector(0, 1, 0)
     state.objects.commands[nation] = {}
-    for i = 1, #components.getObjects(), 1 do components.takeObject({
+    for i = 1, #components.getObjects() do components.takeObject({
         position = position - (i - 1) % 12 * right + math.floor((i - 1) / 12) * forward,
         callback_function = function (command)
             local num = command.getName():match('%s(%d+)%a%a') + 0
             local data = CommandSetup[nation][num]
             state.objects.commands[nation][num] = command
             if data and (state.scenario == 'global' or Scenarios[state.scenario].regions[data.region:sub(1,1)](data.region:sub(2) + 0)) then
-                local pos = Map.positionToWorld({data.position.x, 0.6, data.position.z})
-                local rot = vector(0, Map.call('rotationToCenter', data.position), 0)
+                local pos = Map.obj.positionToWorld({data.position.x, 0.6, data.position.z})
+                local rot = vector(0, Map.obj.call('rotationToCenter', data.position), 0)
                 local height = 1
                 for _, count in pairs(data.units) do height = height + count end
                 command.use_gravity = false
                 Wait.condition(function ()
                     command.setPositionSmooth(pos + vector(0, height * 0.21, 0))
                     command.setRotationSmooth(rot)
-                    buildStack(data.units, pos, rot, function (units)
+                    buildStack(data.units, pos, rot, false, function (units)
                         command.use_gravity = true
                         Wait.frames(|| mergeStack(command, units), 10)
                 end) end, || not command.loading_custom)
@@ -175,11 +170,11 @@ end
 -- -- Status updates and phase control
 
 function setStatus(msg)
-    for i = 1, 4, 1 do Map.UI.setValue('status-' .. i, msg) end
+    for i = 1, 4 do Map.obj.UI.setValue('status-' .. i, msg) end
 end
 
 function setAdvance(value, label)
-    for i = 1, 4, 1 do Map.UI.setAttributes('advance-' .. i, {
+    for i = 1, 4 do Map.obj.UI.setAttributes('advance-' .. i, {
         onClick = 'Global/advancePhase(' .. value .. ')',
         text = label or ''
     }) end
@@ -207,13 +202,12 @@ function setRound(round)
 end
 
 function resetTurnOrder()
-    TurnOrder = nil
-    local shift, center, points = Map.getPosition(), Map.getTable('MapData').center, Map.getSnapPoints()
+    state.turn_order = nil
     local i, p = 0
     for _, token in pairs(state.objects.turn_tokens) do
         i = i + 1
-        token.setPositionSmooth(Map.positionToWorld(points[i].position:lerp(center, 0.225)), false, false)
-        token.setRotationSmooth(points[i].rotation + Map.getRotation(), false, false)
+        token.setPositionSmooth(Map.obj.positionToWorld(Map.snaps[i].position:lerp(Map.data.center, 0.225)))
+        token.setRotationSmooth(Map.snaps[i].rotation + Map.rotation)
     end
 end
 
@@ -226,7 +220,7 @@ function resourceIncome()
     for nation, guids in pairs(GUIDs.Nations) do if checkScenario(nation) then
         local totals = {oil = 0, iron = 0, osr = 0}
         for _, card in ipairs(getObjectFromGUID(guids.card_zone).getObjects()) do
-            local resources = card.getTable('resources')
+            local resources = Map.data.regions[card.getName():match('^%w+'):lower()].resources
             if resources then
                 for resource, value in pairs(totals) do totals[resource] = value + (resources[resource] or 0) end
                 if card.is_face_down then
@@ -285,25 +279,25 @@ end
 
 function setTurnOrder(bids)
     setStatus('Choose turn order')
-    TurnOrder = {}
+    state.turn_order = {}
     local order, turns, points = {}, {}, {}
     for nation, bid in pairs(bids) do table.insert(order, {bid = bid + math.random(), nation = nation}) end
     table.sort(order, |a, b| a.bid < b.bid)
-    for i, point in ipairs(Map.getSnapPoints()) do if i > #order then break else table.insert(points, {
-        position = Map.positionToWorld(point.position),
-        rotation = point.rotation + Map.getRotation()
+    for i, point in ipairs(Map.snaps) do if i > #order then break else table.insert(points, {
+        position = Map.obj.positionToWorld(point.position),
+        rotation = point.rotation + Map.rotation
     }) end end
     for i = 1, #order, 1 do
         table.insert(turns, i)
-        Map.UI.setAttribute('turn' .. i, 'active', true)
+        Map.obj.UI.setAttribute('turn' .. i, 'active', true)
     end
     chooseTurn = function (_, nation, id)
         local choice, choice_index = id:sub(-1) + 0
-        TurnOrder[nation] = choice
-        TurnOrder[choice] = nation
-        Map.UI.setAttribute(id, 'active', false)
+        state.turn_order[nation] = choice
+        state.turn_order[choice] = nation
+        Map.obj.UI.setAttribute(id, 'active', false)
         for i, turn in ipairs(turns) do
-            Map.UI.setAttribute('turn' .. turn, 'interactable', false)
+            Map.obj.UI.setAttribute('turn' .. turn, 'interactable', false)
             if turn == choice then choice_index = i end
         end
         table.remove(turns, choice_index)
@@ -322,7 +316,7 @@ function chooseTurns(order, turns)
     else
         local nation = table.remove(order).nation
         setBlinker(state.objects.turn_tokens[nation])
-        for _, turn in ipairs(turns) do Map.UI.setAttributes('turn' .. turn, {
+        for _, turn in ipairs(turns) do Map.obj.UI.setAttributes('turn' .. turn, {
             interactable = true,
             onClick = 'Global/chooseTurn(' .. nation .. ')'
         }) end
@@ -340,9 +334,8 @@ end
 -- -- Step 1: Flip embattled hotspots
 
 function flipHotspots()
-    for _, hotspot in ipairs(Map.call('getHotspots')) do
-        local obj = getObjectFromGUID(hotspot.guid)
-        if obj.is_face_down then obj.flip() end
+    for region, data in pairs(Map.state()) do
+        if data.hotspot and data.hotspot.is_face_down then data.hotspot.flip() end
     end
     resolveMovement()
 end
@@ -364,10 +357,9 @@ function resolveOrders(nation)
 end
 
 function hotspotCheck(region)
-    if not Map.getTable('state')[region].hotspot and Map.call('hotspotType', {region}) then
-        local centroid = Map.call('centroid', {region})
+    if not Map.state()[region].hotspot and Map.obj.call('hotspotType', {region}) then
         getObjectFromGUID(GUIDs.Bags.hotspot).takeObject({
-            position = Map.positionToWorld({centroid[1], 0.8, centroid[2]})
+            position = Map.obj.positionToWorld({Map.data.regions[region].centroid[1], 0.8, Map.data.regions[region].centroid[2]})
         })
     end
 end
@@ -411,38 +403,35 @@ function combatOperations()
     setStatus('Combat operations')
     setAdvance('refit', 'Refit and Deploy')
     local hotspots = 0
-    for _, hotspot in ipairs(Map.call('getHotspots')) do
+    for _, data in pairs(Map.state()) do if data.hotspot then
         hotspots = hotspots + 1
-        local obj = getObjectFromGUID(hotspot.guid)
-        obj.setLock(true)
-        setBlinker(obj, 0.5, 8)
-        obj.UI.setXmlTable({{tag = 'Button', attributes = {
+        data.hotspot.setLock(true)
+        setBlinker(data.hotspot, 0.5, 8)
+        data.hotspot.UI.setXmlTable({{tag = 'Button', attributes = {
             position = '0 0 -39',
             rotation = '0 0 0',
             height = 150,
             width = 150,
             color = 'clear',
-            onClick = 'Global/resolveHotspot(' .. hotspot.guid .. ')'
+            onClick = 'Global/resolveHotspot(' .. data.hotspot.guid .. ')'
         }}})
-    end
+    end end
     hotspotResolved = function ()
         hotspots = hotspots - 1
         if hotspots == 0 then
             landAirCommands()
             hotspotResolved = nil
-        end
-    end
+    end end
 end
 
 function resolveHotspot(_, guid)
     local hotspot = getObjectFromGUID(guid)
     local region = hotspot.getVar('region')
-    local hotspot_type = Map.call('hotspotType', {region})
+    local hotspot_type = hotspotType(region)
     print('Resolving ', hotspot_type, ' hotspot in region ', region)
     if hotspot_type == 'battle' then resolveBattle(hotspot)
     else
-        stopBlinker(hotspot)
-        hotspot.UI.setXml('')
+        disableHotspot(hotspot)
         if hotspot_type == 'garrison' then resolveGarrison(hotspot)
         elseif hotspot_type == 'raid' then resolveRaid(hotspot)
         elseif hotspot_type == 'bombing' then resolveBombing(hotspot)
@@ -453,16 +442,58 @@ function resolveHotspot(_, guid)
     end end
 end
 
+function hotspotType(region)
+    local commands, side, other = Map.state()[region].commands
+    if Map.data.regions[region].is_sea then
+        if commands.axis.air or commands.axis.fleet then side, other = 'axis', 'allies' end
+        if commands.allies.air or commands.allies.fleet then
+            if side then return 'battle'
+            else side, other = 'allies', 'axis' end
+        end
+        if not side then return nil
+        elseif hasActiveConvoy(region)[other] then return 'raid'
+        elseif commands[other].army then return 'transports' end
+    else
+        if commands.axis.army or commands.axis.air then side, other = 'axis', 'allies' end
+        if commands.allies.army or commands.allies.air then
+            if side then return 'battle'
+            else side, other = 'allies', 'axis' end
+        end
+        if not side then return nil
+        elseif Alliance[Map.state()[region].ownership] == other then if commands[side].army then return 'garrison'
+            else for _, command in ipairs(commands[side].air) do
+                if command.getName():find('Bomber') then return 'bombing'
+    end end end end end
+    return nil
+end
+
+function hasActiveConvoy(region)
+    local t = {}
+    if not Map.data.regions[region].convoys then return t end
+    for _, convoy in ipairs(Map.data.regions[region].convoys) do for port_region, _ in pairs(convoy) do
+        if not port_region:find('-') then t[Alliance[Map.state()[port_region].ownership]] = true
+        else
+            local from_region, to_region = port_region:match('(%w+)%-(%w+)')
+            if Alliance[Map.state()[from_region].ownership] == Alliance[Map.state()[to_region].ownership] then
+                t[Alliance[Map.state()[from_region].ownership]] = true
+    end end end end
+    return t
+end
+
+function disableHotspot(hotspot)
+    stopBlinker(hotspot)
+    hotspot.UI.setXml('')
+end
+
 -- -- Non-battle hotspots
 
 -- -- -- Garrison defense
 
 function resolveGarrison(hotspot)
     local region, invaders, commands, unit_types = hotspot.getVar('region'), {}, {}, {}
-    local axis_owned = isAxis(Map.call('getOwner', {region}))
-    for side, forces in pairs(Map.call('getCommands', {region})) do
-        for force, guids in pairs(forces) do for _, guid in ipairs(guids) do
-            local command = getObjectFromGUID(guid)
+    local axis_owned = isAxis(Map.obj.call('getOwner', {region}))
+    for side, forces in pairs(Map.state()[region].commands) do
+        for force, objs in pairs(forces) do for _, command in ipairs(objs) do
             local nation = commandNation(command)
             if isAxis(nation) ~= axis_owned then
                 if not invaders[nation] then table.insert(invaders, nation) end
@@ -475,11 +506,11 @@ function resolveGarrison(hotspot)
                         unit_types[unit:lower()] = true
                         table.insert(unit_types, unit:lower())
     end end end end end end
-    local perp = Map.positionToLocal(hotspot.getPosition()) - Map.getTable('MapData').center
+    local perp = Map.obj.positionToLocal(hotspot.getPosition()) - Map.data.center
     local offset = hotspot.getPosition() + vector(0, 0.3, 0)
     local dice = rollDice({
-        Map.positionToWorld(perp:normalized():rotateOver('y', 90) * 0.15) + offset,
-        Map.positionToWorld(perp:normalized():rotateOver('y', -90) * 0.15) + offset
+        Map.obj.positionToWorld(perp:normalized():rotateOver('y', 90) * 0.15) + offset,
+        Map.obj.positionToWorld(perp:normalized():rotateOver('y', -90) * 0.15) + offset
     })
     Wait.condition(function () Wait.time(function ()
         local values, hit = diceValues(dice)
@@ -531,7 +562,7 @@ end
 
 function createHitButtons(hotspot, targets)
     local click_fun, height, width = 'Global/assignHit' .. hotspot.getVar('region') .. '(', 0, 0
-    local rotation = Map.call('rotationToCenter', Map.positionToLocal(hotspot.getPosition())) + Map.getRotation().y
+    local rotation = Map.obj.call('rotationToCenter', Map.obj.positionToLocal(hotspot.getPosition())) + Map.rotation.y
     for _, unit_types in pairs(targets) do
         width = width + 1
         for _, _ in pairs(unit_types) do height = height + 1 end
@@ -592,24 +623,18 @@ end
 -- -- -- Convoy raids
 
 function resolveRaid(hotspot)
-    stopBlinker(hotspot)
-    hotspot.UI.setXml('')
     broadcastToAll('Roll dice for convoy raid in ', hotspot.getVar('region'))
 end
 
 -- -- -- Bombing runs
 
 function resolveBombing(hotspot)
-    stopBlinker(hotspot)
-    hotspot.UI.setXml('')
     broadcastToAll('Roll dice for strategic bombing in ', hotspot.getVar('region'))
 end
 
 -- -- -- Sinking transports
 
 function sinkTransports(hotspot)
-    stopBlinker(hotspot)
-    hotspot.UI.setXml('')
     checkTransports(hotspot)
 end
 
@@ -621,27 +646,23 @@ function resolveBattle(hotspot)
     elseif BattleBoards[2].call('isReady') then Board = BattleBoards[2] end
     if not Board then print('No available battle boards')
     else
-        stopBlinker(hotspot)
-        hotspot.UI.setXml('')
+        disableHotspot(hotspot)
         local region, ready = hotspot.getVar('region'), {axis = false, allies = false}
-        local sea_region = Map.call('isSeaRegion', {region})
+        local sea_region = Map.data.regions[region].is_sea
         Board.call('setupCombat', {sea_region and 'sea' or 'land', hotspot.getGUID()})
-        local command_guids = Map.call('getCommands', {region})
-        Wait.condition(function () for side, forces in pairs(command_guids) do
+        Wait.condition(function () for side, forces in pairs(Map.state()[region].commands) do
             local units = {}
             for _, force in ipairs{'air', sea_region and 'fleet' or 'army'} do
-                if forces[force] then for _, guid in ipairs(forces[force]) do
-                    local command = getObjectFromGUID(guid)
-                    Map.call('commandRemoved', {guid, region})
+                if forces[force] then for _, command in ipairs(forces[force]) do
                     if command.getName() ~= 'cfighter' then table.insert(units, command) end
                 end
-                if force == 'air' then for _, guid in ipairs(forces[force]) do
-                    local command = getObjectFromGUID(guid)
+                if force == 'air' then for _, command in ipairs(forces[force]) do
                     if command.getName() == 'cfighter' then table.insert(units, command) end
             end end end end
+            forces.air, forces[sea_region and 'fleet' or 'army'] = nil, nil
             moveToBattleBoard(units, getDropPoints(Board), nil, function () ready[side] = true end)
         end end, || not Board.isSmoothMoving())
-        Wait.condition(function()
+        Wait.condition(function ()
             Board.call('setStances')
             if sea_region then checkPortAdvantage(region, Board) end
         end, || ready.axis and ready.allies)
@@ -694,11 +715,11 @@ end
 
 function checkPortAdvantage(region, board)
     local pa = {}
-    for _, port in ipairs(Map.call('getPorts', {region})) do
-        local owner = Map.call('getOwner', {port})
-        local side = isAxis(owner) and 'axis' or 'allies'
+    for _, link in ipairs(Map.data.regions[region].adjacent) do if link:match('$$') then
+        local owner = Map.state()[link:sub(1, -2)].ownership
+        local side = Alliance[owner]
         if not pa[side] and getHomelandStatus(owner) < 3 then pa[side] = true end
-    end
+    end end
     for side, _ in pairs(pa) do board.call('setPortAdvantage', {side}) end
 end
 
@@ -707,13 +728,13 @@ end
 function battleDebrief(data)
     local hotspot, combatants = getObjectFromGUID(data[1]), data[2]
     local region = hotspot.getVar('region')
-    local sea_region = Map.call('isSeaRegion', {region})
-    if sea_region then checkTransports(hotspot) end
+    if Map.data.regions[region].is_sea then checkTransports(hotspot) end
     debriefAirCommands(hotspot)
-    if not sea_region then
-        local owner = Map.call('getOwner', {region})
+    if not Map.data.regions[region].is_sea then
         local invaders = {}
-        for _, nation in ipairs(combatants) do if isAxis(nation) ~= isAxis(owner) then table.insert(invaders, nation) end end
+        for _, nation in ipairs(combatants) do
+            if isAxis(nation) ~= isAxis(Map.state()[region].ownership) then table.insert(invaders, nation) end
+        end
         territoryControl(hotspot, invaders)
     else checkEmbattled(hotspot) end
 end
@@ -722,12 +743,10 @@ end
 function debriefAirCommands(hotspot)
     local ArrowBag = getObjectFromGUID(GUIDs.Bags.arrow)
     local region = hotspot.getVar('region')
-    local command_guids = Map.call('getCommands', {region})
-    for side, forces in pairs(command_guids) do
+    for side, forces in pairs(Map.state()[region].commands) do
         local rotation, bump = vector(0, 0, 0), 0
         if side == 'axis' then rotation, bump = vector(0, 0, 180), 0.22 end
-        if forces.air then for _, command_guid in ipairs(forces.air) do
-            local command = getObjectFromGUID(command_guid)
+        if forces.air then for _, command in ipairs(forces.air) do
             if command.getName() == 'cfighter' then returnPiece(command)
             else ArrowBag.takeObject({
                 position = command.getPosition() + vector(0, 0.25 + bump, 0),
@@ -744,12 +763,12 @@ end
 -- update territory control
 function territoryControl(hotspot, invaders)
     local region = hotspot.getVar('region')
-    local owner, orig_owner = Map.call('getOwner', {region}), Map.call('getOriginalOwner', {region})
-    local command_guids, remaining, side = Map.call('getCommands', {region}), {}
-    if isAxis(owner) then if not command_guids.axis.army then side = 'allies' end
-    elseif not command_guids.allies.army then side = 'axis' end
-    if side then for _, guid in ipairs(command_guids[side].army) do
-        local nation = commandNation(getObjectFromGUID(guid))
+    local owner, orig_owner = Map.state()[region].ownership, Map.data.regions[region].original_owner or Prefixes[region:sub(1, 1)]
+    local commands, remaining, side = Map.state()[region].commands, {}
+    if isAxis(owner) then if not commands.axis.army then side = 'allies' end
+    elseif not commands.allies.army then side = 'axis' end
+    if side then for _, command in ipairs(commands[side].army) do
+        local nation = commandNation(command)
         if not remaining[nation] then
             remaining[nation] = true
             table.insert(remaining, nation)
@@ -770,7 +789,7 @@ function territoryControl(hotspot, invaders)
         end
         Wait.condition(function ()
             transferControl(hotspot, owner, new_owner)
-            MoraleBoard.call('addStress', {nation = owner, value = Map.call('getSV', {region})})
+            MoraleBoard.call('addStress', {nation = owner, value = Map.data.regions[region].sv or 0})
             awardMedals(hotspot, invaders)
         end, || new_owner ~= nil)
     else checkEmbattled(hotspot) end
@@ -778,7 +797,7 @@ end
 
 function createNationButtons(hotspot, nations, text, fun_name)
     local buttons = {}
-    local rotation = Map.call('rotationToCenter', Map.positionToLocal(hotspot.getPosition())) + Map.getRotation().y
+    local rotation = Map.obj.call('rotationToCenter', Map.obj.positionToLocal(hotspot.getPosition())) + Map.rotation.y
     for _, nation in ipairs(nations) do
         local color = Colors[nation]
         table.insert(buttons, {tag = 'Button', attributes = {
@@ -803,25 +822,28 @@ function transferControl(hotspot, from, to)
     local FlagBag = getObjectFromGUID(GUIDs.Nations[to].flag_bag)
     local card = takeCard(region, from)
     Wait.condition(|| giveCard(card, to), || not card.isSmoothMoving())
-    local token = Map.call('getFlagToken', {region})
+    local token = Map.state()[region].flag
     if token then
-        token = getObjectFromGUID(token)
+        print('Found existing flag token')
         position = token.getPosition()
         returnPiece(token)
         if nationPrefix(to) ~= id:sub(1, 1) then FlagBag.takeObject({position = position}) end
     else
+        print('No existing flag token')
         position = hotspot.getPosition()
         Wait.condition(|| FlagBag.takeObject({position = position}), || hotspot.isSmoothMoving())
     end
 end
+
+function cardRegion(card) return card.getName():lower():match('^%a%d+') end
 
 function sortCards(cards, prefix)
     table.sort(cards, |a, b| compareCards(a, b, prefix))
 end
 
 function compareCards(a, b, prefix)
-    local ap, an = a.getVar('id'):match('(%a)(%d+)')
-    local bp, bn = b.getVar('id'):match('(%a)(%d+)')
+    local ap, an = a.getName():lower():match('^(%a)(%d+)')
+    local bp, bn = b.getName():lower():match('^(%a)(%d+)')
     an, bn = an + 0, bn + 0
     if ap == bp then return an < bn
     elseif ap == prefix then return true
@@ -832,16 +854,17 @@ end
 function getCard(id, nation)
     for n, guids in pairs(GUIDs.Nations) do if not nation or nation == n then
         for _, card in ipairs(getObjectFromGUID(guids.card_zone).getObjects()) do
-            if card.getVar('id') == id then return card end
+            if cardRegion(card) == id then return card end
     end end end
 end
 
 function takeCard(id, nation)
+    if Debug then print('Taking ', id, ' card from ', nation) end
     local moves, index = {}
     local cards = getObjectFromGUID(GUIDs.Nations[nation].card_zone).getObjects()
     sortCards(cards, regionPrefix(nation))
     for i, card in ipairs(cards) do
-        if card.getVar('id') == id then
+        if cardRegion(card) == id then
             index = i
             table.insert(moves, {position = card.getPosition() + vector(0, 5, 0), rotation = {0, card.getRotation().y, 0}})
         end
@@ -862,6 +885,7 @@ function takeCard(id, nation)
 end
 
 function giveCard(new_card, nation)
+    if Debug then print('Giving ', id, ' card to ', nation) end
     local moves, index = {}
     local cards = getObjectFromGUID(GUIDs.Nations[nation].card_zone).getObjects()
     sortCards(cards, regionPrefix(nation))
@@ -919,14 +943,13 @@ end
 
 function checkEmbattled(hotspot)
     local region = hotspot.getVar('region')
-    local sea_region = Map.call('isSeaRegion', {region})
-    local commands = Map.call('getCommands', {region})
-    if sea_region then
-        if commands.axis and commands.allies and (commands.axis.fleet or commands.axis.army) and (commands.allies.fleet or commands.allies.army) then
+    local commands = Map.state()[region].commands
+    if Map.data.regions[region].is_sea then
+        if (commands.axis.fleet or commands.axis.army) and (commands.allies.fleet or commands.allies.army) then
             hotspot.flip()
         else returnPiece(hotspot) end
     else
-        local card = getCard(region, Map.call('getOwner', {region}))
+        local card = getCard(region, Map.state()[region].ownership)
         if commands.axis and commands.allies and commands.axis.army and commands.allies.army then
             if not card.is_face_down then card.setRotation(card.getRotation() + vector(0, 0, 180)) end
             hotspot.setLock(false)
@@ -968,7 +991,7 @@ end
 -- -- Step 3: Apply stress zone penalties
 
 function getHomelandStatus(nation)
-    local angle = Map.call('rotationToCenter', Map.positionToLocal(state.objects.homeland_tokens[nation].getPosition()))
+    local angle = Map.obj.call('rotationToCenter', Map.obj.positionToLocal(state.objects.homeland_tokens[nation].getPosition()))
     if angle > 276.25 then return 6 else return math.floor((angle - 0.5) / 45) end
 end
 
@@ -1008,10 +1031,17 @@ function revealPurchases()
     local purchases, delay = {}, 0
     for nation, orders in pairs(state.objects.orders) do
         Wait.time(function ()
-            purchases[nation] = orders.call('revealPurchases')
+            purchases[nation] = {}
+            for unit, qty in pairs(orders.call('revealPurchases')) do purchases[nation][unit] = qty end
             local msg = colorize(properName(nation), nation) .. ' purchased '
-            -- append colorized unit totals
+            for unit, qty in pairs(purchases[nation]) do msg = msg .. qty .. ' ' .. colorize(unit, unit) .. ', ' end
             broadcastToAll(msg)
+            orders.call('payPurchases')
+            if purchases[nation].cg then
+                MoraleBoard.call('addGoods', {nation = nation, value = purchases[nation].cg})
+                purchases[nation].cg = nil
+            end
+            buildStack(purchases[nation], orders.getPosition() - orders.getTransformForward() * 10, orders.getRotation(), true, || nil)
         end, delay)
         delay = delay + 0.5
     end
@@ -1022,6 +1052,11 @@ end
 
 function transferUnits(purchases)
     setStatus('Transfer purchases to industries')
+    onObjectDrop = function (_, drop) if drop.getName() == 'bomb_industry' then drop.registerCollisions() end end
+    onObjectCollisionEnter = function (obj, collision_info) if Colors[collision_info.collision_object.getName()] then
+        mergeStack(obj, getStack(obj), true)
+        obj.unregisterCollisions()
+    end end
 end
 
 -- Helper Functions --
@@ -1056,24 +1091,25 @@ function destroyObjects(objs)
     for _, obj in ipairs(objs) do obj.destruct() end
 end
 
-function buildStack(unit_counts, position, rotation, callback)
+function buildStack(unit_counts, position, rotation, fast, callback)
     local types, units = {}, {}
     for _, type in ipairs(StackOrder) do if unit_counts[type] then
         for i = 1, unit_counts[type], 1 do table.insert(types, type) end
     end end
-    stackUnits(types, units, position, rotation, callback)
+    stackUnits(types, units, position, rotation, fast, callback)
 end
 
-function stackUnits(types, units, position, rotation, callback)
+function stackUnits(types, units, position, rotation, fast, callback)
+    local next = || stackUnits(types, units, position + vector(0, 0.21, 0), rotation, fast, callback)
     if #types == 0 then callback(units)
     else getUnit(table.remove(types), {
         position = position,
         rotation = rotation,
         callback_function = function (obj)
             table.insert(units, obj)
-            stackUnits(types, units, position + vector(0, 0.21, 0), rotation, callback)
-        end
-    }) end
+            if not fast then next() end
+    end }) end
+    if fast then Wait.frames(|| next(), 5) end
 end
 
 function getUnit(unit_type, params)
@@ -1110,26 +1146,32 @@ function mergeStackGUIDs(data)
     mergeStack(command, units)
 end
 
-function mergeStack(command, units)
+function mergeStack(top, units, isProduction)
     local count, desc = {}, ''
     for _, unit in ipairs(units) do
         count[unit.getName()] = (count[unit.getName()] or 0) + 1
-        command.addAttachment(unit)
+        top.addAttachment(unit)
     end
     for _, type in ipairs(StackOrder) do if count[type] then
         table.insert(count, count[type])
         table.insert(count, type)
     end end
+    if isProduction then top.tooltip = true end
     for i, s in ipairs(count) do if i % 2 == 0 then desc = desc .. colorize(properName(s), s) .. '\n'
     else desc = desc .. '  ' .. s .. ' ' end end
-    command.setName(command.getName() .. '\n' .. desc:sub(1, -2))
-    command.addContextMenuItem('Break stack', || breakStack(command))
+    top.setName((isProduction and 'Units under construction' or top.getName()) .. '\n' .. desc:sub(1, -2))
+    top.addContextMenuItem('Break stack', || breakStack(top))
 end
 
 function breakStack(stack)
     stack.clearContextMenu()
-    stack.setName(stack.getName():match('^([^\n]+)\n'))
-    stack.addContextMenuItem('Form stack', || mergeStack(stack, getStack(stack)))
+    if stack.getName():match('construction') then
+        stack.setName('bomb_industry')
+        stack.tooltip = false
+    else
+        stack.setName(stack.getName():match('^([^\n]+)\n'))
+        stack.addContextMenuItem('Form stack', || mergeStack(stack, getStack(stack)))
+    end
     return stack.removeAttachments()
 end
 
@@ -1152,9 +1194,7 @@ function rollDice(positions)
                     Wait.time(function ()
                         die.setRotationSmooth(die.getRotationValues()[die.getValue()].rotation)
                         table.insert(dice, die)
-                    end, 2)
-                end, || ready)
-            end
+            end, 2) end, || ready) end
         }) end, delay)
         delay = delay + 0.25
     end
@@ -1169,13 +1209,7 @@ function diceValues(dice)
 end
 
 function test()
-    setHomelandSnaps()
-    --[[if not flag then
-        unpackComponents()
-        flag = true
-    else
-        startNewRound()
-    end]]--
+    production()
 end
 
 function checkScenario(nation)
@@ -1183,7 +1217,7 @@ function checkScenario(nation)
 end
 
 function getTurnOrder()
-    if TurnOrder then return TurnOrder else
+    if state.turn_order then return state.turn_order else
         -- lookup turn tokens
         return {'usa', usa = 1}
     end
@@ -1206,8 +1240,8 @@ end
 function properName(s)
     if type(s) == 'table' then s = s[1] end
     if s:match('%a%d+') then
-        local name = Map.call('getRegionName', {s})
-        return colorize(s:upper(), Map.getTable('Prefixes')[s:sub(1, 1)]) .. ' - ' .. name
+        local name = Map.data.regions[s].name
+        return colorize(s:upper(), Prefixes[s:sub(1, 1)]) .. ' - ' .. name
     elseif #s < 5 then return s:upper()
     else return s:sub(1, 1):upper() .. s:sub(2) end
 end
@@ -1226,43 +1260,6 @@ function ordinalize(n)
     elseif n % 10 == 3 then return n .. 'rd'
     else return n .. 'th' end
 end
-
-Orders = {
-    Init = {
-        bid = 0,
-        moves = {},
-        resources = {oil = 0, iron = 0, osr = 0},
-        trade = {plus = nil, minus = nil},
-        post_trade = {oil = 0, iron = 0, osr = 0},
-        cost = {oil = 0, iron = 0, osr = 0},
-        remaining = {oil = 0, iron = 0, osr = 0},
-        production = {
-            cg  = {quantity = 0, oil = 0, iron = 0, osr = 0},
-            inf = {quantity = 0, oil = 0, iron = 0, osr = 0},
-            art = {quantity = 0, oil = 0, iron = 0, osr = 0},
-            arm = {quantity = 0, oil = 0, iron = 0, osr = 0},
-            ftr = {quantity = 0, oil = 0, iron = 0, osr = 0},
-            bmr = {quantity = 0, oil = 0, iron = 0, osr = 0},
-            ss  = {quantity = 0, oil = 0, iron = 0, osr = 0},
-            cr  = {quantity = 0, oil = 0, iron = 0, osr = 0},
-            cv  = {quantity = 0, oil = 0, iron = 0, osr = 0},
-            bb  = {quantity = 0, oil = 0, iron = 0, osr = 0}
-        }
-    },
-    Trades = {oil = 2, iron = 3, osr = 5},
-    Costs = {
-        cg  = 5,
-        inf = {oil = 0, iron = 0, osr = 2},
-        art = {oil = 0, iron = 2, osr = 1},
-        arm = {oil = 1, iron = 2, osr = 1},
-        ftr = {oil = 2, iron = 1, osr = 1},
-        bmr = {oil = 2, iron = 2, osr = 1},
-        ss  = {oil = 1, iron = 2, osr = 1},
-        cr  = {oil = 2, iron = 3, osr = 2},
-        cv  = {oil = 4, iron = 3, osr = 3},
-        bb  = {oil = 3, iron = 4, osr = 3}
-    }
-}
 
 -- function setHomelandSnaps()
 --     local map = getObjectFromGUID(GUIDs.Map)

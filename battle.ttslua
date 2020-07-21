@@ -532,7 +532,7 @@ function makeRepairs()
             elseif resources[resource] == 1 then unit.UI.hide(resource) end end
             table.remove(units[nation], j)
             obj.UI.setXml('')
-            obj.setVar('nation', nil)
+            if obj.getName() ~= 'cfighter' then obj.setVar('nation', nil) end
             stopBlinker(obj)
             if stackObj ~= '' then stack(obj, getObjectFromGUID(stackObj))
             else obj.setPositionSmooth(obj.getPosition():setAt('x', self.positionToWorld({ZoneParams[mode].sides[alliance(nation)].nations[nation], 0, 0}).x)) end

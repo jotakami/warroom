@@ -1,20 +1,19 @@
 #include orders-xml
+#include orders-setup
 
 function onLoad(saved_state)
     Nation = self.getName():match('^(%a+)%s'):lower()
-    if Nation == 'china' or Nation == 'italy' then NumOrders = 6 else NumOrders = 9 end
-    if Nation ~= 'china' then Trades = Global.getTable('Orders').Trades end
-    Costs = Global.getTable('Orders').Costs
-    if Nation == 'china' then for unit, cost in pairs(Costs) do if unit ~= 'cg' then cost.oil = nil end end end
     Resources = getObjectFromGUID(Global.getTable('GUIDs').Nations[Nation].resources)
-    state = Global.getTable('Orders').Init
+    state = Init
     if Nation == 'china' then
+        Trades = {}
         state.trade = nil
-        Trade = Global.getTable('Orders').Trades
+        for unit, cost in pairs(Costs) do if unit ~= 'cg' then cost.oil = nil end end
         for k, v in pairs(state) do if k == 'production' then
             for unit, cost in pairs(v) do cost.oil = nil end
         elseif k ~= 'bid' and k ~= 'moves' then v.oil = nil end end
     end
+    if Nation == 'china' or Nation == 'italy' then NumOrders = 6 else NumOrders = 9 end
     self.UI.setXmlTable(initXML(NumOrders / 3, Nation == 'china'))
 end
 
@@ -138,7 +137,7 @@ end
 function writeProduction()
     for _, id in ipairs{'purchases', 'post_trade', 'remaining'} do self.UI.setAttributes(id, {active = true, visibility = getVis()}) end
     if Nation ~= 'china' then for _, resource in ipairs{'oil', 'iron', 'osr'} do for _, label in ipairs{'trade', 'minus', 'plus'} do
-        self.UI.setAttribute(label .. '-' .. resource, 'active', false)
+        self.UI.setAttribute(label .. '-' .. resource, 'active', true)
     end end end
     self.UI.setAttribute('production-ready', 'active', true)
     self.UI.setAttributes('production-ready-toggle', {
@@ -153,12 +152,12 @@ function setProduction(lock, clear)
         for resource, _ in pairs(state.resources) do
             self.UI.setAttribute('cg-' .. resource, 'interactable', not lock)
             if clear then
-                self.UI.setValue('cg-' .. resource, '')
+                self.UI.setAttribute('cg-' .. resource, 'text', '')
                 updatePurchase(_, '', 'cg-' .. resource)
     end end else
         self.UI.setAttribute(unit .. '-purchase', 'interactable', not lock)
         if clear then
-            self.UI.setValue(unit .. '-purchase', '')
+            self.UI.setAttribute(unit .. '-purchase', 'text', '')
             updatePurchase(_, '', unit .. '-purchase')
     end end end
     if Nation ~= 'china' then for resource, _ in pairs(state.resources) do for _, sign in ipairs{'plus', 'minus'} do
@@ -170,7 +169,7 @@ function setProduction(lock, clear)
 end
 
 function toggleTrade(_, value, id)
-    local sign, resource = string.match(id, '(%a+)%-'), string.match(id, '%-(%a+)')
+    local sign, resource = id:match('(%a+)%-(%a+)')
     local other, color
     if sign == 'plus' then color, other = 'rgba(0.2,1,0.2,0.5)', 'minus'
     else color, other = 'rgba(1,0.2,0.2,0.5)', 'plus' end
@@ -225,10 +224,10 @@ function updatePurchase(_, value, id)
         state.production[unit_type].quantity = value
         state.production[unit_type].osr = Costs[unit_type].osr * value
         setIntValue(unit_type .. '-osr', state.production[unit_type].osr)
-        if unit_type != 'inf' then
+        if unit_type != 'infantry' then
             state.production[unit_type].iron = Costs[unit_type].iron * value
             setIntValue(unit_type .. '-iron', state.production[unit_type].iron)
-            if Nation ~= 'china' and unit_type != 'art' then
+            if Nation ~= 'china' and unit_type != 'artillery' then
                 state.production[unit_type].oil = Costs[unit_type].oil * value
                 setIntValue(unit_type .. '-oil', state.production[unit_type].oil)
     end end end
@@ -251,9 +250,7 @@ function updateTotals()
 end
 
 function revealPurchases()
-    self.UI.setAttribute('purchases', 'visibility', '')
-    self.UI.setAttribute('post_trade', 'visibility', '')
-    self.UI.setAttribute('remaining', 'visibility', '')
+    for _, id in ipairs{'purchases', 'post_trade', 'remaining'} do self.UI.setAttribute(id, 'visibility', '') end
     self.UI.setAttribute('production-ready', 'active', false)
     self.UI.setAttribute('production-ready-toggle', 'active', false)
     local purchases = {}
@@ -264,6 +261,9 @@ end
 function payPurchases()
     Resources.call('setResources', state.remaining)
     setProduction(true, true)
+    if Nation ~= 'china' then for side, resource in pairs(state.trade) do
+        toggleTrade(nil, 'False', side .. '-' .. resource)
+    end end
 end
 
 -- INTERFACE FUNCTIONS --

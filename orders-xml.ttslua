@@ -86,7 +86,7 @@ function initXML(order_rows, is_china)
             {tag = 'Cell', children = {{tag = 'InputField', attributes = {class = 'purchase', id = 'cg-iron'}}}},
             {tag = 'Cell', children = {{tag = 'InputField', attributes = {class = 'purchase', id = 'cg-osr'}}}}
         }}}
-        for i, unit in ipairs{'inf', 'art', 'arm', 'ftr', 'bmr', 'ss', 'cr', 'cv', 'bb'} do
+        for i, unit in ipairs{'infantry', 'artillery', 'armor', 'fighter', 'bomber', 'submarine', 'cruiser', 'carrier', 'battleship'} do
             local col_xml = {{tag = 'Cell', children = {
                 {tag = 'InputField', attributes = {class = 'purchase', id = unit .. '-purchase'}}
             }}}
@@ -152,7 +152,7 @@ function initXML(order_rows, is_china)
             }},
             {tag = 'InputField', attributes = {class = 'purchase',
                 characterValidation = 'Integer', characterLimit = '2',
-                onEndEdit = 'updatePurchase'
+                onValueChanged = 'updatePurchase'
             }},
             {tag = 'Button', attributes = {class = 'resolved',
                 colors = '#FFFFFFB2|#00CC00B2|#00CC00FF|#00000033',
