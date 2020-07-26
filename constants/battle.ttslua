@@ -1,30 +1,4 @@
---- Constants and configuration ---
-
-UIColors = {
-    order = {yellow = 1, blue = 2, green = 3, red = 4, black = 5, white = 6},
-    text = {
-        axis = '[C08080]',
-        allies = '[A0A0FF]',
-        yellow = '[C0C040]',
-        blue = '[4080C0]',
-        green = '[40A020]',
-        red = '[C02000]',
-        black = '[000000]',
-        white = '[FFFFFF]',
-    },
-    button = {
-        infantry = 'rgba(0.9,0.9,0.2,0.8)',
-        artillery = 'rgba(0.2,0.5,0.9,0.8)',
-        armor = 'rgba(0.2,0.8,0.1,0.8)',
-        fighter = 'rgba(0.2,0.8,0.1,0.8)',
-        cfighter = 'rgba(0.8,0.8,0.8,0.8)',
-        bomber = 'rgba(0.9,0.1,0,0.8)',
-        submarine = 'rgba(0.9,0.9,0.2,0.8)',
-        cruiser = 'rgba(0.2,0.5,0.9,0.8)',
-        carrier = 'rgba(0.2,0.8,0.1,0.8)',
-        battleship = 'rgba(0.9,0.1,0,0.8)'
-    }
-}
+DiceOrder = {yellow = 1, blue = 2, green = 3, red = 4, black = 5, white = 6}
 
 CombatParams = {
     land = {

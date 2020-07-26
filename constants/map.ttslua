@@ -236,7 +236,7 @@ MapData = {
                     {-2.366, 4.183}, {-2.504, 4.542}},
             adjacent = {'b17#', 'i1$', 'i2', 'i7', 'i10$', 'j8', 'n18', 'c4^', 'c5^'},
             sv = 5,
-            production = 5,
+            industry = 5,
             resources = {osr = 2}
         },
         b19 = {
@@ -277,7 +277,7 @@ MapData = {
             points = {{-7.952, -0.355}, {-7.468, -0.399}, {-6.814, -0.669}, {-7.866, -1.457}, {-8.044, -1.458}, {-8.163, -1.023}},
             adjacent = {'b22', 'b23#', 'p17', 'p18$'},
             sv = 3,
-            production = 3,
+            industry = 3,
             resources = {iron = 1, osr = 1}
         },
         b25 = {
@@ -311,7 +311,7 @@ MapData = {
                     {1.728, -3.755}},
             adjacent = {'a1', 'a2', 'a9$', 'b28#', 'u1#', 'u2#'},
             sv = 4,
-            production = 4,
+            industry = 4,
             resources = {iron = 1, osr = 1}
         },
         b30 = {

@@ -1,5 +1,6 @@
-#include map-setup
-Debug = false
+#include constants/map
+#include constants/nations
+#include debug
 
 function onLoad()
     state = {}
@@ -8,9 +9,6 @@ function onLoad()
 end
 
 function getState() return state end
-function test()
-    print(state.test[1], ' ', state.test[2])
-end
 
 function prepareRegionData()
     for region, data in pairs(MapData.regions) do
@@ -45,100 +43,8 @@ function prepareRegionData()
             commands = {axis = {}, allies = {}},
             ownership = Prefixes[region:sub(1, 1)]
         }
+        if data.industry then state[region].construction = {} end
     end
-end
-
--- Movement and Combat Operations
-
-function hotspotType(region)
-    if type(region) == 'table' then region = region[1] end
-    local commands, side, other = state[region].commands
-    if isSeaRegion(region) then
-        if commands.axis.air or commands.axis.fleet then side, other = 'axis', 'allies' end
-        if commands.allies.air or commands.allies.fleet then
-            if side then return 'battle'
-            else side, other = 'allies', 'axis' end
-        end
-        if not side then return nil
-        elseif hasConvoy(region)[other] then return 'raid'
-        elseif commands[other].army then return 'transports' end
-    else
-        if commands.axis.army or commands.axis.air then side, other = 'axis', 'allies' end
-        if commands.allies.army or commands.allies.air then
-            if side then return 'battle'
-            else side, other = 'allies', 'axis' end
-        end
-        if not side then return nil
-        elseif Alliance[state[region].ownership] == other then if commands[side].army then return 'garrison'
-            else for _, command in ipairs(commands[side].air) do
-                if command.getName():find('Bomber') then return 'bombing'
-    end end end end end
-    return nil
-end
-
-function hasConvoy(region)
-    local t = {}
-    if not MapData.regions[region].convoys then return t end
-    for i, convoy in ipairs(MapData.regions[region].convoys) do for port_region, _ in pairs(convoy) do
-        if not port_region:find('-') then t[Alliance[state[port_region].ownership]] = true
-        else
-            local from_region, to_region = port_region:match('(%w+)%-(%w+)')
-            if Alliance[state[from_region].ownership] == Alliance[state[to_region].ownership] then
-                t[Alliance[state[from_region].ownership]] = true
-    end end end end
-    return t
-end
-
-function getHotspot(region)
-    if type(region) == 'table' then region = region[1] end
-    if state[region].hotspot then return state[region].hotspot.getGUID() else return nil end
-end
-
-function getHotspots()
-    local hotspots = {}
-    for region, t in pairs(state) do if t.hotspot then
-        table.insert(hotspots, {region = region, guid = t.hotspot.getGUID()})
-    end end
-    return hotspots
-end
-
-function getCommands(region)
-    if type(region) == 'table' then region = region[1] end
-    local guids = {}
-    for side, forces in pairs(state[region].commands) do
-        guids[side] = {}
-        for force, commands in pairs(forces) do
-            guids[side][force] = {}
-            for _, command in ipairs(commands) do table.insert(guids[side][force], command.getGUID()) end
-    end end
-    return guids
-end
-
-function getFlagToken(region)
-    if type(region) == 'table' then region = region[1] end
-    return state[region].flag
-end
-
-function getOwner(region)
-    if type(region) == 'table' then region = region[1] end
-    return state[region].ownership
-end
-
-function getOriginalOwner(region)
-    if type(region) == 'table' then region = region[1] end
-    return MapData.regions[region].original_owner or Prefixes[region:sub(1, 1)]
-end
-
-function getSV(region)
-    if type(region) == 'table' then region = region[1] end
-    return MapData.regions[region].sv or 0
-end
-
-function getPorts(region)
-    if type(region) == 'table' then region = region[1] end
-    local ports = {}
-    for _, link in ipairs(MapData.regions[region].adjacent) do if link:sub(-1) == '$' then table.insert(ports, link:sub(1, -2)) end end
-    return ports
 end
 
 -- Collision Checks
@@ -150,22 +56,24 @@ function onCollisionEnter(collision_info)
     if pos == last_pos then return nil
     else
         if reset then Wait.stop(reset) end
-        last_pos = pos
-        reset = Wait.frames(function () last_pos = nil end, 1)
+        last_pos, reset = pos, Wait.frames(function () last_pos = nil end, 1)
     end
     local region = findRegion({pos.x, pos.z})
     if region then
-        if Debug then print('coords: ', pos.x, ' ', pos.z, ', region: ', region) end
+        debug('coords: ', pos.x, ' ', pos.z, ', region: ', region)
         obj.setVar('region', region)
-        if name == 'hotspot' then print('Hotspot in region ', region) state[region].hotspot = obj
+        if name == 'hotspot' then state[region].hotspot = obj
         elseif name:match('flag$') then state[region].flag, state[region].ownership = obj, name:match('^%a+'):lower()
         elseif name == 'cfighter' then addCommand(state[region].commands, obj)
+        elseif name:match('construction') then
+            table.insert(state[region].construction, obj)
+            obj.setRotationSmooth({0, rotationToCenter(pos), 0}, true, true)
         elseif isCommand(name) then
             obj.setDescription('In region ' .. prettyName(region))
             obj.setRotationSmooth({0, rotationToCenter(pos), 0}, true, true)
             addCommand(state[region].commands, obj)
         end
-    elseif Debug then print('coords: ', pos.x, ' ', pos.z) end
+    else debug('coords: ', pos.x, ' ', pos.z) end
 end
 
 function onCollisionExit(collision_info)
@@ -176,12 +84,12 @@ function onCollisionExit(collision_info)
         obj.setVar('region', nil)
         if name == 'hotspot' and state[region].hotspot.getGUID() == obj.getGUID() then state[region].hotspot = nil
         elseif name:match('flag$') and state[region].flag.getGUID() == obj.getGUID() then
-            state[region].flag, state[region].ownership = nil, getOriginalOwner(region)
+            state[region].flag, state[region].ownership = nil, MapData.regions[region].original_owner or Prefixes[region:sub(1, 1)]
+        elseif name:match('construction') then removeConstruction(state[region].construction, obj)
         elseif isCommand(name) or name == 'cfighter' then
             obj.setDescription('')
             removeCommand(state[region].commands, obj)
-        end
-    end
+    end end
 end
 
 function isCommand(name)
@@ -197,6 +105,14 @@ end
 function commandType(name)
     if name == 'cfighter' then return 'air'
     else return name:match('%d+%a%a%s(%a+)'):lower() end
+end
+
+function removeConstruction(t, stack)
+    for i = #t, 1, -1 do if t[i].getGUID() == stack.getGUID() then table.remove(t, i) end end
+end
+
+function clearConstruction(region)
+    state[region[1]].construction = {}
 end
 
 function addCommand(t, command)
@@ -225,11 +141,6 @@ function isSeaRegion(region)
     return region:find('a') or region:find('i') or region:find('m') or region:find('p')
 end
 
-function getRegionName(region)
-    if type(region) == 'table' then region = region[1] end
-    return MapData.regions[region].name
-end
-
 function prettyName(region)
     if type(region) == 'table' then region = region[1] end
     local str = region:upper()
@@ -242,18 +153,14 @@ function findRegion(point)
     for region, data in pairs(MapData.regions) do
         if data.box.xmax > point[1] and data.box.xmin < point[1] and data.box.zmax > point[2] and data.box.zmin < point[2] then
             if data.islands then table.insert(regions, region) else table.insert(regions, 1, region) end
-        end
-    end
-    if #regions == 1 then return regions[1]
-    else for _, region in ipairs(regions) do
-        if MapData.regions[region].circle then
-            if distance(point, MapData.regions[region].circle.c) < MapData.regions[region].circle.r then
-                return region
-            end
-        elseif inside2d(point, MapData.regions[region].points) then
-            return region
-        end
     end end
+    if #regions == 1 then return regions[1]
+    else for _, region in ipairs(regions) do if MapData.regions[region].circle then
+        if distance(point, MapData.regions[region].circle.c) < MapData.regions[region].circle.r then
+            return region
+    end elseif inside2d(point, MapData.regions[region].points) then
+        return region
+    end end end
 end
 
 function centroid(region)
@@ -284,24 +191,3 @@ end
 function rotationToCenter(point)
     return (math.atan2(point.x - MapData.center.x, point.z - MapData.center.z) / math.pi + 1) * 180
 end
-
-Alliance = {
-    china = 'allies',
-    uk = 'allies',
-    usa = 'allies',
-    ussr = 'allies',
-    germany = 'axis',
-    italy = 'axis',
-    japan = 'axis'
-}
-
-Prefixes = {
-    b = 'uk',
-    c = 'china',
-    g = 'germany',
-    t = 'italy',
-    j = 'japan',
-    n = 'neutral',
-    r = 'ussr',
-    u = 'usa'
-}

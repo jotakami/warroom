@@ -1,0 +1,20 @@
+Alliance = {
+    china = 'allies',
+    uk = 'allies',
+    usa = 'allies',
+    ussr = 'allies',
+    germany = 'axis',
+    italy = 'axis',
+    japan = 'axis'
+}
+
+Prefixes = {
+    b = 'uk',
+    c = 'china',
+    g = 'germany',
+    t = 'italy',
+    j = 'japan',
+    n = 'neutral',
+    r = 'ussr',
+    u = 'usa'
+}

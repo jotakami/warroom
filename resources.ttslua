@@ -1,26 +1,9 @@
-function onSave()
-    return JSON.encode(state)
-end
-
-function onLoad(saved_state)
+function onLoad()
     Nation = self.getName():match('^(%a+)%s'):lower()
     Orders = getObjectFromGUID(Global.getTable('GUIDs').Nations[Nation].orders)
     PegBag = getObjectFromGUID(Global.getTable('GUIDs').Bags.Pegs)
     Pegs = {}
-    if saved_state ~= '' then
-        --state = JSON.decode(saved_state)
-        state = {
-            iron = 0, iron_more = 0,
-            osr = 0, osr_more = 0
-        }
-        if Nation ~= 'china' then state.oil = 0 state.oil_more = 0 end
-    else
-        state = {
-            iron = 0, iron_more = 0,
-            osr = 0, osr_more = 0
-        }
-        if Nation ~= 'china' then state.oil, state.oil_more = 0, 0 end
-    end
+    if Nation ~= 'china' then state.oil = 0 state.oil_more = 0 end
     loaded = true
 end
 
@@ -34,8 +17,7 @@ function onCollisionEnter(collision_info)
             elseif i < 43 then resource, value = 'iron', i - 22
             else resource, value = 'osr', i - 43 end
             break
-        end
-    end
+    end end
     if peg.getName() == resource then
         state[resource] = value
         Pegs[resource] = peg
@@ -54,8 +36,7 @@ function onCollisionExit(collision_info)
             Pegs[spot] = nil
             Orders.call('updateResources', totals())
             break
-        end
-    end
+    end end
 end
 
 function addResources(data)
@@ -78,8 +59,7 @@ function setResources(data)
                 position = pegPosition(offset[resource] + value - 20),
                 smooth = false
             })
-        end end
-    end
+    end end end
 end
 
 function totals()
@@ -98,3 +78,5 @@ end
 function distance3d(p1, p2)
     return ((p2[1] - p1[1])^2 + (p2[2] - p1[2])^2 + (p2[3] - p1[3])^2) ^ 0.5
 end
+
+state = {iron = 0, iron_more = 0, osr = 0, osr_more = 0}

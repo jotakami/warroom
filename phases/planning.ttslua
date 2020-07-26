@@ -1,0 +1,84 @@
+function writeOrders()
+    setStatus('Strategic planning')
+    setAdvance('', '')
+    local ready = {}
+    for nation, orders in pairs(state.objects.orders) do
+        orders.call('writeOrders')
+        ready[nation] = false
+    end
+    playerReady = function (data)
+        local all_ready = true
+        for nation, value in pairs(ready) do if data[nation] ~= nil then
+            ready[nation] = data[nation]
+            all_ready = all_ready and data[nation]
+        else all_ready = all_ready and ready[nation] end end
+        if all_ready then
+            playerReady = nil
+            revealBids()
+    end end
+end
+
+function revealBids()
+    setStatus('Revealing bids')
+    local bids, delay = {}, 0
+    for nation, orders in pairs(state.objects.orders) do
+        Wait.time(function ()
+            bids[nation] = orders.call('revealBid')
+            broadcastToAll(colorize(properName(nation), nation) .. ' bid ' .. colorize(bids[nation], 'oil') .. ' oil')
+        end, delay)
+        delay = delay + 0.5
+    end
+    Wait.time(|| setTurnOrder(bids), delay)
+end
+
+function setTurnOrder(bids)
+    setStatus('Choose turn order')
+    state.turn_order = {}
+    local order, turns, points = {}, {}, {}
+    for nation, bid in pairs(bids) do table.insert(order, {bid = bid + math.random(), nation = nation}) end
+    table.sort(order, |a, b| a.bid < b.bid)
+    for i, point in ipairs(Map.snaps) do if i > #order then break else table.insert(points, {
+        position = Map.obj.positionToWorld(point.position),
+        rotation = point.rotation + Map.rotation
+    }) end end
+    for i = 1, #order, 1 do
+        table.insert(turns, i)
+        Map.obj.UI.setAttribute('turn' .. i, 'active', true)
+    end
+    chooseTurn = function (_, nation, id)
+        local choice, choice_index = id:sub(-1) + 0
+        state.turn_order[nation] = choice
+        state.turn_order[choice] = nation
+        Map.obj.UI.setAttribute(id, 'active', false)
+        for i, turn in ipairs(turns) do
+            Map.obj.UI.setAttribute('turn' .. turn, 'interactable', false)
+            if turn == choice then choice_index = i end
+        end
+        table.remove(turns, choice_index)
+        state.objects.turn_tokens[nation].setPositionSmooth(points[choice].position)
+        state.objects.turn_tokens[nation].setRotationSmooth(points[choice].rotation)
+        Wait.condition(function ()
+            stopBlinker(state.objects.turn_tokens[nation])
+            chooseTurns(order, turns, points)
+        end, || not state.objects.turn_tokens[nation].isSmoothMoving())
+    end
+    chooseTurns(order, turns)
+end
+
+function chooseTurns(order, turns)
+    if #order == 0 then payBids()
+    else
+        local nation = table.remove(order).nation
+        setBlinker(state.objects.turn_tokens[nation])
+        for _, turn in ipairs(turns) do Map.obj.UI.setAttributes('turn' .. turn, {
+            interactable = true,
+            onClick = 'Global/chooseTurn(' .. nation .. ')'
+        }) end
+        if #turns == 1 then chooseTurn(nil, nation, 'turn' .. turns[1]) end
+    end
+end
+
+function payBids()
+    for nation, orders in pairs(state.objects.orders) do orders.call('payBid') end
+    flipHotspots()
+end

@@ -1,0 +1,169 @@
+-- Game and Scenario Setup
+
+function chooseScenario(_, value, id)
+    for _, label in ipairs{'global', 'europe', 'pacific', 'eastern'} do Map.obj.UI.setAttribute(label, 'active', false) end
+    for i = 1, 4 do for _, label in ipairs{'status', 'advance'} do Map.obj.UI.setAttribute(label .. '-' .. i, 'active', true) end end
+    setStatus('Unpacking components')
+    setAdvance('round', 'Start round')
+    unpackComponents(id)
+end
+
+function unpackComponents(scenario)
+    state.scenario = scenario or 'global'
+    state.round = 0
+    state.objects = {
+        orders = {},
+        resources = {},
+        homeland_tokens = {},
+        turn_tokens = {},
+        commands = {}
+    }
+    if state.scenario == 'europe' or state.scenario == 'pacific' then MoraleBoard.flip() end
+    local i = 1
+    for nation, guids in pairs(GUIDs.Nations) do if checkScenario(nation) then
+        state.objects.orders[nation] = getObjectFromGUID(guids.orders)
+        state.objects.resources[nation] = getObjectFromGUID(guids.resources)
+        local order = i
+        Wait.time(function ()
+            local components = getObjectFromGUID(guids.components)
+            state.objects.homeland_tokens[nation] = placeHomelandToken(components, order)
+            state.objects.turn_tokens[nation] = placeTurnToken(components, order)
+            placeResourcePegs(components, state.objects.resources[nation], nation == 'china')
+            placeCards(components, nation)
+            placeCommands(components, nation)
+            components.destruct()
+        end, (i - 1) * 0.5)
+        i = i + 1
+    end end
+end
+
+function placeHomelandToken(components, order)
+    local point = Map.snaps[order + 7]
+    return components.takeObject({
+        position = Map.obj.positionToWorld(point.position) + vector(0, 0.2, 0),
+        rotation = point.rotation + Map.rotation
+    })
+end
+
+function placeTurnToken(components, order)
+    local point = Map.snaps[order]
+    return components.takeObject({
+        position = Map.obj.positionToWorld(point.position) + vector(0, 0.2, 0),
+        rotation = point.rotation + Map.rotation
+    })
+end
+
+function placeResourcePegs(components, resources, is_china)
+    local snaps, up = resources.getSnapPoints(), vector(0, 0.2, 0)
+    if not is_china then components.takeObject({position = resources.positionToWorld(snaps[1].position) + up}) end
+    components.takeObject({position = resources.positionToWorld(snaps[22].position) + up})
+    components.takeObject({position = resources.positionToWorld(snaps[43].position) + up})
+end
+
+function placeCards(components, nation)
+    local guids = GUIDs.Nations[nation]
+    local rack = getObjectFromGUID(guids.territories[1])
+    local prefix = nation:gsub('uk', 'b'):gsub('ussr', 'r'):sub(1, 1):gsub('i', 't')
+    components.takeObject({
+        position = rack.positionToWorld(rack.getSnapPoints()[1].position) + vector(0, 0.4, 0),
+        callback_function = function (deck)
+            deck.use_gravity = false
+            deck.setVelocity({0, 0, 0})
+            local total, last = #deck.getObjects()
+            filterCards(deck, prefix)
+            local count = #deck.getObjects()
+            local points = addCardPoints({}, guids.territories[1], math.min(count, 12))
+            if count > 12 then addCardPoints(points, guids.territories[2], math.min(count - 12, 12)) end
+            if count > 24 then addCardPoints(points, guids.territories[3], count - 24) end
+            for i = 1, count do Wait.frames(function ()
+                if state.scenario ~= 'global' then while not Scenarios[state.scenario].regions[prefix](total) do
+                    total = total - 1
+                end end
+                local id = prefix .. total
+                local callback = |card| card.setName(id:upper() .. ' - ' .. Map.data.regions[id].name)
+                if count > 1 then
+                    deck.takeObject({position = points[count], callback_function = callback})
+                    count, last = count - 1, deck.remainder
+                elseif last then
+                    callback(last)
+                    last.setPositionSmooth(points[count] + vector(0, 0.4, 0))
+                end
+                total = total - 1
+            end, (i - 1) * 5) end
+    end})
+end
+
+function filterCards(deck, prefix)
+    local total, offset = #deck.getObjects(), 0
+    for i, card in ipairs(deck.getObjects()) do
+        if state.scenario ~= 'global' and not Scenarios[state.scenario].regions[prefix](total - i + 1) then
+            deck.takeObject({
+                position = deck.getPosition() + vector(0, 0.5, 0),
+                index = i - offset,
+                callback_function = |obj| obj.destruct()
+            })
+            offset = offset + 1
+    end end
+end
+
+function addCardPoints(t, guid, limit)
+    local obj = getObjectFromGUID(guid)
+    for _, point in ipairs(obj.getSnapPoints()) do
+        if limit == 0 then break end
+        point = obj.positionToWorld(point.position)
+        table.insert(t, point + vector(0, 0.2, 0))
+        limit = limit - 1
+    end
+    return t
+end
+
+function placeCommands(components, nation)
+    local forward, right = components.getTransformForward(), components.getTransformRight() * 1.273
+    local position = components.getPosition() - forward + right * 5.5 + vector(0, 1, 0)
+    state.objects.commands[nation] = {}
+    for i = 1, #components.getObjects() do components.takeObject({
+        position = position - (i - 1) % 12 * right + math.floor((i - 1) / 12) * forward,
+        callback_function = function (command)
+            local num = command.getName():match('%s(%d+)%a%a') + 0
+            local data = CommandSetup[nation][num]
+            state.objects.commands[nation][num] = command
+            if data and (state.scenario == 'global' or Scenarios[state.scenario].regions[data.region:sub(1,1)](data.region:sub(2) + 0)) then
+                local pos = Map.obj.positionToWorld({data.position.x, 0.6, data.position.z})
+                local rot = vector(0, Map.obj.call('rotationToCenter', data.position), 0)
+                local height = 1
+                for _, count in pairs(data.units) do height = height + count end
+                command.use_gravity = false
+                Wait.condition(function ()
+                    command.setPositionSmooth(pos + vector(0, height * 0.21, 0))
+                    command.setRotationSmooth(rot)
+                    buildStack(data.units, pos, rot, false, function (units)
+                        command.use_gravity = true
+                        Wait.frames(|| mergeStack(command, units), 10)
+                end) end, || not command.loading_custom)
+            else
+                command.addContextMenuItem('Form stack', || mergeStack(command, getStack(command)))
+                returnPiece(command)
+            end
+    end}) end
+end
+
+function startNewRound()
+    state.round = state.round + 1
+    setRound(state.round)
+    resetTurnOrder()
+    resourceIncome()
+end
+
+function setRound(round)
+    for nation, orders in pairs(state.objects.orders) do orders.call('setRound', {round}) end
+end
+
+function resetTurnOrder()
+    state.turn_order = nil
+    local i, p = 0
+    for _, token in pairs(state.objects.turn_tokens) do
+        i = i + 1
+        token.setPositionSmooth(Map.obj.positionToWorld(Map.snaps[i].position:lerp(Map.data.center, 0.225)))
+        token.setRotationSmooth(Map.snaps[i].rotation + Map.rotation)
+    end
+end

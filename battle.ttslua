@@ -1,20 +1,24 @@
-#include battle-xml
+#include constants/battle
+#include constants/colors
+#include constants/nations
+#include xml/battle
+#include stacks
+#include debug
 
 --- Save and load ---
 
-function onLoad(saved_state)
+function onLoad()
     state = {}
     self.UI.setXml(XML)
     loadZones()
-    HotspotBag = getObjectFromGUID(Global.getTable('GUIDs').Bags.hotspot)
-    ArrowBag = getObjectFromGUID(Global.getTable('GUIDs').Bags.arrow)
+    local GUIDs = Global.getTable('GUIDs')
+    HotspotBag, ArrowBag = getObjectFromGUID(GUIDs.Bags.hotspot), getObjectFromGUID(GUIDs.Bags.arrow)
     DieBags = {getObjectFromGUID(DieGUIDs[1]), getObjectFromGUID(DieGUIDs[2])}
-    MoraleBoard = getObjectFromGUID(Global.getTable('GUIDs').MoraleBoard)
-    StackOrder = Global.getTable('StackOrder')
-    for i, unit in ipairs(StackOrder) do StackOrder[unit] = i end
+    MoraleBoard = getObjectFromGUID(GUIDs.MoraleBoard)
+    self.addContextMenuItem('Reset script', || resetState())
 end
 
---- Combat setup ---
+--- Battle setup ---
 
 function flipBoard()
     local sign = self.is_face_down and -1 or 1
@@ -30,6 +34,7 @@ function setupCombat(data)
         Wait.condition(function ()
             adjustZones()
             adjustSnapPoints()
+            self.UI.setAttribute(setup .. '-status-panel', 'active', true)
         end, || not self.isSmoothMoving())
     end
 end
@@ -41,19 +46,14 @@ function setStances()
     state.dice = {}
     for side, zones in pairs(Zones.units[mode]) do
         self.UI.setAttribute(mode .. '-' .. side .. '-roll-frame', 'active', false)
-        self.UI.setAttributes(mode .. '-confirm-' .. side, {
-            text = 'OK?',
-            textColor = 'white',
+        self.UI.setAttribute(mode .. '-' .. side .. '-confirm-panel', 'active', true)
+        self.UI.setAttributes(mode .. '-' .. side .. '-confirm', {
+            text = 'Ready?',
             onClick = 'stancesReady(' .. side .. ')',
-            interactable = true,
-            active = true
+            interactable = true
         })
         state.dice[side] = {}
-        for stage, _ in pairs(CombatParams[mode].stages) do
-            state.dice[side][stage] = 0
-            self.UI.setAttribute(mode .. '-' .. side .. '-' .. stage .. '-image', 'active', true)
-            self.UI.setAttribute(mode .. '-' .. side .. '-' .. stage .. '-dice', 'active', true)
-        end
+        for stage, _ in pairs(CombatParams[mode].stages) do state.dice[side][stage] = 0 end
         unit_types[side] = 0
         for unit, stances in pairs(zones) do
             local has_unit = false
@@ -70,15 +70,11 @@ function setStances()
     onObjectLeaveScriptingZone = |zone, obj| updateUnitDice(zone, obj, -1)
     stancesReady = function (_, side)
         ready[side] = true
-        self.UI.setAttributes(mode .. '-confirm-' .. side, {
-            text = 'OK',
-            interactable = false
-        })
+        self.UI.setAttributes(mode .. '-' .. side .. '-confirm', {text = 'Ready', interactable = false})
         if ready.axis and ready.allies then
             stancesReady = nil
             setupStage('air')
-        end
-    end
+    end end
     setForceAdvantage(unit_types.axis, unit_types.allies)
 end
 
@@ -122,7 +118,13 @@ function countStageUnits(side, stage)
 end
 
 function updateDiceText(side)
-    for stage, value in pairs(state.dice[side]) do self.UI.setValue(combatMode() .. '-' .. side .. '-' .. stage .. '-dice', math.min(value, 30)) end
+    for stage, value in pairs(state.dice[side]) do
+        local id = combatMode() .. '-' .. side .. '-' .. stage
+        if value > 0 then
+            self.UI.setAttribute(id, 'active', true)
+            self.UI.setValue(id .. '-dice', math.min(value, 30))
+        else self.UI.setAttribute(id, 'active', false) end
+    end
 end
 
 --- Force and Port Advantage ---
@@ -153,7 +155,7 @@ function setPortAdvantage(side)
     local sign = side == 'axis' and -1 or 1
     if combatMode() == 'sea' then ArrowBag.takeObject({
         position = self.positionToWorld({0.12 * sign, -2, ZoneParams.sea.commands + 0.06}),
-        rotation = self.getRotation() + vector(90 + 90 * sign, 90, 0),
+        rotation = self.getRotation() + vector(90 + 90 * sign, -90, 0),
         smooth = false
     }) end
     state.dice[side].surface = state.dice[side].surface + 2
@@ -171,34 +173,33 @@ end
 --- Combat stage setup ---
 
 function setupStage(stage)
-    local roll_flag, mode = false, combatMode()
+    debug('Setting up ', stage, ' stage')
+    local mode, rollers = combatMode()
     for side, _ in pairs(state.dice) do
-        self.UI.setAttribute(mode .. '-' .. side .. '-' .. stage .. '-image', 'active', false)
-        self.UI.setAttribute(mode .. '-' .. side .. '-' .. stage .. '-dice', 'active', false)
+        self.UI.setAttribute(mode .. '-' .. side .. '-' .. stage, 'active', false)
         if state.dice[side][stage] > 0 and (stage == 'bomb' or countStageUnits(other(side), stage) > 0) then
-            roll_flag = true
-            self.UI.setAttributes(mode .. '-confirm-' .. side, {
-                text = 'Roll',
-                textColor = 'white',
-                onClick = 'rollRound(' .. side .. '-' .. stage .. ')',
-                interactable = true
-            })
+            if rollers then rollers = 'both' else rollers = side end
             setHotspotCounters(side, stage, math.min(state.dice[side][stage], 30))
-        else setWaitButton(side) end
-    end
-    if not roll_flag then
-        if stage == 'air' then if mode == 'land' then setupStage('bomb') else setupStage('surface') end
-        elseif stage == 'bomb' then setupStage('ground')
-        else makeRepairs() end
-    end
+    end end
+    if rollers == 'both' then
+        startRound = function (_, _, id)
+            local side = id:match('%-(%a+)%-')
+            startRound = nil
+            rollRound(stage, side, true)
+        end
+        for side, _ in pairs(state.dice) do self.UI.setAttributes(mode .. '-' .. side .. '-confirm', {
+            text = 'Roll',
+            interactable = true,
+            onClick = 'startRound'
+        }) end
+    elseif rollers then Wait.frames(|| rollRound(stage, rollers), 30)
+    else advanceStage(stage) end
 end
 
-function setWaitButton(side)
-    self.UI.setAttributes(combatMode() .. '-confirm-' .. side, {
-        text = 'Wait',
-        textColor = 'white',
-        interactable = false
-    })
+function advanceStage(stage)
+    if stage == 'air' then if combatMode() == 'land' then setupStage('bomb') else setupStage('surface') end
+    elseif stage == 'bomb' then setupStage('ground')
+    else makeRepairs() end
 end
 
 function setHotspotCounters(side, stage, num)
@@ -220,32 +221,20 @@ function setHotspotCounters(side, stage, num)
     end
 end
 
-function setHotspotCounter(start, moveTo)
-    HotspotBag.takeObject({
-        position = start,
-        smooth = false,
-        callback_function = |obj| Wait.condition(|| obj.setPositionSmooth(moveTo, false, true), || not obj.spawning)
-    })
-end
+function setHotspotCounter(start, moveTo) HotspotBag.takeObject({
+    position = start,
+    smooth = false,
+    callback_function = |obj| Wait.condition(|| obj.setPositionSmooth(moveTo, false, true), || not obj.spawning)
+}) end
 
 --- Roll dice ---
 
-function rollRound(_, info)
-    local args, mode = {}, combatMode()
-    for arg in info:gmatch('%a+') do table.insert(args, arg) end
-    local side, stage, next = args[1], args[2], args[3]
-    if not next and self.UI.getAttribute(mode .. '-confirm-' .. other(side), 'interactable') == 'True' then next = other(side) end
-    for side, _ in pairs(state.dice) do self.UI.setAttributes(mode .. '-confirm-' .. side, {
-        text = 'Wait',
-        textColor = 'white',
-        interactable = false
-    }) end
+function rollRound(stage, side, switch)
+    local mode = combatMode()
     local num, more = getRollCounter(side)
-    broadcastToAll(colorize(side) .. '[-] rolling ' .. num .. ' dice')
     local callback = function ()
-        local ready = false
-        if mode == 'sea' then
-            local wait_fun
+        local ready, wait_fun = mode ~= 'sea'
+        if not ready then
             for _, unit in ipairs(Zones.units[mode][other(side)].submarine.dive.getObjects()) do
                 if getColumn(unit) == 'damaged' then
                     unit.setVar('nation', nil)
@@ -255,35 +244,29 @@ function rollRound(_, info)
                     break
             end end
             if not wait_fun then ready = true end
-        else ready = true end
+        end
         Wait.condition(function ()
-            if next or more then
-                local onClick = 'rollRound(' .. (next or side) .. '-' .. stage
-                if next and more then onClick = onClick .. '-' .. side end
-                self.UI.setAttributes(mode .. '-confirm-' .. (next or side), {
-                    text = 'Roll',
-                    textColor = 'white',
-                    onClick = onClick .. ')',
-                    interactable = true
-                })
-            else
-                if stage == 'air' then
-                    broadcastToAll('Air battle stage complete')
-                    setupStage(mode == 'land' and 'bomb' or 'surface')
-                elseif stage == 'bomb' then
-                    broadcastToAll('Strategic bombing complete')
-                    setupStage('ground')
-                else
-                    broadcastToAll((mode == 'land' and 'Ground' or 'Surface') .. ' battle stage complete')
-                    makeRepairs()
-        end end end, || ready)
+            if switch or more then rollRound(stage, switch and other(side) or side, switch and more)
+            else advanceStage(stage)
+        end end, || ready)
     end
-    rollDice(num, function (results)
-        local a, b = 1, #results.objs
-        while a < b do results.objs[a], results.objs[b], a, b = results.objs[b], results.objs[a], a + 1, b - 1 end
-        if stage == 'bomb' then assignBombs(results.objs, callback)
-        else assignHits(side, stage, results.objs, callback) end
-    end)
+    if countStageUnits(other(side), stage) == 0 then Wait.frames(|| callback(), 12)
+    else
+        setStatusRolling(side)
+        rollDice(num, function (results)
+            local a, b = 1, #results.objs
+            while a < b do results.objs[a], results.objs[b], a, b = results.objs[b], results.objs[a], a + 1, b - 1 end
+            if stage == 'bomb' then assignBombs(results.objs, callback)
+            else assignHits(side, stage, results.objs, callback) end
+        end)
+    end
+end
+
+function setStatusRolling(side)
+    local id = combatMode() .. '-' .. side .. '-confirm'
+    self.UI.setAttribute(id:gsub(side, other(side)) .. '-panel', 'active', false)
+    self.UI.setAttribute(id .. '-panel', 'active', true)
+    self.UI.setAttributes(id, {text = 'Rolling', interactable = false})
 end
 
 function getRollCounter(side)
@@ -298,8 +281,9 @@ function getRollCounter(side)
     })) do if not counter then counter = obj.hit_object
         else
             more = true
-            if obj.hit_object.getPosition():distance(origin) < counter.getPosition():distance(origin) then counter = obj.hit_object end
-    end end
+            if obj.hit_object.getPosition():distance(origin) < counter.getPosition():distance(origin) then
+                counter = obj.hit_object
+    end end end
     if not more then for _, _ in ipairs(Physics.cast({
         origin = counter.getPosition() + vector(0, 0.2, 0),
         direction = {0, 1, 0},
@@ -316,13 +300,7 @@ function rollClick(_, _, id)
     rollDice(num + 0)
 end
 
-function clearRollArea()
-    --print('')
-    return nil
-end
-
 function rollDice(num, callback)
-    clearRollArea()
     local roll, i = {objs = {}}, 0
     if not callback then callback = || nil end
     Wait.time(function ()
@@ -341,26 +319,24 @@ function rollDice(num, callback)
     end, || roll.objs[num] ~= nil)
 end
 
-function rollDie(index, bag, force, results)
-    bag.takeObject({
-        position = bag.getPosition() + vector(0, 3, 0),
-        rotation = vector(math.random(360), 0, math.random(360)),
-        smooth = false,
-        callback_function = function (obj)
-            obj.use_gravity = false
-            Wait.time(function ()
-                obj.use_gravity = true
-                obj.addForce(force)
-                obj.addTorque({math.random() * 2, math.random() * 2, math.random() * 2})
-                Wait.time(function () results.objs[index] = obj end, 3)
-            end, 0.2)
-        end
-    })
-end
+function rollDie(index, bag, force, results) bag.takeObject({
+    position = bag.getPosition() + vector(0, 3, 0),
+    rotation = vector(math.random(360), 0, math.random(360)),
+    smooth = false,
+    callback_function = function (obj)
+        obj.use_gravity = false
+        Wait.time(function ()
+            obj.use_gravity = true
+            obj.addForce(force)
+            obj.addTorque({math.random() * 2, math.random() * 2, math.random() * 2})
+            Wait.time(function () results.objs[index] = obj end, 3)
+        end, 0.2)
+    end
+}) end
 
 function arrangeResults(roll)
     local left, right = DieBags[1].getPosition() + vector(0, 0.5, 0), DieBags[2].getPosition() + vector(0, 0.5, 0)
-    table.sort(roll.objs, |a, b| UIColors.order[getDieColor(a)] < UIColors.order[getDieColor(b)])
+    table.sort(roll.objs, |a, b| DiceOrder[getDieColor(a)] < DiceOrder[getDieColor(b)])
     roll.result = {}
     local msg = ''
     for i, die in ipairs(roll.objs) do
@@ -368,7 +344,7 @@ function arrangeResults(roll)
         die.setPositionSmooth(left:lerp(right, 0.47 - #roll.objs * 0.03 + i * 0.06))
         die.setRotationSmooth(die.getRotationValues()[die.getValue()].rotation)
     end
-    for color, num in pairs(roll.result) do msg = msg .. UIColors.text[color] .. num .. '[-], ' end
+    for color, num in pairs(roll.result) do msg = msg .. '[' .. Colors[color] .. ']' .. num .. '[-], ' end
     broadcastToAll('Roll result: ' .. msg:sub(1, -6))
 end
 
@@ -377,7 +353,7 @@ function getDieColor(die) return die.getRotationValue():sub(9):lower() end
 --- Assign hits ---
 
 function assignBombs(dice, callback)
-    print('Bomb assignment not implemented')
+    debug('Bomb assignment not implemented')
     callback()
 end
 
@@ -456,19 +432,14 @@ function createHitButtons(die, targets, callback)
     end
 end
 
-function createHitButton(obj)
-    obj.UI.setXmlTable({{tag = 'Button', attributes = {
-        position = '0 0 -29',
-        rotation = '0 0 180',
-        height = 48,
-        width = 72,
-        scale = obj.getName() == 'cfighter' and '1.2 1.2' or '1 1',
-        fontSize = 36,
-        text = 'Hit',
-        color = UIColors.button[obj.getName()] .. '|rgba(1,1,1,0.8)|rgba(0,0,0,0.8)|clear',
-        onClick = self.getGUID() .. '/clickHit(' .. obj.getGUID() .. ')'
-    }}})
-end
+function createHitButton(obj) obj.UI.setXmlTable({{tag = 'Button', attributes = {
+    position = '0 0 ' .. (obj.is_face_down and '2' or '-29'),
+    rotation = '0 ' .. (obj.is_face_down and '180' or '0') .. ' 180',
+    height = 48, width = 72, scale = obj.getName() == 'cfighter' and '2 2' or '1 1',
+    fontSize = 36, text = 'Hit',
+    color = '#' .. Colors.button[obj.getName()] .. 'd0|#ffffffd0|#000000d0|clear',
+    onClick = self.getGUID() .. '/clickHit(' .. obj.getGUID() .. ')'
+}}}) end
 
 function assignHit(obj, die, callback)
     local mode, column, pos = combatMode(), getColumn(obj), self.positionToLocal(obj.getPosition())
@@ -476,7 +447,6 @@ function assignHit(obj, die, callback)
     local unit, stance = getUnitStance(obj)
     local y, z = 0.1 * (1 + y_sign), ZoneParams[mode].units[unit][stance]
     if die then die.highlightOn({1, 1, 1, 0.7}) end
-    if column ~= 'damaged' and column ~= 'sustained' then obj.setVar('nation', column) end
     if column == 'damaged' or CombatParams[mode].units[unit][stance].hp == 1 then
         pos = self.positionToWorld({ZoneParams[mode].sides[side].casualties, y, z})
         for _, collision in ipairs(Physics.cast({
@@ -532,10 +502,9 @@ function makeRepairs()
             elseif resources[resource] == 1 then unit.UI.hide(resource) end end
             table.remove(units[nation], j)
             obj.UI.setXml('')
-            if obj.getName() ~= 'cfighter' then obj.setVar('nation', nil) end
             stopBlinker(obj)
             if stackObj ~= '' then stack(obj, getObjectFromGUID(stackObj))
-            else obj.setPositionSmooth(obj.getPosition():setAt('x', self.positionToWorld({ZoneParams[mode].sides[alliance(nation)].nations[nation], 0, 0}).x)) end
+            else obj.setPositionSmooth(obj.getPosition():setAt('x', self.positionToWorld({ZoneParams[mode].sides[Alliance[nation]].nations[nation], 0, 0}).x)) end
             Resources.call('addResources', {[resource] = -1})
             Wait.condition(function () count = count - 1 end, || not obj.isSmoothMoving())
         end
@@ -573,14 +542,12 @@ function getDamagedUnits()
                 if stacks[nation] then stack(sustained, stacks[nation])
                 else sustained.setPositionSmooth(sustained.getPosition():setAt('x', self.positionToWorld({ZoneParams[mode].sides[side].nations[nation], 0, 0}).x)) end
                 stacks[nation] = sustained
-                sustained.setVar('nation', nil)
             end
             if damaged then
                 local nation = damaged.getVar('nation')
                 if checkPortAdvantage(side) and unit ~= 'fighter' and unit ~= 'bomber' then
                     if stacks[nation] then stack(damaged, stacks[nation])
                     else damaged.setPositionSmooth(damaged.getPosition():setAt('x', self.positionToWorld({ZoneParams[mode].sides[side].nations[nation], 0, 0}).x)) end
-                    damaged.setVar('nation', nil)
                 else
                     count = count + 1
                     if not units[nation] then units[nation] = {} end
@@ -591,49 +558,39 @@ function getDamagedUnits()
 end
 
 function createRepairButtons(obj, side, stackObj)
-    local nation, is_cfighter, sign = obj.getVar('nation'), obj.getName() == 'cfighter', side == 'axis' and -1 or 1
-    print('Creting repair buttons for ', nation, ' ', obj.getName())
+    local nation, sign = obj.getVar('nation'), (side == 'axis' and -1 or 1) * (obj.is_face_down and -1 or 1)
+    local scale_factor = obj.getName() == 'cfighter' and 2 or 1
+    local x, z = sign * 80 * scale_factor, obj.is_face_down and ' 2' or ' -29'
+    local rotation, scale = '0 ' .. (obj.is_face_down and '180' or '0') .. ' 180', scale_factor .. ' ' .. scale_factor
+    if Debug then print('Creating repair buttons for ', nation, ' ', obj.getName()) end
     local resources = getObjectFromGUID(Global.getTable('GUIDs').Nations[nation].resources).call('totals')
     local buttons = {
         {tag = 'Image', attributes = {
-            position = '0 0 -29',
-            rotation = '0 0 180',
-            scale = is_cfighter and '1.2 1.2' or '1 1',
-            height = 50,
-            width = 50,
+            position = '0 0' .. z, rotation = rotation, scale = scale,
+            height = 50, width = 50,
             image = nation
         }},
         {tag = 'Button', attributes = {
-            position = (sign * -80) .. ' 0 -29',
-            rotation = '0 0 180',
-            scale = is_cfighter and '1.2 1.2' or '1 1',
-            height = 40,
-            width = 40,
-            text = 'X',
-            fontSize = 32,
-            textColor = 'white',
+            position = -x .. ' 0' .. z, rotation = rotation, scale = scale,
+            height = 40, width = 40,
+            text = 'X', fontSize = 32, textColor = 'white',
             colors = 'black|black|black|clear',
             onClick = self.getGUID() .. '/destroyUnit('.. obj.getGUID() .. ')'
         }}
     }
-    local y = {oil = 50, iron = 0, osr = -50}
+    local y = {oil = 50 * scale_factor, iron = 0, osr = -50 * scale_factor}
     for resource, value in pairs(resources) do
         if value > 0 then
             local onClick = self.getGUID() .. '/repairUnit('.. obj.getGUID() .. '-' .. resource
             if stackObj then onClick = onClick .. '-' .. stackObj.getGUID() end
             table.insert(buttons, {tag = 'Button', attributes = {
                 id = resource,
-                position = (sign * 80) .. ' ' .. y[resource] .. ' -29',
-                rotation = '0 0 180',
-                scale = is_cfighter and '1.2 1.2' or '1 1',
-                height = 50,
-                width = 50,
-                icon = resource,
-                colors = 'clear|clear|clear|clear',
+                position = x .. ' ' .. y[resource] .. z, rotation = rotation,
+                scale = scale, height = 50, width = 50,
+                icon = resource, colors = 'clear|clear|clear|clear',
                 onClick = onClick  .. ')'
             }})
-        end
-    end
+    end end
     obj.UI.setXmlTable(buttons)
     setBlinker(obj)
 end
@@ -643,14 +600,56 @@ end
 function removeCasualties()
     local guids = {}
     for _, zone in pairs(Zones.casualties) do for _, obj in ipairs(zone.getObjects()) do
-        print('Found ', obj.getVar('nation'), ' ', obj.getName(), ' casualty (', obj.getGUID(), ')')
+        debug('Found ', obj.getVar('nation'), ' ', obj.getName(), ' casualty (', obj.getGUID(), ')')
         if obj.getName() ~= 'submarine' or self.positionToLocal(obj.getPosition()).z > 0 then table.insert(guids, obj.getGUID()) end
     end end
     MoraleBoard.call('stackCasualties', guids)
 end
 
 function returnUnits()
-    local mode, commands, combatants, hotspot = combatMode(), {axis = {cfighter = {}}, allies = {cfighter = {}}}, {}, state.hotspot
+    local commands, combatants = getCommandStacks()
+    local max_delay = 0
+    for side, stacks in pairs(commands) do
+        local delay = 0
+        for num, stack in pairs(stacks) do
+            if num == 'cfighter' then for _, unit in ipairs(stack) do
+                Wait.frames(function ()
+                    local original = unit.getTable('returnTo')
+                    if original then
+                        unit.setPositionSmooth(original.position)
+                        unit.setRotationSmooth(original.rotation)
+                    else debug('Couldn\'t return carrier fighter ', unit.getGUID()) end
+                end, delay)
+                delay = delay + 5
+            end elseif #stack.units == 0 then Global.call('returnPieceGUID', {stack.command.getGUID()})
+            elseif stack.command.getTable('returnTo') then
+                local original = stack.command.getTable('returnTo')
+                table.sort(stack.units, |a, b| StackOrder[a.getName()] > StackOrder[b.getName()])
+                for i, unit in ipairs(stack.units) do
+                    Wait.frames(function ()
+                        unit.setPositionSmooth({original.position.x, 6.49 + i * 0.21, original.position.z})
+                        unit.setRotationSmooth(original.rotation)
+                    end, delay)
+                    delay = delay + 5
+                end
+                Wait.frames(function ()
+                    stack.command.setPositionSmooth({original.position.x, 6.7 + #stack.units * 0.21, original.position.z})
+                    stack.command.setRotationSmooth(original.rotation)
+                    Wait.condition(function ()
+                        Wait.frames(|| mergeStack(stack.command, stack.units), 10)
+                    end, || not stack.command.isSmoothMoving())
+                end, delay)
+                delay = delay + 5
+            else debug('Couldn\'t return command ', stack.command.getName())
+        end end
+        max_delay = math.max(max_delay, delay)
+    end
+    local hotspot = state.hotspot
+    Wait.frames(|| Wait.time(|| Global.call('battleDebrief', {hotspot, combatants}), 2), max_delay)
+end
+
+function getCommandStacks()
+    local mode, commands, combatants = combatMode(), {axis = {cfighter = {}}, allies = {cfighter = {}}}, {}
     for _, obj in ipairs(Zones.commands.getObjects()) do
         if obj.getName() == 'arrow' then obj.destruct()
         else
@@ -660,8 +659,8 @@ function returnUnits()
             combatants[nation] = true
     end end
     for side, stacks in pairs(commands) do
-        for unit, stances in pairs(Zones.units[combatMode()][side]) do for _, zone in pairs(stances) do for _, obj in ipairs(zone.getObjects()) do
-            if obj.getName() == 'cfighter' then
+        for unit, stances in pairs(Zones.units[combatMode()][side]) do for _, zone in pairs(stances) do
+            for _, obj in ipairs(zone.getObjects()) do if obj.getName() == 'cfighter' then
                 local nation = obj.getVar('nation')
                 table.insert(stacks.cfighter, obj)
                 if not combatants[nation] then table.insert(combatants, nation) end
@@ -674,60 +673,21 @@ function returnUnits()
             if obj.getName() == 'submarine' and self.positionToLocal(obj.getPosition()).z < 0 then
                 table.insert(stacks[obj.getVar('command')].units, obj)
                 obj.setVar('command', nil)
-        end end end
-    end
-    local max_delay = 0
-    for side, stacks in pairs(commands) do
-        local delay = 0
-        for num, stack in pairs(stacks) do
-            if num == 'cfighter' then for _, unit in ipairs(stack) do
-                Wait.frames(function ()
-                    local original = unit.getTable('returnTo')
-                    unit.setPositionSmooth(original.position)
-                    unit.setRotationSmooth(original.rotation)
-                end, delay)
-                delay = delay + 5
-            end elseif #stack.units == 0 then Global.call('returnPieceGUID', {stack.command.getGUID()})
-            else
-                local original = stack.command.getTable('returnTo')
-                table.sort(stack.units, |a, b| StackOrder[a.getName()] > StackOrder[b.getName()])
-                stack.units.guids = {}
-                for i, unit in ipairs(stack.units) do
-                    table.insert(stack.units.guids, unit.getGUID())
-                    Wait.frames(function ()
-                        unit.setPositionSmooth({original.position.x, 6.49 + i * 0.21, original.position.z})
-                        unit.setRotationSmooth(original.rotation)
-                    end, delay)
-                    delay = delay + 5
-                end
-                Wait.frames(function ()
-                    stack.command.setPositionSmooth({original.position.x, 6.7 + #stack.units * 0.21, original.position.z})
-                    stack.command.setRotationSmooth(original.rotation)
-                    Wait.time(|| Global.call('mergeStackGUIDs', {stack.command.getGUID(), stack.units.guids}), 1.5)
-                end, delay)
-                delay = delay + 5
-        end end
-        max_delay = math.max(max_delay, delay)
-    end
-    Wait.frames(|| Wait.time(|| Global.call('battleDebrief', {hotspot, combatants}), 2), max_delay)
+    end end end end
+    return commands, combatants
 end
 
 function resetState()
     local mode = combatMode()
-    for side, _ in pairs(state.dice) do
-        self.UI.setAttribute(mode .. '-confirm-' .. side, 'active', false)
-        self.UI.setAttribute(mode .. '-' .. side .. '-roll-frame', 'active', true)
-    end
-    onObjectEnterScriptingZone = nil
-    onObjectLeaveScriptingZone = nil
+    self.UI.setAttribute(mode .. '-status-panel', 'active', false)
+    for side, _ in pairs(state.dice) do self.UI.setAttribute(mode .. '-' .. side .. '-roll-frame', 'active', true) end
+    onObjectEnterScriptingZone, onObjectLeaveScriptingZone = nil, nil
     state = {}
 end
 
 --- Setup ---
 
-function combatMode()
-    if self.is_face_down then return 'sea' else return 'land' end
-end
+function combatMode() if self.is_face_down then return 'sea' else return 'land' end end
 
 function loadZones()
     Zones = {
@@ -810,10 +770,6 @@ function setBlinker(obj)
     obj.setVar('blinker', Wait.time(|| obj.highlightOn({1, 1, 1}, 0.5), 1, -1))
 end
 function stopBlinker(obj) Wait.stop(obj.getVar('blinker')) end
-
-function alliance(nation)
-    if nation == 'germany' or nation == 'italy' or nation == 'japan' then return 'axis' else return 'allies' end
-end
 
 function other(side) if side == 'axis' then return 'allies' else return 'axis' end end
 function colorize(side) if side == 'axis' then return '[C08080]Axis' else return '[A0A0FF]Allies' end end

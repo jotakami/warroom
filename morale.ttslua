@@ -1,6 +1,4 @@
-function onSave()
-    return ''
-end
+#include debug
 
 function onLoad(saved_state)
     Zones = {}
@@ -35,7 +33,7 @@ function stackCasualties(data)
     Wait.time(function ()
         local obj = getObjectFromGUID(data[i])
         local nation, unit, step = obj.getVar('nation'), obj.getName(), 0.21
-        print('Taking ', nation, ' ', unit, ' casualty')
+        debug('Taking ', nation, ' ', unit, ' casualty')
         obj.setVar('nation', nil)
         if unit == 'cfighter' then unit, step = 'fighter', 0.22 end
         if not pos[nation] then pos[nation] = {} end
@@ -72,6 +70,7 @@ function getMedals(data)
 end
 
 function addMedals(data)
+    debug('Giving ', data.value, ' ', data.goods and 'consumer goods' or 'medals', ' to ', data.nation)
     state.pendingMedals[data.nation] = state.pendingMedals[data.nation] + data.value
     if state.pendingMedals[data.nation] == data.value then
         local medal, position = table.remove(getMedals({nation = data.nation}))
@@ -117,6 +116,7 @@ function getStress(data)
 end
 
 function addStress(data)
+    debug('Giving ', data.value, ' stress to ', data.nation)
     state.pendingStress[data.nation] = state.pendingStress[data.nation] + data.value
     if state.pendingStress[data.nation] == data.value then
         local stress, singles, position = getStress(data), {}

@@ -1,26 +1,26 @@
 XML = [[
 <Defaults>
-    <Image scale="0.1 0.1" height="90" active="false" />
-    <Image class="top" rotation="0 0 0" />
-    <Image class="bottom" rotation="0 180 0" />
-    <Image class="ground" width="80" />
-    <Image class="air" width="80" />
-    <Image class="bomb" width="90" />
-    <Image class="surface" width="90" />
-    <Text scale="0.08 0.1" />
-    <Text class="top" rotation="0 0 180" />
-    <Text class="bottom" rotation="0 180 180" />
-    <Text class="dice" height="90" width="100" fontSize="68" fontStyle="Bold" active="false" />
+    <Text rotation="0 0 180" />
+    <Text class="dice" scale="0.8 1" fontSize="84" fontStyle="Bold" />
     <Text class="ground" color="#42352D" shadow="#D2C6B6" shadowDistance="1 -3" />
     <Text class="air" color="#4D5959" />
     <Text class="bomb" color="#CC6B58" shadow="#6A4F46" shadowDistance="3 -1" />
     <Text class="surface" color="#202040" shadow="#A0A0FF" />
-    <Button class="confirm" rotation="0 0 -135" fontSize="28" active="false" />
+    <Text class="status" width="260" fontSize="45" color="#CCCCCC" />
+    <Button class="confirm" fontSize="45" textColor="#CCCCCC" active="true" />
     <Button class="roll" onClick="rollClick" />
     <Button class="axis" colors="clear|rgba(0.8,0.4,0.4,0.25)|rgba(0.8,0.4,0.4,0.4)|#A04040" />
     <Button class="allies" colors="clear|rgba(0.4,0.4,0.8,0.25)|rgba(0.4,0.4,0.8,0.4)|#4040A0" />
-    <Panel class="confirm" scale="0.1 0.1" height="85" width="85" />
     <Panel class="roll-frame" padding="0 0 25 25" />
+    <Panel class="top" rotation="0 0 0" />
+    <Panel class="bottom" rotation="0 180 0" />
+    <Panel class="status" height="107" width="2100" scale="0.15 0.15" active="true" />
+    <Panel class="confirm" height="80" width="180" rotation="0 0 180" color="#404040" />
+    <Panel class="dice" active="true" />
+    <Panel class="ground" width="103" />
+    <Panel class="air" width="102" />
+    <Panel class="bomb" width="112" />
+    <Panel class="surface" width="113" />
     <VerticalLayout class="roll-frame" scale="0.1 0.1" height="1725" width="90" />
     <VerticalLayout class="top" rotation="0 0 180" />
     <VerticalLayout class="bottom" rotation="0 180 0" />
@@ -75,33 +75,62 @@ XML = [[
     <Panel class="roll-frame"><Button class="roll allies" id="sea-roll-allies-10" /></Panel>
 </VerticalLayout>
 
-<Image class="ground top" id="land-axis-ground-image" image="ground-dice" position="93 -12 -21" />
-<Text class="dice ground top" id="land-axis-ground-dice" position="93 -12 -21" />
-<Image class="air top" id="land-axis-air-image" image="air-dice" position="93 -21 -21" />
-<Text class="dice air top" id="land-axis-air-dice" position="93 -21 -21" />
-<Image class="bomb top" id="land-axis-bomb-image" image="bomb-dice" position="102 -21 -21" />
-<Text class="dice bomb top" id="land-axis-bomb-dice" position="102 -21 -21" />
+<Panel class="top status" id="land-status-panel" position="0 104 -21" color="#282020">
+    <Text class="status" id="land-status" position="5 0 0">Set stances</Text>
+    <Panel class="dice ground" id="land-axis-ground" position="195 0 0">
+        <Image image="ground-dice" />
+        <Text class="dice ground" id="land-axis-ground-dice" />
+    </Panel>
+    <Panel class="dice air" id="land-axis-air" position="300 0 0">
+        <Image image="air-dice" />
+        <Text class="dice air" id="land-axis-air-dice" />
+    </Panel>
+    <Panel class="dice bomb" id="land-axis-bomb" position="410 0 0">
+        <Image image="bomb-dice" />
+        <Text class="dice bomb" id="land-axis-bomb-dice" />
+    </Panel>
+    <Panel class="confirm" id="land-axis-confirm-panel" position="585 0 0">
+        <Button class="confirm axis" id="land-axis-confirm" />
+    </Panel>
+    <Panel class="dice ground" id="land-allies-ground" position="-185 0 0">
+        <Image image="ground-dice" />
+        <Text class="dice ground" id="land-allies-ground-dice" />
+    </Panel>
+    <Panel class="dice air" id="land-allies-air" position="-290 0 0">
+        <Image image="air-dice" />
+        <Text class="dice air" id="land-allies-air-dice" />
+    </Panel>
+    <Panel class="dice bomb" id="land-allies-bomb" position="-400 0 0">
+        <Image image="bomb-dice" />
+        <Text class="dice bomb" id="land-allies-bomb-dice" />
+    </Panel>
+    <Panel class="confirm" id="land-allies-confirm-panel" position="-575 0 0">
+        <Button class="confirm allies" id="land-allies-confirm" />
+    </Panel>
+</Panel>
 
-<Image class="ground top" id="land-allies-ground-image" image="ground-dice" position="-93 -12 -21" />
-<Text class="dice ground top" id="land-allies-ground-dice" position="-93 -12 -21" />
-<Image class="air top" id="land-allies-air-image" image="air-dice" position="-93 -21 -21" />
-<Text class="dice air top" id="land-allies-air-dice" position="-93 -21 -21" />
-<Image class="bomb top" id="land-allies-bomb-image" image="bomb-dice" position="-102 -21 -21" />
-<Text class="dice bomb top" id="land-allies-bomb-dice" position="-102 -21 -21" />
-
-<Panel class="confirm" position="132 -17 -21"><Button class="confirm axis" id="land-confirm-axis" /></Panel>
-<Panel class="confirm" position="-130 -17 -21"><Button class="confirm allies" id="land-confirm-allies" /></Panel>
-
-<Image class="surface bottom" id="sea-axis-surface-image" image="surface-dice" position="-85 -30 1" />
-<Text class="dice surface bottom" id="sea-axis-surface-dice" position="-85 -30 1" />
-<Image class="air bottom" id="sea-axis-air-image" image="air-dice" position="-85 -39 1" />
-<Text class="dice air bottom" id="sea-axis-air-dice" position="-85 -39 1" />
-
-<Image class="surface bottom" id="sea-allies-surface-image" image="surface-dice" position="85 -30 1" />
-<Text class="dice surface bottom" id="sea-allies-surface-dice" position="85 -30 1" />
-<Image class="air bottom" id="sea-allies-air-image" image="air-dice" position="85 -39 1" />
-<Text class="dice air bottom" id="sea-allies-air-dice" position="85 -39 1" />
-
-<Panel class="confirm" position="-104 -35 1" rotation="0 180 0"><Button class="confirm axis" id="sea-confirm-axis" /></Panel>
-<Panel class="confirm" position="103 -35 1" rotation="0 180 0"><Button class="confirm allies" id="sea-confirm-allies" /></Panel>
+<Panel class="bottom status" id="sea-status" position="0 104 1" color="#282020" active="false">
+    <Panel class="dice surface" position="215 0 0">
+        <Image image="surface-dice" />
+        <Text class="dice surface" id="sea-axis-surface-dice" />
+    </Panel>
+    <Panel class="dice air" position="330 0 0">
+        <Image image="air-dice" />
+        <Text class="dice air" id="sea-axis-air-dice" />
+    </Panel>
+    <Panel class="dice surface" position="-205 0 0">
+        <Image image="surface-dice" />
+        <Text class="dice surface" id="sea-allies-surface-dice" />
+    </Panel>
+    <Panel class="dice air" position="-320 0 0">
+        <Image image="air-dice" />
+        <Text class="dice air" id="sea-allies-air-dice" />
+    </Panel>
+</Panel>
 ]]
+
+-- <Panel class="confirm" position="132 -17 -21"><Button class="confirm axis" id="land-confirm-axis" /></Panel>
+-- <Panel class="confirm" position="-130 -17 -21"><Button class="confirm allies" id="land-confirm-allies" /></Panel>
+
+-- <Panel class="confirm" position="-104 -35 1" rotation="0 180 0"><Button class="confirm axis" id="sea-confirm-axis" /></Panel>
+-- <Panel class="confirm" position="103 -35 1" rotation="0 180 0"><Button class="confirm allies" id="sea-confirm-allies" /></Panel>

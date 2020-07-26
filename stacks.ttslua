@@ -1,0 +1,141 @@
+StackOrder = {
+    'bomber', 'cfighter', 'fighter',
+    'armor', 'artillery', 'infantry',
+    'battleship', 'carrier', 'cruiser', 'submarine',
+    bomber = 1, cfighter = 2, fighter = 3,
+    armor = 4, artillery = 5, infantry = 6,
+    battleship = 7, carrier = 8, cruiser = 9, submarine = 10
+}
+
+function buildStack(unit_counts, position, rotation, fast, callback)
+    local types, units = {}, {}
+    for _, type in ipairs(StackOrder) do if unit_counts[type] then
+        for i = 1, unit_counts[type], 1 do table.insert(types, type) end
+    end end
+    stackUnits(types, units, position, rotation, fast, callback)
+end
+
+function stackUnits(types, units, position, rotation, fast, callback)
+    local next = || stackUnits(types, units, position + vector(0, 0.21, 0), rotation, fast, callback)
+    if #types == 0 then callback(units)
+    else getUnit(table.remove(types), {
+        position = position,
+        rotation = rotation,
+        callback_function = function (obj)
+            table.insert(units, obj)
+            if not fast then next() end
+    end }) end
+    if fast then Wait.frames(|| next(), 5) end
+end
+
+function getUnit(unit_type, params)
+    if type(params) == 'table' then if UnitQueues[unit_type] then
+        table.insert(UnitQueues[unit_type], params)
+    else
+        UnitQueues[unit_type] = {params}
+        getUnit(unit_type, 1)
+    end elseif params > #UnitQueues[unit_type] then UnitQueues[unit_type] = nil
+    else
+        getObjectFromGUID(GUIDs.Bags.Units[unit_type]).takeObject(UnitQueues[unit_type][params])
+        Wait.frames(|| getUnit(unit_type, params + 1), 3)
+    end
+end
+
+function getStack(command)
+    command.clearContextMenu()
+    local types, units = '', {}
+    for _, unit_type in ipairs(StackOrder) do types = types .. unit_type .. ',' end
+    for _, hit in ipairs(Physics.cast({
+        origin = command.getPosition() + vector(0, 0.1, 0),
+        direction = {0, -1, 0},
+        max_distance = 2
+    })) do if #hit.hit_object.getName() > 0 and types:find(hit.hit_object.getName()) then
+        table.insert(units, hit.hit_object)
+    end end
+    table.sort(units, function (a, b) return a.getPosition().y < b.getPosition().y end)
+    return units
+end
+
+function mergeStack(top, units, isProduction)
+    local count, desc = {}, ''
+    for _, unit in ipairs(units) do
+        count[unit.getName()] = (count[unit.getName()] or 0) + 1
+        top.addAttachment(unit)
+    end
+    for _, type in ipairs(StackOrder) do if count[type] then
+        table.insert(count, count[type])
+        table.insert(count, type)
+    end end
+    if isProduction then top.tooltip = true end
+    for i, s in ipairs(count) do if i % 2 == 0 then desc = desc .. colorize(properName(s), s) .. '\n'
+    else desc = desc .. '  ' .. s .. ' ' end end
+    top.setName((isProduction and 'Units under construction' or top.getName()) .. '\n' .. desc:sub(1, -2))
+    top.addContextMenuItem('Break stack', || breakStack(top))
+end
+
+function mergeStackGUIDs(data)
+    local command, units = getObjectFromGUID(data[1]), {}
+    for _, guid in ipairs(data[2]) do table.insert(units, getObjectFromGUID(guid)) end
+    mergeStack(command, units)
+end
+
+function breakStack(stack)
+    stack.clearContextMenu()
+    if stack.getName():match('construction') then
+        stack.setName('bomb_industry')
+        stack.tooltip = false
+    else
+        stack.setName(stack.getName():match('^([^\n]+)\n'))
+        stack.addContextMenuItem('Form stack', || mergeStack(stack, getStack(stack)))
+    end
+    return stack.removeAttachments()
+end
+
+function addToStack(unit, stack)
+    local units = breakStack(stack)
+    local spawning, index, order = #units, #units, StackOrder[unit.getName()]
+    for i, unit in ipairs(units) do Wait.condition(function () spawning = spawning - 1 end, || not units[i].spawning) end
+    Wait.condition(function ()
+        local pos, rot = stack.getPosition(), stack.getRotation()
+        stack.setLock(true)
+        stack.setPositionSmooth(pos + vector(0, 0.21, 0), false, true)
+        while index > 0 and StackOrder[units[index].getName()] < order do
+            pos = units[index].getPosition()
+            units[index].setLock(true)
+            units[index].setPositionSmooth(pos + vector(0, 0.21, 0), false, true)
+            index = index - 1
+        end
+        unit.setPositionSmooth(pos)
+        unit.setRotationSmooth(rot)
+        table.insert(units, index + 1, unit)
+        Wait.condition(function ()
+            stack.setLock(false)
+            for i = index + 1, #units do units[i].setLock(false) end
+            Wait.frames(|| mergeStack(stack, units), 3)
+        end, || not unit.isSmoothMoving())
+    end, || spawning == 0)
+end
+
+function removeFromStack(stack, unit_type, unit_callback, callback)
+    local units = breakStack(stack)
+    local spawning, index = #units
+    for i, unit in ipairs(units) do Wait.condition(function () spawning = spawning - 1 end, || not units[i].spawning) end
+    Wait.condition(function ()
+        if #units == 1 and units[1].getName() == unit_type then
+            returnPiece(stack)
+            unit_callback(units[1])
+            callback()
+        else
+            stack.setPositionSmooth(stack.getPosition() - units[#units].getPosition() + units[#units - 1].getPosition())
+            for i = #units, 1, -1 do if units[i].getName() == unit_type or i == 1 then
+                unit_callback(units[i])
+                index = i
+                break
+            else units[i].setPositionSmooth(units[i - 1].getPosition()) end end
+            table.remove(units, index)
+            Wait.condition(function ()
+                mergeStack(stack, units)
+                callback()
+            end, || not stack.isSmoothMoving())
+    end end, || spawning == 0)
+end

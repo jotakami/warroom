@@ -1,0 +1,53 @@
+-- -- Step 1: Flip embattled hotspots
+
+function flipHotspots()
+    for region, data in pairs(Map.state()) do
+        if data.hotspot and data.hotspot.is_face_down then data.hotspot.flip() end
+    end
+    resolveMovement()
+end
+
+-- -- Step 2: Resolve movement in turn order
+
+function resolveMovement()
+    setStatus('Resolving movement orders')
+    local order = getTurnOrder()
+    movementComplete = |data| resolveOrders(order[order[data.nation] + 1])
+    resolveOrders(order[1])
+end
+
+function resolveOrders(nation)
+    if not nation then
+        movementComplete = nil
+        deployCarrierFighters()
+    else state.objects.orders[nation].call('resolveOrders') end
+end
+
+-- -- Step 3: Carrier fighter movement
+
+function deployCarrierFighters()
+    setStatus('Deploy carrier fighters')
+    local fighterBag = getObjectFromGUID(GUIDs.Bags.Units.cfighter)
+    local remaining = 0
+    for nation, commands in pairs(state.objects.commands) do
+        for i = 1, 9, 1 do if not commands[i] then break else
+            local count = commands[i].getName():match('(%d+)%s%[%w+%]Carrier')
+            local rotation, bump = commands[i].getRotation(), 0
+            if isAxis(nation) then rotation, bump = rotation + vector(0, 0, 180), 0.22 end
+            if count then for j = 1, count, 1 do
+                Wait.time(function () fighterBag.takeObject({
+                    position = commands[i].getPosition() + vector(0, j * 0.25 + bump, 0),
+                    rotation = rotation,
+                    callback_function = function (obj)
+                        obj.setVar('nation', nation)
+                        setBlinker(obj)
+                        Wait.condition(function ()
+                            stopBlinker(obj)
+                            remaining = remaining - 1
+                        end, || obj.getVar('region') ~= nil)
+                    end
+                }) end, remaining * 0.15)
+                remaining = remaining + 1
+    end end end end end
+    Wait.condition(|| setAdvance('combat', 'Combat Operations'), || remaining == 0)
+end

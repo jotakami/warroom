@@ -5,6 +5,7 @@ GUIDs = {
         Pegs = '02ce83',
         Stress = {'ef4903', nil, '36f9b1'},
         medal_goods = '0228ac',
+        bomb_industry = '1ac8dd',
         hotspot = '7d3ea5',
         arrow = 'bb750a',
         Units = {
