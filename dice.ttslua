@@ -1,0 +1,3 @@
+DiceOrder = {yellow = 1, blue = 2, green = 3, red = 4, black = 5, white = 6}
+
+function getDieColor(die) return die.getRotationValue():sub(9):lower() end

@@ -1,23 +1,24 @@
 -- -- Step 1: Flip embattled hotspots
 
 function flipHotspots()
-    for region, data in pairs(Map.state()) do
-        if data.hotspot and data.hotspot.is_face_down then data.hotspot.flip() end
-    end
+    for _, obj in ipairs(getAllObjects()) do if obj.getName() == 'hotspot' and obj.is_face_down then obj.flip() end end
     resolveMovement()
 end
 
 -- -- Step 2: Resolve movement in turn order
 
 function resolveMovement()
-    setStatus('Resolving movement orders')
+    updateTracker('Resolve movement orders', '3 - Movement Operations')
+    UI.show('movement')
     local order = getTurnOrder()
     movementComplete = |data| resolveOrders(order[order[data.nation] + 1])
     resolveOrders(order[1])
 end
 
 function resolveOrders(nation)
+    UI.setAttribute('movement-nation', 'image', nation)
     if not nation then
+        UI.hide('movement')
         movementComplete = nil
         deployCarrierFighters()
     else state.objects.orders[nation].call('resolveOrders') end
@@ -26,28 +27,44 @@ end
 -- -- Step 3: Carrier fighter movement
 
 function deployCarrierFighters()
-    setStatus('Deploy carrier fighters')
+    updateTracker('Carrier fighter movement')
     local fighterBag = getObjectFromGUID(GUIDs.Bags.Units.cfighter)
-    local remaining = 0
+    local delay, ready = 0, {}
     for nation, commands in pairs(state.objects.commands) do
+        updateStatus(nation, true)
         for i = 1, 9, 1 do if not commands[i] then break else
             local count = commands[i].getName():match('(%d+)%s%[%w+%]Carrier')
-            local rotation, bump = commands[i].getRotation(), 0
-            if isAxis(nation) then rotation, bump = rotation + vector(0, 0, 180), 0.22 end
-            if count then for j = 1, count, 1 do
-                Wait.time(function () fighterBag.takeObject({
-                    position = commands[i].getPosition() + vector(0, j * 0.25 + bump, 0),
-                    rotation = rotation,
-                    callback_function = function (obj)
-                        obj.setVar('nation', nation)
-                        setBlinker(obj)
-                        Wait.condition(function ()
-                            stopBlinker(obj)
-                            remaining = remaining - 1
-                        end, || obj.getVar('region') ~= nil)
-                    end
-                }) end, remaining * 0.15)
-                remaining = remaining + 1
+            if count then
+                local rotation, bump = commands[i].getRotation(), 0
+                if isAxis(nation) then rotation, bump = rotation + vector(0, 0, 180), 0.22 end
+                state.objects.cfighters[nation] = {}
+                state.objects.orders[nation].call('carrierFighters')
+                ready[nation] = false
+                updateStatus(nation, false)
+                for j = 1, count, 1 do
+                    Wait.time(function () fighterBag.takeObject({
+                        position = commands[i].getPosition() + vector(0, j * 0.25 + bump, 0),
+                        rotation = rotation,
+                        callback_function = function (obj)
+                            obj.setVar('nation', nation)
+                            obj.highlightOn(colorTable(Colors[nation]))
+                            table.insert(state.objects.cfighters[nation], obj)
+                        end
+                    }) end, delay)
+                    delay = delay + 0.15
     end end end end end
-    Wait.condition(|| setAdvance('combat', 'Combat Operations'), || remaining == 0)
+    playerReady = function (data) for nation, value in pairs(data) do
+        ready[nation] = value
+        updateStatus(nation, value)
+        for _, cfighter in ipairs(state.objects.cfighters[nation]) do
+            if value then cfighter.highlightOff()
+            else cfighter.highlightOn(colorTable(Colors[nation])) end
+    end end end
+    Wait.condition(function ()
+        playerReady = nil
+        combatOperations()
+    end, function ()
+        for _, value in pairs(ready) do if not value then return false end end
+        return true
+    end)
 end

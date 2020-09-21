@@ -1,8 +1,8 @@
 #include constants/battle
-#include constants/colors
 #include constants/nations
 #include xml/battle
 #include stacks
+#include dice
 #include debug
 
 --- Save and load ---
@@ -29,12 +29,15 @@ end
 function setupCombat(data)
     local setup = data[1]
     state.hotspot = data[2]
+    local region = state.hotspot.getVar('region')
+    debug('setup: ', setup, ', hotspot: ', state.hotspot.getGUID(), ', region: ', region)
+    self.UI.setValue(setup .. '-region', region:gsub('([aimp])', '%1-'):upper())
+    self.UI.setAttribute(setup .. '-region', 'color', '#' .. (Colors[Prefixes[region:sub(1, 1)] or 'sea']))
     if (setup == 'land') == self.is_face_down then
         flipBoard()
         Wait.condition(function ()
             adjustZones()
             adjustSnapPoints()
-            self.UI.setAttribute(setup .. '-status-panel', 'active', true)
         end, || not self.isSmoothMoving())
     end
 end
@@ -43,6 +46,8 @@ function isReady() return not state.hotspot end
 
 function setStances()
     local mode, unit_types, ready = combatMode(), {}, {}
+    self.UI.setAttribute(mode .. '-status-panel', 'active', true)
+    self.UI.setValue(mode .. '-status', 'Set stances')
     state.dice = {}
     for side, zones in pairs(Zones.units[mode]) do
         self.UI.setAttribute(mode .. '-' .. side .. '-roll-frame', 'active', false)
@@ -121,9 +126,9 @@ function updateDiceText(side)
     for stage, value in pairs(state.dice[side]) do
         local id = combatMode() .. '-' .. side .. '-' .. stage
         if value > 0 then
-            self.UI.setAttribute(id, 'active', true)
+            self.UI.show(id)
             self.UI.setValue(id .. '-dice', math.min(value, 30))
-        else self.UI.setAttribute(id, 'active', false) end
+        else self.UI.hide(id) end
     end
 end
 
@@ -158,8 +163,10 @@ function setPortAdvantage(side)
         rotation = self.getRotation() + vector(90 + 90 * sign, -90, 0),
         smooth = false
     }) end
-    state.dice[side].surface = state.dice[side].surface + 2
-    updateDiceText(side)
+    if countStageUnits(side, 'surface') > 0 then
+        state.dice[side].surface = state.dice[side].surface + 2
+        updateDiceText(side)
+    end
 end
 
 function checkPortAdvantage(side)
@@ -175,30 +182,40 @@ end
 function setupStage(stage)
     debug('Setting up ', stage, ' stage')
     local mode, rollers = combatMode()
+    self.UI.setValue(mode .. '-status', stage:sub(1,1):upper() .. stage:sub(2) .. ' stage')
     for side, _ in pairs(state.dice) do
-        self.UI.setAttribute(mode .. '-' .. side .. '-' .. stage, 'active', false)
+        self.UI.hide(mode .. '-' .. side .. '-' .. stage)
         if state.dice[side][stage] > 0 and (stage == 'bomb' or countStageUnits(other(side), stage) > 0) then
             if rollers then rollers = 'both' else rollers = side end
             setHotspotCounters(side, stage, math.min(state.dice[side][stage], 30))
-    end end
+        end
+        state.dice[side][stage] = 0
+    end
     if rollers == 'both' then
         startRound = function (_, _, id)
             local side = id:match('%-(%a+)%-')
             startRound = nil
             rollRound(stage, side, true)
         end
-        for side, _ in pairs(state.dice) do self.UI.setAttributes(mode .. '-' .. side .. '-confirm', {
-            text = 'Roll',
-            interactable = true,
-            onClick = 'startRound'
-        }) end
-    elseif rollers then Wait.frames(|| rollRound(stage, rollers), 30)
+        for side, _ in pairs(state.dice) do
+            self.UI.show(mode .. '-' .. side .. '-confirm-panel')
+            self.UI.setAttributes(mode .. '-' .. side .. '-confirm', {
+                text = 'Roll', interactable = true, onClick = 'startRound'
+            })
+        end
+    elseif rollers then
+        Wait.frames(|| rollRound(stage, rollers, nil, stage == 'bomb' and getBombTargets(rollers)), 20)
     else advanceStage(stage) end
 end
 
 function advanceStage(stage)
-    if stage == 'air' then if combatMode() == 'land' then setupStage('bomb') else setupStage('surface') end
-    elseif stage == 'bomb' then setupStage('ground')
+    if stage == 'air' then
+        onObjectEnterScriptingZone, onObjectLeaveScriptingZone = nil, nil
+        if combatMode() == 'land' then setupStage('bomb') else setupStage('surface') end
+    elseif stage == 'bomb' then
+        self.UI.hide('axis-bomb-targets')
+        self.UI.hide('allies-bomb-targets')
+        setupStage('ground')
     else makeRepairs() end
 end
 
@@ -222,14 +239,28 @@ function setHotspotCounters(side, stage, num)
 end
 
 function setHotspotCounter(start, moveTo) HotspotBag.takeObject({
-    position = start,
-    smooth = false,
+    position = start, smooth = false,
     callback_function = |obj| Wait.condition(|| obj.setPositionSmooth(moveTo, false, true), || not obj.spawning)
 }) end
 
+function getBombTargets(side)
+    local targets, colors = {}, Global.call('getBombTargets', {state.hotspot.getVar('region')})
+    for _, target in ipairs(BombOrder) do if colors[target[1]][target[2]] then
+        table.insert(targets, {color = target[1], target = target[2], qty = colors[target[1]][target[2]]})
+    end end
+    self.UI.show(side .. '-bomb-targets')
+    for i = 1, 8 do if targets[i] then
+        self.UI.setAttributes(side .. '-target' .. i, {
+            text = targets[i].qty, textColor = targets[i].color == 'white' and 'red' or 'white',
+            image = targets[i].target, active = true, interactable = false
+        })
+    else self.UI.hide(side .. '-target' .. i) end end
+    return targets
+end
+
 --- Roll dice ---
 
-function rollRound(stage, side, switch)
+function rollRound(stage, side, switch, targets)
     local mode = combatMode()
     local num, more = getRollCounter(side)
     local callback = function ()
@@ -246,17 +277,17 @@ function rollRound(stage, side, switch)
             if not wait_fun then ready = true end
         end
         Wait.condition(function ()
-            if switch or more then rollRound(stage, switch and other(side) or side, switch and more)
+            if switch or more then rollRound(stage, switch and other(side) or side, switch and more, targets)
             else advanceStage(stage)
         end end, || ready)
     end
-    if countStageUnits(other(side), stage) == 0 then Wait.frames(|| callback(), 12)
+    if stage ~= 'bomb' and countStageUnits(other(side), stage) == 0 then Wait.frames(|| callback(), 12)
     else
         setStatusRolling(side)
         rollDice(num, function (results)
             local a, b = 1, #results.objs
             while a < b do results.objs[a], results.objs[b], a, b = results.objs[b], results.objs[a], a + 1, b - 1 end
-            if stage == 'bomb' then assignBombs(results.objs, callback)
+            if stage == 'bomb' then assignBombs(side, results.objs, targets, callback)
             else assignHits(side, stage, results.objs, callback) end
         end)
     end
@@ -264,8 +295,8 @@ end
 
 function setStatusRolling(side)
     local id = combatMode() .. '-' .. side .. '-confirm'
-    self.UI.setAttribute(id:gsub(side, other(side)) .. '-panel', 'active', false)
-    self.UI.setAttribute(id .. '-panel', 'active', true)
+    self.UI.hide(id:gsub(side, other(side)) .. '-panel')
+    self.UI.show(id .. '-panel')
     self.UI.setAttributes(id, {text = 'Rolling', interactable = false})
 end
 
@@ -296,7 +327,7 @@ end
 
 function rollClick(_, _, id)
     local side, num = id:match('%a+%-roll%-(%a+)%-(%d+)$')
-    broadcastToAll(colorize(side) .. '[-] rolling ' .. num .. ' dice')
+    broadcastToAll(colorize(proper(side), side) .. '[-] rolling ' .. num .. ' dice')
     rollDice(num + 0)
 end
 
@@ -348,18 +379,47 @@ function arrangeResults(roll)
     broadcastToAll('Roll result: ' .. msg:sub(1, -6))
 end
 
-function getDieColor(die) return die.getRotationValue():sub(9):lower() end
-
 --- Assign hits ---
 
-function assignBombs(dice, callback)
-    debug('Bomb assignment not implemented')
-    callback()
+function assignBombs(side, dice, targets, callback)
+    if #dice == 0 then
+        for i, target in ipairs(targets) do toggleBombButton(side, i, false, target.color == 'white') end
+        callback()
+    else
+        local die = table.remove(dice)
+        local color, waiting = getDieColor(die)
+        for i, target in ipairs(targets) do if (color == 'black' or color == target.color) and target.qty > 0 then
+            waiting = true
+            toggleBombButton(side, i, true, target.color == 'white')
+        else toggleBombButton(side, i, false, target.color == 'white') end end
+        if waiting then
+            setBlinker(die)
+            assignBomb = function (_, _, id)
+                assignBomb = nil
+                local index = id:match('%d+') + 0
+                Global.call('bombHit', {
+                    state.hotspot.getVar('region'),
+                    targets[index].target,
+                    state.hotspot.getPosition() + vector(0, 1, 0)
+                })
+                stopBlinker(die)
+                die.destruct()
+                targets[index].qty = targets[index].qty - 1
+                self.UI.setAttribute(side .. '-target' .. index, 'text', targets[index].qty)
+                assignBombs(side, dice, targets, callback)
+            end
+        else
+            die.destruct()
+            assignBombs(side, dice, targets, callback)
+    end end
+end
+
+function toggleBombButton(side, index, enable, bomb)
+    self.UI.setAttributes(side .. '-target' .. index, {textColor = bomb and 'red' or 'white', interactable = enable})
 end
 
 function assignHits(side, stage, dice, callback)
-    local skips, waiting
-    local fd = checkForceAdvantage() == other(side)
+    local fd, skips, waiting = checkForceAdvantage() == other(side)
     if stage == 'air' then skips = 'yellow,blue'
     elseif stage == 'ground' then skips = 'red'
     else skips = '' end
@@ -437,7 +497,7 @@ function createHitButton(obj) obj.UI.setXmlTable({{tag = 'Button', attributes = 
     rotation = '0 ' .. (obj.is_face_down and '180' or '0') .. ' 180',
     height = 48, width = 72, scale = obj.getName() == 'cfighter' and '2 2' or '1 1',
     fontSize = 36, text = 'Hit',
-    color = '#' .. Colors.button[obj.getName()] .. 'd0|#ffffffd0|#000000d0|clear',
+    color = '#' .. Colors[obj.getName()] .. 'd0|#ffffffd0|#000000d0|clear',
     onClick = self.getGUID() .. '/clickHit(' .. obj.getGUID() .. ')'
 }}}) end
 
@@ -562,7 +622,7 @@ function createRepairButtons(obj, side, stackObj)
     local scale_factor = obj.getName() == 'cfighter' and 2 or 1
     local x, z = sign * 80 * scale_factor, obj.is_face_down and ' 2' or ' -29'
     local rotation, scale = '0 ' .. (obj.is_face_down and '180' or '0') .. ' 180', scale_factor .. ' ' .. scale_factor
-    if Debug then print('Creating repair buttons for ', nation, ' ', obj.getName()) end
+    debug('Creating repair buttons for ', nation, ' ', obj.getName())
     local resources = getObjectFromGUID(Global.getTable('GUIDs').Nations[nation].resources).call('totals')
     local buttons = {
         {tag = 'Image', attributes = {
@@ -644,7 +704,7 @@ function returnUnits()
         end end
         max_delay = math.max(max_delay, delay)
     end
-    local hotspot = state.hotspot
+    local hotspot = state.hotspot.getGUID()
     Wait.frames(|| Wait.time(|| Global.call('battleDebrief', {hotspot, combatants}), 2), max_delay)
 end
 
@@ -657,6 +717,7 @@ function getCommandStacks()
             commands[side][obj.getGUID()] = {command = obj, units = {}}
             if not combatants[nation] then table.insert(combatants, nation) end
             combatants[nation] = true
+            debug('Found ', nation, ' combatant')
     end end
     for side, stacks in pairs(commands) do
         for unit, stances in pairs(Zones.units[combatMode()][side]) do for _, zone in pairs(stances) do
@@ -665,6 +726,7 @@ function getCommandStacks()
                 table.insert(stacks.cfighter, obj)
                 if not combatants[nation] then table.insert(combatants, nation) end
                 combatants[nation] = true
+                debug('Found ', nation, ' combatant')
             else
                 table.insert(stacks[obj.getVar('command')].units, obj)
                 obj.setVar('command', nil)
@@ -679,8 +741,8 @@ end
 
 function resetState()
     local mode = combatMode()
-    self.UI.setAttribute(mode .. '-status-panel', 'active', false)
-    for side, _ in pairs(state.dice) do self.UI.setAttribute(mode .. '-' .. side .. '-roll-frame', 'active', true) end
+    self.UI.hide(mode .. '-status-panel')
+    for _, side in ipairs{'axis', 'allies'} do self.UI.show(mode .. '-' .. side .. '-roll-frame') end
     onObjectEnterScriptingZone, onObjectLeaveScriptingZone = nil, nil
     state = {}
 end
@@ -772,7 +834,6 @@ end
 function stopBlinker(obj) Wait.stop(obj.getVar('blinker')) end
 
 function other(side) if side == 'axis' then return 'allies' else return 'axis' end end
-function colorize(side) if side == 'axis' then return '[C08080]Axis' else return '[A0A0FF]Allies' end end
 
 -- function onCollisionEnter(collision_info)
 --     print(self.positionToLocal(collision_info.collision_object.getPosition()))

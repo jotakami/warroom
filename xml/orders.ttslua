@@ -119,7 +119,7 @@ function initXML(order_rows, is_china)
 
     local function defaults(order_rows, is_china)
         return {tag = 'Defaults', children = {
-            {tag = 'TableLayout', attributes = { rotation = '0 0 180', cellBackgroundColor = 'clear'}},
+            {tag = 'TableLayout', attributes = {rotation = '0 0 180', cellBackgroundColor = 'clear'}},
             {tag = 'TableLayout', attributes = {class = 'movement',
                 height = 356 * order_rows .. '', width = '780',
                 position = '410 ' .. (order_rows == 3 and '-34' or '-212') .. ' -59'

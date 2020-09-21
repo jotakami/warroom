@@ -8,6 +8,8 @@ Colors = {
     japan = 'd97f3a',
     ussr = 'b77969',
     usa = '829d63',
+    neutral = 'e8e8e8',
+    sea = 'd6eaf8',
     oil = '9a2829',
     iron = '4276bb',
     osr = 'ddb426',
@@ -21,5 +23,26 @@ Colors = {
     submarine = 'ddb426',
     cruiser = '4276bb',
     carrier = '558f3a',
-    battleship = '9a2829'
+    battleship = '9a2829',
+    yellow = 'ddb426',
+    blue = '4276bb',
+    green = '558f3a',
+    red = '9a2829',
+    black = '000000',
+    white = 'ffffff'
 }
+
+function colorize(s, style)
+    if Colors[style] then return '[' .. Colors[style] .. ']' .. s .. '[-]'
+    else return s end
+end
+
+function proper(s) return s:sub(1, 1):upper() .. s:sub(2) end
+
+function colorTable(c)
+    return {
+        tonumber(c:sub(1, 2), 16) / 255,
+        tonumber(c:sub(3, 4), 16) / 255,
+        tonumber(c:sub(5, 6), 16) / 255,
+    }
+end

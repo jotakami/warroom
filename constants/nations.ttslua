@@ -12,6 +12,7 @@ Prefixes = {
     b = 'uk',
     c = 'china',
     g = 'germany',
+    n = 'neutral',
     t = 'italy',
     j = 'japan',
     n = 'neutral',

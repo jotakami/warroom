@@ -1,4 +1,6 @@
 #include constants/nations
+#include constants/colors
+#include constants/costs
 #include xml/orders
 #include debug
 
@@ -24,12 +26,12 @@ end
 function setRound(data)
     self.UI.setValue('round', data[1])
     if Nation ~= 'china' then
-        self.UI.setAttribute('bid', 'active', false)
+        self.UI.hide('bid')
         for _, resource in ipairs{'oil', 'iron', 'osr'} do for _, label in ipairs{'trade', 'minus', 'plus'} do
-            self.UI.setAttribute(label .. '-' .. resource, 'active', false)
+            self.UI.hide(label .. '-' .. resource)
     end end end
-    for i = 1, NumOrders, 1 do self.UI.setAttribute('slash' .. i, 'active', false) end
-    for _, id in ipairs{'commands', 'targets', 'purchases', 'post_trade', 'remaining'} do self.UI.setAttribute(id, 'active', false) end
+    for i = 1, NumOrders, 1 do self.UI.hide('slash' .. i) end
+    for _, id in ipairs{'commands', 'targets', 'purchases', 'post_trade', 'remaining'} do self.UI.hide(id) end
 end
 
 -- Phase 2: Strategic Planning
@@ -38,7 +40,7 @@ function writeOrders()
     if Nation ~= 'china' then self.UI.setAttributes('bid', {active = true, visibility = getVis()}) end
     self.UI.setAttributes('commands', {active = true, visibility = getVis()})
     self.UI.setAttributes('targets', {active = true, visibility = getVis()})
-    self.UI.setAttribute('orders-ready', 'active', true)
+    self.UI.show('orders-ready')
     self.UI.setAttributes('orders-ready-toggle', {isOn = false, active = true})
     setOrders(false, true)
 end
@@ -46,12 +48,16 @@ end
 function setOrders(lock, clear)
     for _, label in ipairs{'command', 'target'} do for i = 1, NumOrders, 1 do
         self.UI.setAttribute(label .. i, 'interactable', not lock)
-        if clear then self.UI.setAttribute(label .. i, 'text', '')
+        if clear then
+            if state.moves[i] then state.moves[i][label] = nil end
+            self.UI.setAttribute(label .. i, 'text', '')
     end end end
     if Nation ~= 'china' then
         self.UI.setAttribute('bid', 'interactable', not lock)
-        if clear then self.UI.setAttribute('bid', 'text', '') end
-    end
+        if clear then
+            if state.bid then state.bid = 0 end
+            self.UI.setAttribute('bid', 'text', '')
+    end end
 end
 
 function updateOrder(_, value, id)
@@ -66,14 +72,17 @@ function updateBid(_, value, id)
     self.UI.setAttribute(id, 'text', value)
     if value ~= '' and value + 0 > state.resources.oil then
         self.UI.setAttribute(id, 'textColor', 'red')
+        self.UI.setAttribute('orders-ready-toggle', 'interactable', false)
     else
         if value ~= '' then state.bid = value + 0 else state.bid = 0 end
         self.UI.setAttribute(id, 'textColor', 'black')
+        if self.UI.getAttribute('orders-ready-toggle', 'interactable') == 'False' then self.UI.setAttribute('orders-ready-toggle', 'interactable', true) end
     end
 end
 
 function toggleReady(_, value, id)
     value = value == 'True'
+    self.UI.setAttribute(id, 'isOn', value)
     if id:match('orders') then setOrders(value)
     elseif id:match('production') then setProduction(value) end
     Global.call('playerReady', {[Nation] = value})
@@ -81,8 +90,8 @@ end
 
 function revealBid()
     if Nation ~= 'china' then self.UI.setAttribute('bid', 'visibility', '') end
-    self.UI.setAttribute('orders-ready', 'active', false)
-    self.UI.setAttribute('orders-ready-toggle', 'active', false)
+    self.UI.hide('orders-ready')
+    self.UI.hide('orders-ready-toggle')
     return state.bid
 end
 
@@ -105,28 +114,35 @@ function resolveOrder(num)
         local move = state.moves[num]
         if move.command and move.target then
             local command = move.command + 0
-            local msg = Global.call('colorize', {Global.call('properName', {Nation}), Nation}) .. ' '
+            local msg = colorize(Global.call('properName', {Nation}), Nation) .. ' '
             msg = msg .. Global.call('ordinalize', {command}) .. ' '
             if command < 10 then msg = msg .. 'Fleet'
             elseif command < 20 then msg = msg .. 'Air'
             else msg = msg .. 'Army' end
-            broadcastToAll(msg .. ' moves to ' .. move.target:upper())
-            self.UI.setAttribute('resolved' .. num, 'active', true)
-            self.UI.setAttribute('canceled' .. num, 'active', true)
+            msg = msg .. ' moves to ' .. move.target:upper()
+            broadcastToAll(msg)
+            Global.UI.setValue('movement-order', msg:gsub('%b[]', ''))
+            self.UI.show('resolved' .. num)
+            self.UI.show('canceled' .. num)
         else orderCanceled(nil, nil, 'canceled' .. num) end
     else orderCanceled(nil, nil, 'canceled' .. num) end
 end
 
 function orderResolved(_, _, id)
     local i = id:sub(-1)
-    self.UI.setAttribute('resolved' .. i, 'active', false)
-    self.UI.setAttribute('canceled' .. i, 'active', false)
+    self.UI.hide('resolved' .. i)
+    self.UI.hide('canceled' .. i)
     resolveOrder(i + 1)
 end
 
 function orderCanceled(_, _, id)
-    self.UI.setAttribute('slash' .. id:sub(-1), 'active', true)
+    self.UI.show('slash' .. id:sub(-1))
     orderResolved(nil, nil, id)
+end
+
+function carrierFighters()
+    self.UI.show('orders-ready')
+    self.UI.setAttributes('orders-ready-toggle', {isOn = false, active = true})
 end
 
 -- Phase 7: Production
@@ -134,13 +150,10 @@ end
 function writeProduction()
     for _, id in ipairs{'purchases', 'post_trade', 'remaining'} do self.UI.setAttributes(id, {active = true, visibility = getVis()}) end
     if Nation ~= 'china' then for _, resource in ipairs{'oil', 'iron', 'osr'} do for _, label in ipairs{'trade', 'minus', 'plus'} do
-        self.UI.setAttribute(label .. '-' .. resource, 'active', true)
+        self.UI.show(label .. '-' .. resource)
     end end end
-    self.UI.setAttribute('production-ready', 'active', true)
-    self.UI.setAttributes('production-ready-toggle', {
-        isOn = false,
-        active = true
-    })
+    self.UI.show('production-ready')
+    self.UI.setAttributes('production-ready-toggle', {isOn = false, active = true})
     setProduction(false, true)
 end
 
@@ -249,8 +262,8 @@ end
 
 function revealPurchases()
     for _, id in ipairs{'purchases', 'post_trade', 'remaining'} do self.UI.setAttribute(id, 'visibility', '') end
-    self.UI.setAttribute('production-ready', 'active', false)
-    self.UI.setAttribute('production-ready-toggle', 'active', false)
+    self.UI.hide('production-ready')
+    self.UI.hide('production-ready-toggle')
     local purchases = {}
     for unit, t in pairs(state.production) do if t.quantity > 0 then purchases[unit] = t.quantity end end
     return purchases
@@ -277,8 +290,8 @@ end
 -- HELPER FUNCTIONS --
 
 function getVis()
-    if Alliance[Nation] == 'axis' then return 'White|Green|Orange'
-    else return 'Blue|Brown|Red|Yellow' end
+    if Alliance[Nation] == 'axis' then return 'White|Green|Orange|Black'
+    else return 'Blue|Brown|Red|Yellow|Black' end
 end
 
 function getIntValue(id)
@@ -312,15 +325,3 @@ state = {
     }
 }
 Trades = {oil = 2, iron = 3, osr = 5}
-Costs = {
-    cg = 5,
-    infantry = {oil = 0, iron = 0, osr = 2},
-    artillery = {oil = 0, iron = 2, osr = 1},
-    armor = {oil = 1, iron = 2, osr = 1},
-    fighter = {oil = 2, iron = 1, osr = 1},
-    bomber = {oil = 2, iron = 2, osr = 1},
-    submarine = {oil = 1, iron = 2, osr = 1},
-    cruiser = {oil = 2, iron = 3, osr = 2},
-    carrier = {oil = 4, iron = 3, osr = 3},
-    battleship = {oil = 3, iron = 4, osr = 3}
-}

@@ -1,5 +1,6 @@
 Scenarios = {
     europe = {
+        label = 'War in Europe',
         nations = {uk = 21, germany = 16, italy = 5, ussr = 17, usa = 2},
         capitals = {'b1', 'g1', 'r1', 't1', 'u1'},
         regions = {
@@ -15,6 +16,7 @@ Scenarios = {
         }
     },
     pacific = {
+        label = 'War in the Pacific',
         nations = {uk = 12, china = 5, japan = 28, usa = 9},
         capitals = {'b18', 'b24', 'j1', 'j4', 'u3', 'u4', 'u6'},
         regions = {
@@ -28,6 +30,7 @@ Scenarios = {
         }
     },
     eastern = {
+        label = 'Eastern Front',
         nations = {germany = 7, ussr = 17},
         capitals = {'g1', 'r1'},
         regions = {
@@ -38,7 +41,10 @@ Scenarios = {
             r = |num| num ~= 18
         }
     },
-    global = {capitals = {'b1', 'g1', 'j1', 'j4', 'r1', 't1', 'u1'}}
+    global = {
+        label = 'Global War',
+        capitals = {'b1', 'g1', 'j1', 'j4', 'r1', 't1', 'u1'}
+    }
 }
 
 CommandSetup = {
@@ -76,10 +82,10 @@ CommandSetup = {
     italy = {
         [1] = {region = 'm2', position = {x = 4.1, z = 3.1}, units = {submarine = 1, cruiser = 1, battleship = 1}},
         [11] = {region = 't1', position = {x = 4.3, z = 2.3}, units = {fighter = 1, bomber = 1}},
-        [12] = {region = 't2', position = {x = 3.6, z = 3}, units = {fighter = 2}},
+        [12] = {region = 't2', position = {x = 3.6, z = 2.8}, units = {fighter = 2}},
         [112] = {region = 't4', position = {x = 4.6, z = 2.7}, units = {infantry = 1}},
         [113] = {region = 't5', position = {x = 3.9, z = 4.2}, units = {infantry = 2, artillery = 1}},
-        [114] = {region = 't1', position = {x = 4.4, z = 2.0}, units = {infantry = 3, artillery = 1, armor = 1}},
+        [114] = {region = 't1', position = {x = 4.4, z = 1.9}, units = {infantry = 3, artillery = 1, armor = 1}},
         [115] = {region = 't4', position = {x = 3.6, z = 2.5}, units = {infantry = 2, artillery = 1, armor = 1}},
     },
     japan = {
@@ -88,32 +94,32 @@ CommandSetup = {
         [4] = {region = 'p14', position = {x = -5.3, z = 0.4}, units = {submarine = 1, cruiser = 2}},
         [5] = {region = 'p15', position = {x = -5.5, z = 3.3}, units = {cruiser = 1, battleship = 1}},
         [9] = {region = 'i9', position = {x = -4.7, z = 4.7}, units = {cruiser = 1, carrier = 1}},
-        [11] = {region = 'j1', position = {x = -4.2, z = -0.9}, units = {fighter = 2, bomber = 1}},
-        [12] = {region = 'j22', position = {x = -5.7, z = -1.1}, units = {fighter = 1, bomber = 1}},
+        [11] = {region = 'j1', position = {x = -4.1, z = -0.9}, units = {fighter = 2, bomber = 1}},
+        [12] = {region = 'j22', position = {x = -5.6, z = -1.1}, units = {fighter = 1, bomber = 1}},
         [13] = {region = 'j3', position = {x = -2.5, z = -0.7}, units = {fighter = 2, bomber = 1}},
-        [14] = {region = 'j14', position = {x = -5.7, z = 1}, units = {fighter = 1, bomber = 1}},
+        [14] = {region = 'j14', position = {x = -5.5, z = 0.9}, units = {fighter = 1, bomber = 1}},
         [15] = {region = 'j5', position = {x = -4.4, z = 0.9}, units = {fighter = 2}},
-        [16] = {region = 'j16', position = {x = -4.8, z = 0.3}, units = {fighter = 1, bomber = 1}},
-        [17] = {region = 'j7', position = {x = -4.3, z = 2.6}, units = {fighter = 2}},
+        [16] = {region = 'j16', position = {x = -4.7, z = 0.3}, units = {fighter = 1}},
+        [17] = {region = 'j7', position = {x = -4.2, z = 2.5}, units = {fighter = 2}},
         [24] = {region = 'j4', position = {x = -3, z = 0}, units = {infantry = 2, artillery = 1, armor = 1}},
-        [25] = {region = 'j12', position = {x = -5.9, z = 2.3}, units = {infantry = 1}},
+        [25] = {region = 'j12', position = {x = -5.8, z = 2.2}, units = {infantry = 1}},
         [30] = {region = 'j8', position = {x = -3.3, z = 2.5}, units = {infantry = 2, artillery = 1}},
         [39] = {region = 'j22', position = {x = -5.7, z = -0.8}, units = {infantry = 1, artillery = 1}},
-        [44] = {region = 'j1', position = {x = -4.2, z = -1.2}, units = {infantry = 2, artillery = 2, armor = 2}},
-        [46] = {region = 'j6', position = {x = -4.1, z = 2.2}, units = {infantry = 1, artillery = 1}},
+        [44] = {region = 'j1', position = {x = -4.1, z = -1.2}, units = {infantry = 2, artillery = 2, armor = 2}},
+        [46] = {region = 'j6', position = {x = -4.1, z = 2.1}, units = {infantry = 1, artillery = 1}},
         [52] = {region = 'j20', position = {x = -4.8, z = -1.7}, units = {infantry = 1, artillery = 1}},
-        [54] = {region = 'j11', position = {x = -6.3, z = 3.4}, units = {infantry = 1}},
+        [54] = {region = 'j11', position = {x = -6.2, z = 3.3}, units = {infantry = 1}},
         [62] = {region = 'j2', position = {x = -3.7, z = -0.5}, units = {infantry = 1}},
         [65] = {region = 'j3', position = {x = -2.8, z = -0.7}, units = {infantry = 2, artillery = 1, armor = 1}},
-        [76] = {region = 'j24', position = {x = -6.3, z = -0.7}, units = {infantry = 1, artillery = 1}},
-        [77] = {region = 'j14', position = {x = -5.4, z = 1.1}, units = {infantry = 2, artillery = 1}},
-        [78] = {region = 'j10', position = {x = -5.3, z = 3.8}, units = {infantry = 1}},
-        [81] = {region = 'j5', position = {x = -4.4, z = 0.6}, units = {infantry = 2, artillery = 1, armor = 1}},
-        [85] = {region = 'j9', position = {x = -4.9, z = 3.6}, units = {infantry = 1, artillery = 1}},
+        [76] = {region = 'j24', position = {x = -6.2, z = -0.6}, units = {infantry = 1, artillery = 1}},
+        [77] = {region = 'j14', position = {x = -5.3, z = 1.1}, units = {infantry = 2, artillery = 1}},
+        [78] = {region = 'j10', position = {x = -5.6, z = 3.6}, units = {infantry = 1}},
+        [81] = {region = 'j5', position = {x = -4, z = 0.3}, units = {infantry = 2, artillery = 1, armor = 1}},
+        [85] = {region = 'j9', position = {x = -4.9, z = 3.5}, units = {infantry = 1, artillery = 1}},
         [87] = {region = 'j23', position = {x = -6.3, z = -1.7}, units = {infantry = 1}},
         [89] = {region = 'j17', position = {x = -4.8, z = -0.4}, units = {infantry = 1, artillery = 1}},
         [92] = {region = 'j25', position = {x = -6.7, z = -2}, units = {infantry = 1, artillery = 1}},
-        [95] = {region = 'j7', position = {x = -4, z = 2.7}, units = {infantry = 1, artillery = 1}},
+        [95] = {region = 'j7', position = {x = -3.9, z = 2.6}, units = {infantry = 1, artillery = 1}},
     },
     uk = {
         [2] = {region = 'i2', position = {x = -1, z = 5.4}, units = {cruiser = 1, carrier = 1}},
@@ -135,7 +141,7 @@ CommandSetup = {
         [60] = {region = 'b18', position = {x = -2.3, z = 3}, units = {infantry = 3, artillery = 1, armor = 1}},
         [63] = {region = 'b16', position = {x = 1.7, z = 3.7}, units = {infantry = 1, artillery = 1}},
         [68] = {region = 'b22', position = {x = -7.5, z = 0.5}, units = {infantry = 1}},
-        [71] = {region = 'b25', position = {x = -6.6, z = -0.7}, units = {infantry = 1, artillery = 1}},
+        [71] = {region = 'b25', position = {x = -6.5, z = -0.7}, units = {infantry = 1, artillery = 1}},
         [75] = {region = 'b10', position = {x = 3.9, z = 6.9}, units = {infantry = 1, artillery = 1}},
         [80] = {region = 'b23', position = {x = -8, z = 0.5}, units = {infantry = 1, artillery = 1}},
         [90] = {region = 'b28', position = {x = 1.1, z = -4.8}, units = {infantry = 1, artillery = 1}}
@@ -156,7 +162,7 @@ CommandSetup = {
         [31] = {region = 'u5', position = {x = -2, z = -4}, units = {infantry = 1, artillery = 1}},
         [35] = {region = 'u4', position = {x = -1.2, z = -4.1}, units = {infantry = 1, artillery = 1}},
         [43] = {region = 'j25', position = {x = -6.8, z = -2.2}, units = {infantry = 1, artillery = 1}},
-        [50] = {region = 'b27', position = {x = -7, z = -4.2}, units = {infantry = 1, artillery = 1}},
+        [50] = {region = 'b27', position = {x = -6.9, z = -4.2}, units = {infantry = 1, artillery = 1}},
         [51] = {region = 'u1', position = {x = 3, z = -5.6}, units = {infantry = 2, artillery = 1, armor = 2}},
         [64] = {region = 'u6', position = {x = -2.1, z = -6.6}, units = {infantry = 2, artillery = 1}},
         [69] = {region = 'u3', position = {x = 1.1, z = -6.1}, units = {infantry = 2, artillery = 2, armor = 1}},
@@ -174,7 +180,7 @@ CommandSetup = {
         [29] = {region = 'r4', position = {x = 1.8, z = 0.3}, units = {infantry = 4, artillery = 2}},
         [34] = {region = 'r14', position = {x = -1.9, z = -0.3}, units = {infantry = 2, artillery = 1, armor = 1}},
         [57] = {region = 'r6', position = {x = 0.9, z = 2.6}, units = {infantry = 4, artillery = 1}},
-        [58] = {region = 'r16', position = {x = -2.8, z = -1.4}, units = {infantry = 2, artillery = 1}},
+        [58] = {region = 'r16', position = {x = -2.7, z = -1.3}, units = {infantry = 2, artillery = 1}},
         [66] = {region = 'r2', position = {x = 0.6, z = 0}, units = {infantry = 2, artillery = 1}},
         [67] = {region = 'r3', position = {x = 1.7, z = -0.5}, units = {infantry = 3, artillery = 1}},
     }

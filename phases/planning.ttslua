@@ -1,6 +1,6 @@
 function writeOrders()
-    setStatus('Strategic planning')
     setAdvance('', '')
+    updateTracker('Write orders and bids', '2 - Strategic Planning')
     local ready = {}
     for nation, orders in pairs(state.objects.orders) do
         orders.call('writeOrders')
@@ -9,6 +9,7 @@ function writeOrders()
     playerReady = function (data)
         local all_ready = true
         for nation, value in pairs(ready) do if data[nation] ~= nil then
+            updateStatus(nation, data[nation])
             ready[nation] = data[nation]
             all_ready = all_ready and data[nation]
         else all_ready = all_ready and ready[nation] end end
@@ -19,12 +20,14 @@ function writeOrders()
 end
 
 function revealBids()
-    setStatus('Revealing bids')
+    updateTracker('Reveal bids')
+    resetStatus()
     local bids, delay = {}, 0
     for nation, orders in pairs(state.objects.orders) do
         Wait.time(function ()
             bids[nation] = orders.call('revealBid')
             broadcastToAll(colorize(properName(nation), nation) .. ' bid ' .. colorize(bids[nation], 'oil') .. ' oil')
+            updateStatus(nation, bids[nation], Colors.oil)
         end, delay)
         delay = delay + 0.5
     end
@@ -32,53 +35,42 @@ function revealBids()
 end
 
 function setTurnOrder(bids)
-    setStatus('Choose turn order')
+    updateTracker('Establish turn order')
     state.turn_order = {}
-    local order, turns, points = {}, {}, {}
-    for nation, bid in pairs(bids) do table.insert(order, {bid = bid + math.random(), nation = nation}) end
+    local order, spots = {}, {}
+    for nation, bid in pairs(bids) do
+        state.objects.turn_tokens[nation].setLock(true)
+        table.insert(order, {bid = bid + math.random(), nation = nation})
+    end
     table.sort(order, |a, b| a.bid < b.bid)
-    for i, point in ipairs(Map.snaps) do if i > #order then break else table.insert(points, {
-        position = Map.obj.positionToWorld(point.position),
-        rotation = point.rotation + Map.rotation
-    }) end end
-    for i = 1, #order, 1 do
-        table.insert(turns, i)
-        Map.obj.UI.setAttribute('turn' .. i, 'active', true)
-    end
-    chooseTurn = function (_, nation, id)
-        local choice, choice_index = id:sub(-1) + 0
-        state.turn_order[nation] = choice
-        state.turn_order[choice] = nation
-        Map.obj.UI.setAttribute(id, 'active', false)
-        for i, turn in ipairs(turns) do
-            Map.obj.UI.setAttribute('turn' .. turn, 'interactable', false)
-            if turn == choice then choice_index = i end
-        end
-        table.remove(turns, choice_index)
-        state.objects.turn_tokens[nation].setPositionSmooth(points[choice].position)
-        state.objects.turn_tokens[nation].setRotationSmooth(points[choice].rotation)
-        Wait.condition(function ()
-            stopBlinker(state.objects.turn_tokens[nation])
-            chooseTurns(order, turns, points)
-        end, || not state.objects.turn_tokens[nation].isSmoothMoving())
-    end
-    chooseTurns(order, turns)
+    for i = 1, #order do table.insert(spots, Map.obj.positionToWorld(Map.snaps[i].position)) end
+    chooseTurns(order, spots)
 end
 
-function chooseTurns(order, turns)
-    if #order == 0 then payBids()
+function chooseTurns(order, spots)
+    if #order == 0 then
+        onObjectDrop = nil
+        payBids()
     else
         local nation = table.remove(order).nation
-        setBlinker(state.objects.turn_tokens[nation])
-        for _, turn in ipairs(turns) do Map.obj.UI.setAttributes('turn' .. turn, {
-            interactable = true,
-            onClick = 'Global/chooseTurn(' .. nation .. ')'
-        }) end
-        if #turns == 1 then chooseTurn(nil, nation, 'turn' .. turns[1]) end
+        local token = state.objects.turn_tokens[nation]
+        updateTurn(nation)
+        token.setLock(false)
+        setBlinker(token)
+        onObjectDrop = function (_, obj) if obj.getGUID() == token.getGUID() then Wait.frames(function ()
+            for i = 1, 7 do if spots[i] and obj.getPosition():setAt('y', spots[i].y) == spots[i] then
+                stopBlinker(obj)
+                state.turn_order[nation], state.turn_order[i] = i, nation
+                spots[i] = nil
+                updateStatus(nation, ({'①', '②', '③', '④', '⑤', '⑥', '⑦'})[i], Colors.white)
+                chooseTurns(order, spots)
+                break
+        end end end, 15) end end
     end
 end
 
 function payBids()
     for nation, orders in pairs(state.objects.orders) do orders.call('payBid') end
+    updateTurn()
     flipHotspots()
 end

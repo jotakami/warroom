@@ -7,52 +7,53 @@ function onLoad(saved_state)
     end
     local bag_guids = Global.getTable('GUIDs').Bags
     Bags = {
-        Stress = {
-            getObjectFromGUID(bag_guids.Stress[1]),
-            nil,
-            getObjectFromGUID(bag_guids.Stress[3])
-        },
+        Stress = {getObjectFromGUID(bag_guids.Stress[1]), nil, getObjectFromGUID(bag_guids.Stress[3])},
         MedalGoods = getObjectFromGUID(bag_guids.medal_goods)
     }
-    state = {
-        pendingStress = {},
-        pendingMedals = {},
-        ready = {},
-        stress = {},
-        medals = {}
-    }
+    state = {pending = {}, stress = {}, medals = {}}
     for nation, _ in pairs(Nations) do
-        state.pendingStress[nation] = 0
-        state.pendingMedals[nation] = 0
+        state.pending[nation] = {casualties = {}, stress = 0, medals = 0}
     end
 end
 
 function stackCasualties(data)
-    local i, pos, delay = 1, {}, 0.1
-    if #data == 1 then delay = 0 end
-    Wait.time(function ()
-        local obj = getObjectFromGUID(data[i])
-        local nation, unit, step = obj.getVar('nation'), obj.getName(), 0.21
-        debug('Taking ', nation, ' ', unit, ' casualty')
+    for _, guid in ipairs(data) do
+        local obj = getObjectFromGUID(guid)
+        local unit = obj.getName()
+        addCasualty(obj, obj.getVar('nation'), unit == 'cfighter' and 'fighter' or unit)
         obj.setVar('nation', nil)
-        if unit == 'cfighter' then unit, step = 'fighter', 0.22 end
-        if not pos[nation] then pos[nation] = {} end
-        if not pos[nation][unit] then pos[nation][unit] = getDropPosition(nation, unit)
-        else pos[nation][unit] = pos[nation][unit] + vector(0, step, 0) end
-        obj.setPositionSmooth(pos[nation][unit])
-        obj.setRotationSmooth(self.getRotation() + vector(0, obj.is_face_down and 180 or 0, 0))
-        i = i + 1
-    end, delay, #data)
+    end
+end
+
+function addCasualty(obj, nation, unit)
+    if not state.pending[nation].casualties[unit] then state.pending[nation].casualties[unit] = {} end
+    local casualties = state.pending[nation].casualties[unit]
+    table.insert(casualties, obj)
+    if #casualties == 1 then stackCasualty(casualties, getDropPosition(nation, unit)) end
+end
+
+function stackCasualty(casualties, pos)
+    if #casualties > 0 then
+        local obj, offset, step = casualties[1], vector(0, 0, 0), 0.21
+        if obj.getName() == 'cfighter' then step = 0.22 end
+        if obj.is_face_down then offset = vector(0, step, 0) end
+        obj.setPositionSmooth(pos + offset)
+        obj.setRotationSmooth(self.getRotation() + vector(0, 0, obj.is_face_down and 180 or 0))
+        Wait.frames(function ()
+            table.remove(casualties, 1)
+            stackCasualty(casualties, pos + vector(0, step, 0))
+        end, 5)
+    end
 end
 
 function getDropPosition(nation, unit)
-    local pos = self.positionToWorld(self.getSnapPoints()[snapOffset(nation, unit)].position) - vector(0, 0.05, 0)
+    local pos, offset = self.positionToWorld(self.getSnapPoints()[snapOffset(nation, unit)].position) - vector(0, 0.1, 0), 0.15
     for _, obj in ipairs(Physics.cast({
         origin = pos,
         direction = {0, 1, 0},
         max_distance = 5
-    })) do if obj.hit_object.getName() == 'cfighter' then pos.y = pos.y + 0.22 else pos.y = pos.y + 0.21 end end
-    return pos + vector(0, 0.15, 0)
+    })) do if obj.hit_object.getName() == 'cfighter' then offset = offset + 0.22 else offset = offset + 0.21 end end
+    return pos + vector(0, offset, 0)
 end
 
 function getMedals(data)
@@ -71,8 +72,8 @@ end
 
 function addMedals(data)
     debug('Giving ', data.value, ' ', data.goods and 'consumer goods' or 'medals', ' to ', data.nation)
-    state.pendingMedals[data.nation] = state.pendingMedals[data.nation] + data.value
-    if state.pendingMedals[data.nation] == data.value then
+    state.pending[data.nation].medals = state.pending[data.nation].medals + data.value
+    if state.pending[data.nation].medals == data.value then
         local medal, position = table.remove(getMedals({nation = data.nation}))
         if medal then
             position = medal.getPosition()
@@ -85,8 +86,8 @@ end
 function addGoods(data) addMedals({nation = data.nation, value = data.value, goods = true}) end
 
 function stackMedals(nation, position, flipped)
-    if state.pendingMedals[nation] > 0 then
-        state.pendingMedals[nation] = state.pendingMedals[nation] - 1
+    if state.pending[nation].medals > 0 then
+        state.pending[nation].medals = state.pending[nation].medals - 1
         Bags.MedalGoods.takeObject({
             position = position + vector(0, flipped and 0.21 or 0, 0),
             rotation = self.getRotation() + vector(0, 0, flipped and 180 or 0),
@@ -97,15 +98,14 @@ end
 
 function getStress(data)
     local stress = {total = 0, objs = {}}
-    for _, obj in ipairs(Zones[data.nation].getObjects()) do
+    for _, obj in ipairs(Zones[data.nation].getObjects()) do if not obj.isSmoothMoving() then
         if obj.getName() == '1stress' then
             stress.total = stress.total + 1
             table.insert(stress.objs, obj)
         elseif obj.getName() == '3stress' then
             stress.total = stress.total + 3
             table.insert(stress.objs, obj)
-        end
-    end
+    end end end
     table.sort(stress.objs, function (a, b)
         local ay, by = a.getPosition().y, b.getPosition().y
         if a.is_face_down then ay = ay - a.getCustomObject().thickness end
@@ -117,8 +117,8 @@ end
 
 function addStress(data)
     debug('Giving ', data.value, ' stress to ', data.nation)
-    state.pendingStress[data.nation] = state.pendingStress[data.nation] + data.value
-    if state.pendingStress[data.nation] == data.value then
+    state.pending[data.nation].stress = state.pending[data.nation].stress + data.value
+    if state.pending[data.nation].stress == data.value then
         local stress, singles, position = getStress(data), {}
         if #stress.objs == 0 then position = self.positionToWorld(self.getSnapPoints()[snapOffset(data.nation, 'stress')].position)
         else position = stress.objs[#stress.objs].getPosition() end
@@ -129,35 +129,28 @@ function addStress(data)
 end
 
 function stackStress(nation, position, singles)
-    if state.pendingStress[nation] > 0 then
-        if #singles == 2 then Bags.Stress[1].takeObject({
-            position = position,
-            rotation = self.getRotation(),
-            callback_function = placedCallback(function (obj)
-                local pos = singles[2].getPosition()
-                for _, o in pairs({obj, singles[2], singles[1]}) do destroyObject(o) end
-                Bags.Stress[3].takeObject({
-                    position = pos,
-                    rotation = self.getRotation(),
-                    smooth = false
-                })
-                state.pendingStress[nation] = state.pendingStress[nation] - 1
-                stackStress(nation, position - vector(0, 0.21, 0), {})
-            end)
-        }) elseif #singles == 1 then placeStress(nation, 1, position, singles[1])
-        elseif state.pendingStress[nation] < 3 then placeStress(nation, 1, position)
-        else placeStress(nation, 3, position) end
-    end
+    if state.pending[nation].stress > 0 then if #singles == 2 then Bags.Stress[1].takeObject({
+        position = position, rotation = self.getRotation(),
+        callback_function = placedCallback(function (obj)
+            local pos = singles[2].getPosition()
+            for _, o in pairs({obj, singles[2], singles[1]}) do destroyObject(o) end
+            Bags.Stress[3].takeObject({position = pos, rotation = self.getRotation(), smooth = false})
+            state.pending[nation].stress = state.pending[nation].stress - 1
+            stackStress(nation, position - vector(0, 0.21, 0), {})
+        end)
+    })
+    elseif #singles == 1 then placeStress(nation, 1, position, singles[1])
+    elseif state.pending[nation].stress < 3 then placeStress(nation, 1, position)
+    else placeStress(nation, 3, position) end end
 end
 
 function placeStress(nation, value, position, single)
     Bags.Stress[value].takeObject({
-        position = position,
-        rotation = self.getRotation(),
+        position = position, rotation = self.getRotation(),
         callback_function = placedCallback(function (obj)
             local singles = {single}
             if value == 1 then table.insert(singles, obj) end
-            state.pendingStress[nation] = state.pendingStress[nation] - value
+            state.pending[nation].stress = state.pending[nation].stress - value
             stackStress(nation, position + vector(0, 0.21, 0), singles)
         end)
     })
@@ -168,24 +161,29 @@ function placedCallback(callback)
 end
 
 function convertCasualties()
-    self.UI.setAttribute('stress-levels', 'active', true)
-    self.UI.setAttribute('casualties', 'active', true)
+    local ready = {}
+    self.UI.hide('convert-button')
+    self.UI.show('stress-levels')
+    self.UI.show('casualties')
     for nation, _ in pairs(Nations) do
-        state.ready[nation] = false
+        ready[nation] = false
         self.UI.setValue(string.lower(nation) .. '-casualties', 0)
         self.UI.setAttribute(string.lower(nation) .. '-stress', 'image', 'stress-level0')
-        countCasualties(nation, {total = 0, objs = sortCasualties(nation)}, 1)
+        countCasualties(nation, {total = 0, objs = sortCasualties(nation)}, 1, ready)
     end
+    Wait.condition(|| self.UI.show('spend-button'), function ()
+        for _, flag in pairs(ready) do if not flag then return false end end
+        return true
+    end)
 end
 
 function sortCasualties(nation)
     local units, name = {}
     for _, obj in ipairs(Zones[nation].getObjects()) do
-        name =  obj.getName()
+        name = obj.getName()
         if name != 'medal_goods' and name != '1stress' and name != '3stress' then
             table.insert(units, obj)
-        end
-    end
+    end end
     table.sort(units, function (a, b)
         if Spots[a.getName()] == Spots[b.getName()] then return a.getPosition()[2] > b.getPosition()[2]
         else return Spots[a.getName()] < Spots[b.getName()] end
@@ -193,15 +191,15 @@ function sortCasualties(nation)
     return units
 end
 
-function countCasualties(nation, casualties, i)
+function countCasualties(nation, casualties, i, ready)
     local obj, prev_total = casualties.objs[i], casualties.total
     if obj then
         casualties.total = casualties.total + Values[obj.getName()]
         destroyObject(obj)
         updateTotal(nation, casualties.total, prev_total)
-        Wait.time(|| countCasualties(nation, casualties, i + 1), 0.2)
+        Wait.time(|| countCasualties(nation, casualties, i + 1, ready), 0.2)
     else
-        state.ready[nation] = true
+        ready[nation] = true
         announceCasualtyStress(nation, casualties.total)
     end
 end
@@ -212,9 +210,8 @@ function announceCasualtyStress(nation, total)
         if total >= threshold then
             level = i - 1
             shade = Shades[i]
-        end
-    end
-    broadcastToAll(nation .. ' took [' .. shade .. ']' .. level .. '[FFFFFF] stress from casualties', {r=255, g=255, b=255})
+    end end
+    broadcastToAll(nation .. ' took [' .. shade .. ']' .. level .. '[-] stress from casualties')
 end
 
 function updateTotal(nation, total, prev_total)
@@ -231,65 +228,59 @@ function updateTotal(nation, total, prev_total)
 end
 
 function spendMedals()
-    if not allReady() then return end
-    self.UI.setAttribute('stress-levels', 'active', false)
-    self.UI.setAttribute('casualties', 'active', false)
-    self.UI.setAttribute('thresholds', 'active', true)
+    self.UI.hide('spend-button')
+    self.UI.hide('stress-levels')
+    self.UI.hide('casualties')
+    self.UI.show('evaluate-button')
+    self.UI.show('threshold-bg')
+    self.UI.show('thresholds')
     for nation, _ in pairs(Nations) do
-        state.stress[nation] = getStress({nation = nation})
+        state.stress[nation], state.medals[nation] = getStress({nation = nation}), getMedals({nation = nation})
         updateThreshold(nation)
-        state.medals[nation] = getMedals({nation = nation})
         updateSpendButton(nation)
     end
 end
 
-function spendMedal(player, nation, id)
+function spendMedal(_, _, nation)
+    debug(nation, ' spent a medal/goods')
+    local medal = table.remove(state.medals[nation])
+    medal.UI.setXml('')
+    medal.destruct()
     state.stress[nation].total = state.stress[nation].total - 1
     updateThreshold(nation)
-    self.UI.setAttribute(id, 'active', false)
-    destroyObject(table.remove(state.medals[nation]))
-    local obj = table.remove(state.stress[nation].objs)
-    if obj.getName() == '3stress' then
-        fadeOut(obj, function (obj)
-            makeChange(obj, 2)
-            updateSpendButton(nation)
-        end)
-    else
-        fadeOut(obj, function (obj)
-            destroyObject(obj)
-            updateSpendButton(nation)
-        end)
-    end
+    fadeOut(table.remove(state.stress[nation].objs), function (obj)
+        if obj.getName():find('3') then makeChange(obj, 2) else obj.destruct() end
+        updateSpendButton(nation)
+    end)
 end
 
 function updateThreshold(nation)
     local id, value, color = nation .. '-threshold', state.stress[nation].total
-    self.UI.setValue(id, value)
-    if value >= Thresholds[self.getStateId()][nation] then color = '#FFC040' else color = '#FFFFFF' end
+    self.UI.setValue(id, value == 0 and '' or value .. '/')
+    if value >= Thresholds[self.getStateId()][nation] then color = '#ff8040' else color = '#ffffff' end
     self.UI.setAttribute(id, 'color', color)
 end
 
 function updateSpendButton(nation)
     local count = #state.medals[nation]
-    if count > 0 then
-        local id = string.lower(nation) .. '-medal'
+    if count > 0 and state.stress[nation].total > 0 then
         local top = state.medals[nation][count]
-        local colors = '|white|clear'
-        if top.is_face_down then
-            colors = 'green|teal' .. colors
-        else
-            colors = 'orange|yellow' .. colors
-        end
-        self.UI.setAttributes(id, {
-            position = string.match(self.UI.getAttribute(id, 'position'), '(.+)%-%d+$') .. (-24 * count - 59),
-            colors = colors,
-            active = true
-        })
+        local cg = top.is_face_down
+        top.UI.setXmlTable({{tag = 'Button', attributes = {
+            height = 75, width = 150,
+            position = '0 0 ' .. (cg and '1' or '-24'),
+            rotation = '0 ' .. (cg and '180' or '0') .. ' 180',
+            text = 'Spend', fontSize = 40, fontStyle = "Bold",
+            colors = (cg and 'green|teal' or 'orange|yellow') .. '|white|clear',
+            id = nation, onClick = self.getGUID() .. '/spendMedal'
+        }}})
     end
 end
 
 function evaluateStress()
-    self.UI.setAttribute('thresholds', 'active', false)
+    self.UI.hide('evaluate-button')
+    self.UI.hide('threshold-bg')
+    self.UI.hide('thresholds')
     local order, i = {'japan', 'italy', 'germany', 'usa', 'ussr', 'uk', 'china'}, 1
     Wait.time(function ()
         local nation = order[i]
@@ -299,25 +290,21 @@ function evaluateStress()
 end
 
 function convertStress(nation)
-    local stress = getStress({nation = nation})
-    local count = #stress.objs
-    local threshold = Thresholds[self.getStateId()][nation]
-    local remaining = threshold
-    if stress.total < threshold then return end
+    local stress, threshold = getStress({nation = nation}), Thresholds[self.is_face_down and 2 or 1][nation]
+    local count, remaining, delta = #stress.objs, threshold * 5, 5
+    while stress.total < remaining do remaining, delta = remaining - threshold, delta - 1 end
     while remaining > 0 do
         local obj = stress.objs[count]
         count = count - 1
         if obj.getName() == '1stress' then
             remaining = remaining - 1
-            fadeOut(obj, |obj| destroyObject(obj))
+            fadeOut(obj)
         else
             remaining = remaining - 3
             if remaining < 0 then fadeOut(obj, |obj| makeChange(obj, -remaining))
-            else fadeOut(obj, |obj| destroyObject(obj)) end
-        end
-    end
-    broadcastToAll(nation:sub(1, 1):upper() .. nation:sub(2) .. '\'s homeland stress level increased')
-    -- Tell board to increment stress level
+            else fadeOut(obj) end
+    end end
+    if delta > 0 then Global.call('updateStressZone', {nation, delta}) end
 end
 
 function makeChange(obj, remaining)
@@ -327,23 +314,22 @@ function makeChange(obj, remaining)
         rotation = {0, 180, 0},
         smooth = false
     }
-    destroyObject(obj)
+    obj.destruct()
     Bags.Stress[1].takeObject(params)
     if remaining == 2 then Bags.Stress[1].takeObject(params2) end
 end
 
 function fadeOut(obj, callback)
+    callback = callback or |obj| obj.destruct()
     obj.UI.setXml('<Panel id="shade" height="200" width="200" position="0 0 -21" color="rgba(0.4,0.2,0,0)" />')
-    Wait.time(function ()
-        if obj.getColorTint().b < 0.1 then callback(obj) else darken(obj) end
-    end, 0.1, 10)
+    Wait.time(function () if obj.getColorTint().b < 0.1 then callback(obj) else darken(obj) end end, 0.1, 10)
 end
 
 function darken(obj)
     local tint = obj.getColorTint()
     local color, a = obj.UI.getAttribute('shade', 'color')
     if color then
-        color, a = string.match(color, '(.+),(%d%.?%d*)%)$')
+        color, a = color:match('(.+),(%d%.?%d*)%)$')
         obj.UI.setAttribute('shade', 'color', color .. ',' .. (a + 0.09) .. ')')
     end
     tint.r = tint.r - 0.05
@@ -352,15 +338,7 @@ function darken(obj)
     obj.setColorTint(tint)
 end
 
-function snapOffset(nation, spot)
-    return 1 + Nations[nation] * 11 + Spots[spot]
-end
-
-function allReady()
-    local check = true
-    for nation, _ in pairs(Nations) do check = check and state.ready[nation] end
-    return check
-end
+function snapOffset(nation, spot) return 1 + Nations[nation] * 11 + Spots[spot] end
 
 Nations = {japan = 0, italy = 1, germany = 2, usa = 3, ussr = 4, uk = 5, china = 6}
 Spots = {medal_goods = 0, stress = 1, infantry = 2, artillery = 3, armor = 4, fighter = 5,
@@ -368,7 +346,7 @@ Spots = {medal_goods = 0, stress = 1, infantry = 2, artillery = 3, armor = 4, fi
 Values = {infantry = 2, artillery = 2, armor = 4, fighter = 4, cfighter = 4,
         bomber = 6, submarine = 6, cruiser = 10, carrier = 20, battleship = 20}
 Levels = {0, 20, 36, 52, 70, 90}
-Shades = {'FFFFFF', 'FFFF80', 'E0C040', 'C08000', 'C02000', '800000'}
+Shades = {'ffffff', 'ffff80', 'e0c040', 'c08000', 'c02000', '800000'}
 Thresholds = {
     {japan = 7, italy = 4, germany = 6, usa = 5, ussr = 6, uk = 6, china = 4},
     {japan = 6, italy = 4, germany = 6, usa = 5, ussr = 6, uk = 4, china = 4},

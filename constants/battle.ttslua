@@ -1,5 +1,3 @@
-DiceOrder = {yellow = 1, blue = 2, green = 3, red = 4, black = 5, white = 6}
-
 CombatParams = {
     land = {
         stages = {
@@ -107,4 +105,10 @@ ZoneParams = {
             bomber = {surface = -0.875}
         }
     }
+}
+
+BombOrder = {
+    {'yellow', 'osr'}, {'blue', 'iron'}, {'red', 'oil'}, {'white', 'bomb'},
+    {'yellow', 'infantry'}, {'blue', 'artillery'}, {'green', 'armor'}, {'green', 'fighter'}, {'red', 'bomber'},
+    {'yellow', 'submarine'}, {'blue', 'cruiser'}, {'green', 'carrier'}, {'red', 'battleship'}
 }

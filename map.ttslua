@@ -3,14 +3,12 @@
 #include debug
 
 function onLoad()
-    state = {}
     prepareRegionData()
     loaded = true
 end
 
-function getState() return state end
-
 function prepareRegionData()
+    local lines = {}
     for region, data in pairs(MapData.regions) do
         data.is_sea = region:match('^[aimp]') ~= nil
         if data.points then
@@ -21,6 +19,7 @@ function prepareRegionData()
             data.centroid = {0, 0}
             local prev_point, sum, cross = data.points[#data.points], 0
             for _, point in ipairs(data.points) do
+                --table.insert(lines, {points = {{point[1], 0.6, point[2]}, {prev_point[1], 0.6, prev_point[2]}}, thickness = 0.02})
                 if data.box.xmax < point[1] then data.box.xmax = point[1]
                 elseif data.box.xmin > point[1] then data.box.xmin = point[1] end
                 if data.box.zmax < point[2] then data.box.xmax = point[2]
@@ -33,18 +32,20 @@ function prepareRegionData()
             end
             data.centroid[1] = data.centroid[1] / sum
             data.centroid[2] = data.centroid[2] / sum
-        elseif data.circle then data.box = {
-            xmax = data.circle.c[1] + data.circle.r,
-            xmin = data.circle.c[1] - data.circle.r,
-            zmax = data.circle.c[2] + data.circle.r,
-            zmin = data.circle.c[2] - data.circle.r
+        elseif data.circle then
+            -- table.insert(lines, {thickness = 0.02, color = {0, 0.8, 0.3}, points = {
+            --     {data.circle.c[1] + data.circle.r, 0.6, data.circle.c[2]}, {data.circle.c[1], 0.6, data.circle.c[2] + data.circle.r},
+            --     {data.circle.c[1] - data.circle.r, 0.6, data.circle.c[2]}, {data.circle.c[1], 0.6, data.circle.c[2] - data.circle.r},
+            --     {data.circle.c[1] + data.circle.r, 0.6, data.circle.c[2]}
+            -- }})
+            data.box = {
+                xmax = data.circle.c[1] + data.circle.r,
+                xmin = data.circle.c[1] - data.circle.r,
+                zmax = data.circle.c[2] + data.circle.r,
+                zmin = data.circle.c[2] - data.circle.r
         } end
-        state[region] = {
-            commands = {axis = {}, allies = {}},
-            ownership = Prefixes[region:sub(1, 1)]
-        }
-        if data.industry then state[region].construction = {} end
     end
+    --self.setVectorLines(lines)
 end
 
 -- Collision Checks
@@ -52,7 +53,7 @@ end
 function onCollisionEnter(collision_info)
     if not loaded then return end
     local obj = collision_info.collision_object
-    local pos, name = self.positionToLocal(obj.getPosition()), obj.getName()
+    local pos = self.positionToLocal(obj.getPosition())
     if pos == last_pos then return nil
     else
         if reset then Wait.stop(reset) end
@@ -60,36 +61,19 @@ function onCollisionEnter(collision_info)
     end
     local region = findRegion({pos.x, pos.z})
     if region then
-        debug('coords: ', pos.x, ' ', pos.z, ', region: ', region)
-        obj.setVar('region', region)
-        if name == 'hotspot' then state[region].hotspot = obj
-        elseif name:match('flag$') then state[region].flag, state[region].ownership = obj, name:match('^%a+'):lower()
-        elseif name == 'cfighter' then addCommand(state[region].commands, obj)
-        elseif name:match('construction') then
-            table.insert(state[region].construction, obj)
-            obj.setRotationSmooth({0, rotationToCenter(pos), 0}, true, true)
-        elseif isCommand(name) then
-            obj.setDescription('In region ' .. prettyName(region))
-            obj.setRotationSmooth({0, rotationToCenter(pos), 0}, true, true)
-            addCommand(state[region].commands, obj)
-        end
-    else debug('coords: ', pos.x, ' ', pos.z) end
+        debug('coords: ', string.format('X=%.4f Y=%.4f', pos.x, pos.z), ', region: ', region)
+        setRegion(obj, region, pos)
+    else debug('coords: ', string.format('X=%.4f Y=%.4f', pos.x, pos.z)) end
 end
 
-function onCollisionExit(collision_info)
-    if not loaded then return end
-    local obj = collision_info.collision_object
-    local region, name = obj.getVar('region'), obj.getName()
-    if region then
-        obj.setVar('region', nil)
-        if name == 'hotspot' and state[region].hotspot.getGUID() == obj.getGUID() then state[region].hotspot = nil
-        elseif name:match('flag$') and state[region].flag.getGUID() == obj.getGUID() then
-            state[region].flag, state[region].ownership = nil, MapData.regions[region].original_owner or Prefixes[region:sub(1, 1)]
-        elseif name:match('construction') then removeConstruction(state[region].construction, obj)
-        elseif isCommand(name) or name == 'cfighter' then
-            obj.setDescription('')
-            removeCommand(state[region].commands, obj)
-    end end
+function setRegion(obj, region, pos)
+    local name = obj.getName()
+    obj.setVar('region', region)
+    if name:match('construction') then obj.setRotationSmooth({0, rotationToCenter(pos), 0}, true, true)
+    elseif isCommand(name) then
+        obj.setDescription('In region ' .. prettyName(region))
+        obj.setRotationSmooth({0, rotationToCenter(pos), 0}, true, true)
+    end
 end
 
 function isCommand(name)
@@ -105,35 +89,6 @@ end
 function commandType(name)
     if name == 'cfighter' then return 'air'
     else return name:match('%d+%a%a%s(%a+)'):lower() end
-end
-
-function removeConstruction(t, stack)
-    for i = #t, 1, -1 do if t[i].getGUID() == stack.getGUID() then table.remove(t, i) end end
-end
-
-function clearConstruction(region)
-    state[region[1]].construction = {}
-end
-
-function addCommand(t, command)
-    local name = command.getName()
-    local alliance, command_type = Alliance[commandNation(name, command)], commandType(name)
-    if not t[alliance][command_type] then t[alliance][command_type] = {} end
-    table.insert(t[alliance][command_type], command)
-end
-
-function removeCommand(t, command)
-    local name = command.getName()
-    local alliance, command_type = Alliance[commandNation(name, command)], commandType(name)
-    local commands = t[alliance][command_type]
-    if commands then
-        for i = #commands, 1, -1 do if commands[i].getGUID() == command.getGUID() then table.remove(commands, i) end end
-        if #commands == 0 then t[alliance][command_type] = nil end
-    end
-end
-
-function commandRemoved(data)
-    removeCommand(state[data[2]].commands, getObjectFromGUID(data[1]))
 end
 
 function isSeaRegion(region)
