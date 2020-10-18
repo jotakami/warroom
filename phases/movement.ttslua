@@ -28,6 +28,15 @@ function evaluateOrder(params)
     local command = state.objects.commands[nation][id]
     local region = getRegion(command)
     UI.setValue('movement-order', command.getName():match('^[^\n]+'):gsub('%b[]', '') .. ' moves to ' .. params[3])
+    if not state.pact_broken then
+        if nation == 'japan' or nation == 'ussr' then
+            local other = nation == 'japan' and 'ussr' or 'japan'
+            if getOwnership(target) == other then return 'pact' end
+        else
+            local ally, other = isAxis(nation) and 'japan' or 'other', isAxis(nation) and 'ussr' or 'japan'
+            if getOwnership(region) == ally and getOwnership(target) == other then return 'pact' end
+        end
+    end
     -- check pathing to see if command can move
 end
 

@@ -7,11 +7,16 @@ function debriefAirCommands(commands)
         if side == 'axis' then rotation, bump = vector(0, 0, 180), 0.22 end
         if forces.air then for _, command in ipairs(forces.air) do
             if command.getName() == 'cfighter' then returnPiece(command)
-            else ArrowBag.takeObject({
-                position = command.getPosition() + vector(0, 0.25 + bump, 0),
-                rotation = rotation + vector(0, math.random(360) - 180, 0)
-            }) end
-    end end end
+            else
+                table.insert(state.combat.landings, command)
+                ArrowBag.takeObject({
+                    position = command.getPosition() + vector(0, 0.25 + bump, 0),
+                    rotation = rotation + vector(0, math.random(360) - 180, 0),
+                    callback_function = function (arrow) Wait.frames(function ()
+                        command.jointTo(arrow, {type = 'Fixed'})
+                        arrow.interactable = false
+                    end, 10) end
+    }) end end end end
 end
 
 -- -- -- Check for lost transports

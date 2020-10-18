@@ -2,29 +2,27 @@ function resolveBattle(hotspot)
     local Board
     if BattleBoards[1].call('isReady') then Board = BattleBoards[1]
     elseif BattleBoards[2].call('isReady') then Board = BattleBoards[2] end
-    if not Board then hotspot.setVar('busy', nil) debug('No available battle boards')
-    else
-        hotspot.highlightOn({0.8, 0.1, 0.1})
-        local region, ready = getRegion(hotspot), {axis = false, allies = false}
-        local sea_region = Map.data.regions[region].is_sea
-        Board.call('setupCombat', {sea_region and 'sea' or 'land', hotspot})
-        Wait.condition(function () for side, forces in pairs(getCommands(region)) do
-            local units = {}
-            for _, force in ipairs{'air', sea_region and 'fleet' or 'army'} do
-                if forces[force] then for _, command in ipairs(forces[force]) do
-                    if command.getName() ~= 'cfighter' then table.insert(units, command) end
-                end
-                if force == 'air' then for _, command in ipairs(forces[force]) do
-                    if command.getName() == 'cfighter' then table.insert(units, command) end
-            end end end end
-            forces.air, forces[sea_region and 'fleet' or 'army'] = nil, nil
-            moveToBattleBoard(units, getDropPoints(Board), nil, function () ready[side] = true end)
-        end end, || not Board.isSmoothMoving())
-        Wait.condition(function ()
-            Board.call('setStances')
-            if sea_region then checkPortAdvantage(region, Board) end
-        end, || ready.axis and ready.allies)
-    end
+    if not Board then debug('No available battle boards') return true end
+    hotspot.highlightOn({0.8, 0.1, 0.1})
+    local region, ready = getRegion(hotspot), {axis = false, allies = false}
+    local sea_region = Map.data.regions[region].is_sea
+    Board.call('setupCombat', {sea_region and 'sea' or 'land', hotspot})
+    Wait.condition(function () for side, forces in pairs(getCommands(region)) do
+        local units = {}
+        for _, force in ipairs{'air', sea_region and 'fleet' or 'army'} do
+            if forces[force] then for _, command in ipairs(forces[force]) do
+                if command.getName() ~= 'cfighter' then table.insert(units, command) end
+            end
+            if force == 'air' then for _, command in ipairs(forces[force]) do
+                if command.getName() == 'cfighter' then table.insert(units, command) end
+        end end end end
+        forces.air, forces[sea_region and 'fleet' or 'army'] = nil, nil
+        moveToBattleBoard(units, getDropPoints(Board), nil, function () ready[side] = true end)
+    end end, || not Board.isSmoothMoving())
+    Wait.condition(function ()
+        Board.call('setStances')
+        if sea_region then checkPortAdvantage(region, Board) end
+    end, || ready.axis and ready.allies)
 end
 
 function getDropPoints(board)

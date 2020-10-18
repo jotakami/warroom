@@ -90,7 +90,6 @@ end
 -- -- Step 1: Land air commands
 
 function landAirCommands()
-    setAdvance('deploy', 'Deploy new units')
     updateTracker('Land air commands', '5 - Refit & Deploy')
     onObjectRandomize = nil
 end
@@ -98,7 +97,6 @@ end
 -- -- Step 2/3: Deploy units and reorganize commands
 
 function deployUnits()
-    setAdvance('morale', 'Morale')
     for _, stack in ipairs(state.objects.construction) do if stack ~= nil then
         local units = breakStack(stack)
         returnPiece(stack)
@@ -116,9 +114,15 @@ end
 -- Phase 6: Morale
 
 function morale()
-    setAdvance('production', 'Production')
     onObjectCollisionEnter = nil
     MoraleBoard.UI.show('convert-button')
+end
+
+function breakPact(nation)
+    if not state.pact_broken then
+        MoraleBoard.call('addStress', {nation = nation, value = 6})
+        state.pact_broken = true
+    end
 end
 
 -- -- Step 1: Convert casualties into stress
