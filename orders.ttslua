@@ -40,8 +40,7 @@ function writeOrders()
     if Nation ~= 'china' then self.UI.setAttributes('bid', {active = true, visibility = getVis()}) end
     self.UI.setAttributes('commands', {active = true, visibility = getVis()})
     self.UI.setAttributes('targets', {active = true, visibility = getVis()})
-    self.UI.show('orders-ready')
-    self.UI.setAttributes('orders-ready-toggle', {isOn = false, active = true})
+    self.UI.setAttributes('orders-ready', {isOn = true, active = true, color = '#FFFFFF'})
     setOrders(false, true)
 end
 
@@ -61,37 +60,55 @@ function setOrders(lock, clear)
 end
 
 function updateOrder(_, value, id)
-    self.UI.setAttribute(id, 'text', value)
-    if value == '' then value = nil end
-    local type, index = id:sub(1, -2), id:sub(-1) + 0
-    if not state.moves[index] then state.moves[index] = {} end
-    state.moves[index][type] = value
+    local part, index = id:sub(1, -2), tonumber(id:sub(-1))
+    if value == '' then
+        value = nil
+        validOrders(id)
+    elseif part == 'command' then
+        value = tonumber(value)
+        if Global.call('validateCommand', {Nation, value}) then validOrders(id) else invalidOrders(id) end
+    else
+        local region = value:lower():gsub('-', ''):match('^[abcgijmnprtu]%d%d?$')
+        if region and Global.call('validateRegion', {region}) then
+            value = region:gsub('[aimp]', '%1-'):upper()
+            validOrders(id)
+        else invalidOrders(id)
+    end end
+    self.UI.setAttribute(id, 'text', value or '')
+    state.moves[index] = state.moves[index] or {}
+    state.moves[index][part] = value
 end
 
 function updateBid(_, value, id)
     self.UI.setAttribute(id, 'text', value)
-    if value ~= '' and value + 0 > state.resources.oil then
-        self.UI.setAttribute(id, 'textColor', 'red')
-        self.UI.setAttribute('orders-ready-toggle', 'interactable', false)
+    if value ~= '' and value + 0 > state.resources.oil then invalidOrders(id)
     else
-        if value ~= '' then state.bid = value + 0 else state.bid = 0 end
-        self.UI.setAttribute(id, 'textColor', 'black')
-        if self.UI.getAttribute('orders-ready-toggle', 'interactable') == 'False' then self.UI.setAttribute('orders-ready-toggle', 'interactable', true) end
+        state.bid = value ~= '' and tonumber(value) or 0
+        validOrders(id)
     end
+end
+
+function validOrders(id)
+    self.UI.setAttribute(id, 'textColor', 'black')
+    if self.UI.getAttribute('orders-ready', 'interactable') == 'False' then self.UI.setAttribute('orders-ready', 'interactable', true) end
+end
+
+function invalidOrders(id)
+    self.UI.setAttribute(id, 'textColor', 'red')
+    self.UI.setAttribute('orders-ready', 'interactable', false)
 end
 
 function toggleReady(_, value, id)
     value = value == 'True'
-    self.UI.setAttribute(id, 'isOn', value)
-    if id:match('orders') then setOrders(value)
-    elseif id:match('production') then setProduction(value) end
-    Global.call('playerReady', {[Nation] = value})
+    self.UI.setAttributes(id, {isOn = value, color = value and '#FFFFFF' or '#80FF80'})
+    if id:match('orders') then setOrders(not value)
+    elseif id:match('production') then setProduction(not value) end
+    Global.call('playerReady', {[Nation] = not value})
 end
 
 function revealBid()
     if Nation ~= 'china' then self.UI.setAttribute('bid', 'visibility', '') end
     self.UI.hide('orders-ready')
-    self.UI.hide('orders-ready-toggle')
     return state.bid
 end
 
@@ -113,15 +130,7 @@ function resolveOrder(num)
     elseif state.moves[num] then
         local move = state.moves[num]
         if move.command and move.target then
-            local command = move.command + 0
-            local msg = colorize(Global.call('properName', {Nation}), Nation) .. ' '
-            msg = msg .. Global.call('ordinalize', {command}) .. ' '
-            if command < 10 then msg = msg .. 'Fleet'
-            elseif command < 20 then msg = msg .. 'Air'
-            else msg = msg .. 'Army' end
-            msg = msg .. ' moves to ' .. move.target:upper()
-            broadcastToAll(msg)
-            Global.UI.setValue('movement-order', msg:gsub('%b[]', ''))
+            Global.call('evaluateOrder', {Nation, tonumber(move.command), move.target})
             self.UI.show('resolved' .. num)
             self.UI.show('canceled' .. num)
         else orderCanceled(nil, nil, 'canceled' .. num) end
@@ -129,9 +138,10 @@ function resolveOrder(num)
 end
 
 function orderResolved(_, _, id)
-    local i = id:sub(-1)
+    local action, i = id:match('(%a+)(%d)')
     self.UI.hide('resolved' .. i)
     self.UI.hide('canceled' .. i)
+    if action == 'resolved' then Global.call('commandMoved', {nation = Nation, command = tonumber(state.moves[tonumber(i)].command)}) end
     resolveOrder(i + 1)
 end
 
@@ -140,9 +150,12 @@ function orderCanceled(_, _, id)
     orderResolved(nil, nil, id)
 end
 
-function carrierFighters()
-    self.UI.show('orders-ready')
-    self.UI.setAttributes('orders-ready-toggle', {isOn = false, active = true})
+function cfighterMovement()
+    self.UI.setAttributes('cfighters-ready', {isOn = true, active = true, color = '#FFFFFF'})
+end
+
+function cfighterDone()
+    self.UI.hide('cfighters-ready')
 end
 
 -- Phase 7: Production
@@ -152,8 +165,7 @@ function writeProduction()
     if Nation ~= 'china' then for _, resource in ipairs{'oil', 'iron', 'osr'} do for _, label in ipairs{'trade', 'minus', 'plus'} do
         self.UI.show(label .. '-' .. resource)
     end end end
-    self.UI.show('production-ready')
-    self.UI.setAttributes('production-ready-toggle', {isOn = false, active = true})
+    self.UI.setAttributes('production-ready', {isOn = true, active = true, color = '#FFFFFF'})
     setProduction(false, true)
 end
 
@@ -255,15 +267,19 @@ function updateTotals()
         state.remaining[resource] = state.post_trade[resource] - total
         setIntValue('cost-' .. resource, total)
         self.UI.setValue('remaining-' .. resource, state.remaining[resource])
-        if state.remaining[resource] < 0 then self.UI.setAttribute('remaining-' .. resource, 'color', 'Red')
-        else self.UI.setAttribute('remaining-' .. resource, 'color', 'Black') end
+        if state.remaining[resource] < 0 then
+            self.UI.setAttribute('remaining-' .. resource, 'color', 'Red')
+            self.UI.setAttribute('production-ready', 'interactable', false)
+        else
+            self.UI.setAttribute('remaining-' .. resource, 'color', 'Black')
+            if self.UI.getAttribute('production-ready', 'interactable') == 'False' then self.UI.setAttribute('production-ready', 'interactable', true) end
+        end
     end
 end
 
 function revealPurchases()
     for _, id in ipairs{'purchases', 'post_trade', 'remaining'} do self.UI.setAttribute(id, 'visibility', '') end
     self.UI.hide('production-ready')
-    self.UI.hide('production-ready-toggle')
     local purchases = {}
     for unit, t in pairs(state.production) do if t.quantity > 0 then purchases[unit] = t.quantity end end
     return purchases

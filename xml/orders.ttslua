@@ -164,10 +164,16 @@ function initXML(order_rows, is_china)
                 fontSize = '40', text = 'Canceled', active = 'false',
                 onClick = 'orderCanceled'
             }},
+            {tag = 'ToggleButton', attributes = {rotation = '0 0 180', active = false}},
+            {tag = 'ToggleButton', attributes = {class = 'ready',
+                scale = '2.4 3', text = 'Ready', fontSize = '18',
+                colors = '#FFFFFF|#00FF00|#FFFF00|#404040FF',
+                isOn = true, onValueChanged = 'toggleReady'
+            }},
             {tag = 'ToggleButton', attributes = {class = 'trade',
-                height = '30', width = '30', rotation = '0 0 180',
+                height = '30', width = '30',
                 color = '#FFFFFF33', fontSize = '20',
-                transition = 'None', onValueChanged = 'toggleTrade'
+                onValueChanged = 'toggleTrade', transition = 'None'
             }},
             {tag = 'Text', attributes = {scale = '0.8 1', fontSize = '72'}},
             {tag = 'Text', attributes = {class = 'slash',
@@ -181,13 +187,11 @@ function initXML(order_rows, is_china)
     local xml = {
         defaults(order_rows, is_china),
         round(),
-        {tag = 'Text', value = 'Ready', attributes = {id = 'orders-ready',
-            position = '410 -620 -59', rotation = '0 0 180',
-            color = 'White', fontSize = '48', active = 'false'
+        {tag = 'ToggleButton', attributes = {class = 'ready', id = 'orders-ready',
+            height = '32', width = '64', position = '415 -588 -59'
         }},
-        {tag = 'Toggle', attributes = {id = 'orders-ready-toggle',
-            position = '410 -566 -59', rotation = '0 0 180', scale = '2.4 3',
-            onValueChanged = 'toggleReady', active = 'false'
+        {tag = 'ToggleButton', attributes = {class = 'ready', id = 'cfighters-ready',
+            height = '32', width = '64', position = '415 -588 -59'
         }},
         movement(order_rows, 'command', |a, b| movementInput(a, b), {id = 'commands', cellPadding = '60 60 50 210'}),
         movement(order_rows, 'target', |a, b| movementInput(a, b), {id = 'targets', cellPadding = '40 40 210 50'}),
@@ -197,17 +201,8 @@ function initXML(order_rows, is_china)
         preTrade(is_china),
         postTrade(is_china),
         purchases(is_china),
-        {tag = 'Panel', attributes = {id = 'production-ready',
-            height = '72', width = '260',
-            position = '-125 800 -59', rotation = '0 0 180',
-            color = 'Black', active = 'false'
-        }, children = {
-            {tag = 'Text', value = 'Ready', attributes = {
-                color = 'White', fontSize = '48'
-        }}}},
-        {tag = 'Toggle', attributes = {id = 'production-ready-toggle',
-            position = '-225 800 -59', rotation = '0 0 180', scale = '2.4 3',
-            onValueChanged = 'toggleReady', active='false'
+        {tag = 'ToggleButton', attributes = {class = 'ready', id = 'production-ready',
+            height = '24', width = '78', position = '-157 798 -59'
         }},
         remaining(is_china)
     }

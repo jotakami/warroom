@@ -1,0 +1,104 @@
+function resolveBattle(hotspot)
+    local Board
+    if BattleBoards[1].call('isReady') then Board = BattleBoards[1]
+    elseif BattleBoards[2].call('isReady') then Board = BattleBoards[2] end
+    if not Board then hotspot.setVar('busy', nil) debug('No available battle boards')
+    else
+        hotspot.highlightOn({0.8, 0.1, 0.1})
+        local region, ready = getRegion(hotspot), {axis = false, allies = false}
+        local sea_region = Map.data.regions[region].is_sea
+        Board.call('setupCombat', {sea_region and 'sea' or 'land', hotspot})
+        Wait.condition(function () for side, forces in pairs(getCommands(region)) do
+            local units = {}
+            for _, force in ipairs{'air', sea_region and 'fleet' or 'army'} do
+                if forces[force] then for _, command in ipairs(forces[force]) do
+                    if command.getName() ~= 'cfighter' then table.insert(units, command) end
+                end
+                if force == 'air' then for _, command in ipairs(forces[force]) do
+                    if command.getName() == 'cfighter' then table.insert(units, command) end
+            end end end end
+            forces.air, forces[sea_region and 'fleet' or 'army'] = nil, nil
+            moveToBattleBoard(units, getDropPoints(Board), nil, function () ready[side] = true end)
+        end end, || not Board.isSmoothMoving())
+        Wait.condition(function ()
+            Board.call('setStances')
+            if sea_region then checkPortAdvantage(region, Board) end
+        end, || ready.axis and ready.allies)
+    end
+end
+
+function getDropPoints(board)
+    local params, points = board.call('getDropPoints'), {}
+    for nation, x in pairs(params.x) do
+        points[nation] = {}
+        for unit_type, z in pairs(params.z) do points[nation][unit_type] = board.positionToWorld({x, params.y, z}) end
+    end
+    points.rotation = vector(0, board.getRotation().y, 0)
+    return points
+end
+
+function moveToBattleBoard(units, drop_points, nation, callback)
+    local unit = table.remove(units)
+    if unit then
+        local unit_type, rotation, step, flipped = unit.getName(), drop_points.rotation, 0.21, 0
+        if unit_type:match('%b[]%a+%b[]') then
+            nation = commandNation(unit)
+            if unit_type:match('Defense') then unit_type = 'defense'
+            else
+                unit_type, step = 'command', 0.23
+                setReturnTo(unit)
+            end
+            for _, subunit in ipairs(breakStack(unit)) do
+                if unit_type == 'defense' then setReturnTo(subunit) end
+                table.insert(units, subunit)
+            end
+            if unit.getName():find('Fleet') then rotation = rotation + vector(0, 33 * (isAxis(nation) and 1 or -1), 0) end
+        elseif unit_type == 'cfighter' then
+            nation, unit_type, step = unit.getVar('nation'), 'fighter', 0.22
+            setReturnTo(unit)
+            if unit.is_face_down then rotation = rotation + vector(0, 0, 180) end
+        elseif unit_type == 'submarine' or unit_type == 'cruiser' or unit_type == 'carrier' or unit_type == 'battleship' then
+            rotation = rotation + vector(0, 33 * (isAxis(nation) and 1 or -1), 0)
+        end
+        if unit_type == 'defense' then state.objects.commands[nation][999] = nil
+        else
+            unit.setPositionSmooth(drop_points[nation][unit_type] + vector(0, unit.is_face_down and step or 0, 0))
+            unit.setRotationSmooth(rotation)
+            drop_points[nation][unit_type] = drop_points[nation][unit_type] + vector(0, step, 0)
+        end
+        if #units > 0 then Wait.frames(|| moveToBattleBoard(units, drop_points, nation, callback), 3)
+        else Wait.condition(|| callback(), || not unit.isSmoothMoving()) end
+    end
+end
+
+function setReturnTo(obj)
+    obj.setTable('returnTo', {position = obj.getPosition(), rotation = obj.getRotation()})
+end
+
+function checkPortAdvantage(region, board)
+    local pa = {}
+    for _, link in ipairs(Map.data.regions[region].adjacent) do if link:match('$$') then
+        local owner = getOwnership(link:sub(1, -2))
+        local side = Alliance[owner]
+        if not pa[side] and getStressZone(owner) < 3 then pa[side] = true end
+    end end
+    for side, _ in pairs(pa) do board.call('setPortAdvantage', {side}) end
+end
+
+function battleDebrief(data)
+    local hotspot, combatants = getObjectFromGUID(data[1]), data[2]
+    local region = getRegion(hotspot)
+    local commands = getCommands(region)
+    debug('Debriefing battle in ', region)
+    hotspot.highlightOff()
+    if Map.data.regions[region].is_sea then checkTransports(region, commands) end
+    debriefAirCommands(commands)
+    if not Map.data.regions[region].is_sea then
+        local invaders = {}
+        for _, nation in ipairs(combatants) do
+            debug(nation, ' combatant is present')
+            if isAxis(nation) ~= isAxis(getOwnership(region)) then table.insert(invaders, nation) end
+        end
+        territoryControl(hotspot, commands, invaders)
+    else checkEmbattled(hotspot, commands) end
+end

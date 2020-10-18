@@ -25,41 +25,20 @@ function updateTracker(step, phase)
 end
 
 function updateStatus(nation, value, color)
-    local id = 'status-' .. nation
+    local id = 'status' .. state.turn_order[nation]
     if color then UI.setAttribute(id, 'color', '#' .. color) end
     if value == true then UI.setValue(id, '✓')
     elseif value then UI.setValue(id, value)
-    else debug('No value, clearing status') UI.setValue(id, '') end
+    else UI.setValue(id, '') end
 end
 
 function resetStatus()
-    for nation, _ in pairs(Alliance) do updateStatus(nation, nil, Colors.white) end
+    for _, nation in ipairs(state.turn_order) do updateStatus(nation, nil, Colors.white) end
 end
 
 function updateTurn(nation)
-    for i, n in ipairs{'germany', 'italy', 'japan', 'uk', 'usa', 'ussr', 'china'} do
-        if n == nation then
-            UI.setAttribute('turn', 'position', 156 + i * 39 .. ' 19')
-            UI.show('turn')
-            return
-    end end
-    UI.hide('turn')
-end
-
-function setAdvance(value, label)
-    for i = 1, 4 do Map.obj.UI.setAttributes('advance-' .. i, {
-        onClick = 'Global/advancePhase(' .. value .. ')',
-        text = label or ''
-    }) end
-end
-
-function advancePhase(_, value)
-    if value == 'round' then startNewRound()
-    elseif value == 'combat' then combatOperations()
-    elseif value == 'refit' then landAirCommands()
-    elseif value == 'deploy' then deployUnits()
-    elseif value == 'morale' then morale()
-    elseif value == 'production' then production() end
+    if nation then UI.setAttributes('turn', {position = 156 + state.turn_order[nation] * 39 .. ' 19', active = true})
+    else UI.hide('turn') end
 end
 
 -- Scenario selection, game setup and round setup
@@ -68,11 +47,11 @@ end
 -- Phase 1: Direct National Economy
 
 function resourceIncome()
-    setAdvance('', 'Please wait')
     updateTracker('Tallying resource income', '1 - Direct National Economy')
+    resetStatus()
     local delay = 0
-    for nation, guids in pairs(GUIDs.Nations) do if checkScenario(nation) then
-        local totals = {oil = 0, iron = 0, osr = 0}
+    for _, nation in ipairs(state.turn_order) do
+        local guids, totals = GUIDs.Nations[nation], {oil = 0, iron = 0, osr = 0}
         for _, card in ipairs(getObjectFromGUID(guids.card_zone).getObjects()) do
             local resources = Map.data.regions[card.getName():match('^%w+'):lower()].resources
             if resources then
@@ -90,10 +69,11 @@ function resourceIncome()
                     msg = msg .. colorize(value, resource) .. ' ' .. resource .. ', '
                 end end
                 broadcastToAll(msg:sub(1, -3))
+                updateStatus(nation, true)
             end, delay)
             delay = delay + 0.5
-    end end end
-    Wait.time(|| writeOrders(), delay)
+    end end
+    Wait.time(writeOrders, delay)
 end
 
 -- Phase 2: Strategic Planning
@@ -127,7 +107,7 @@ function deployUnits()
     state.objects.construction = {}
     onObjectCollisionEnter = function (obj, collision_info)
         local command = collision_info.collision_object
-        if isCommand(command.getName()) and #command.getChildren() < 8 then
+        if isCommand(command.getName()) and #command.getChildren() < 9 then
             obj.unregisterCollisions()
             addToStack(obj, collision_info.collision_object)
     end end
@@ -203,84 +183,22 @@ end
 -- (only blue zone and gray zone have immediate consequences)
 
 -- Phase 7: Production
-
-function production()
-    setAdvance('round', 'Start new round')
-    writeProduction()
-end
-
--- -- Step 2: Note purchase of units
-
-function writeProduction()
-    local ready = {}
-    for nation, orders in pairs(state.objects.orders) do
-        orders.call('writeProduction')
-        ready[nation] = false
-    end
-    playerReady = function (data)
-        local all_ready = true
-        for nation, value in pairs(ready) do if data[nation] ~= nil then
-            ready[nation] = data[nation]
-            all_ready = all_ready and data[nation]
-        else all_ready = all_ready and ready[nation] end end
-        if all_ready then
-            playerReady = nil
-            revealPurchases()
-    end end
-end
-
--- -- Step 3: Reveal purchases and update resources
-
-function revealPurchases()
-    local purchases, delay = {}, 0
-    self.UI.setAttribute('production', 'visibility', 'White|Green|Orange|Blue|Brown|Red|Yellow|Pink|Grey|Black')
-    self.UI.show('production')
-    for i, nation in ipairs(state.turn_order) do
-        Wait.time(function ()
-            local orders = state.objects.orders[nation]
-            purchases[nation] = {}
-            for unit, qty in pairs(orders.call('revealPurchases')) do purchases[nation][unit] = qty end
-            orders.call('payPurchases')
-            displayPurchases(nation, purchases[nation], i)
-            if purchases[nation].cg then
-                MoraleBoard.call('addGoods', {nation = nation, value = purchases[nation].cg})
-                purchases[nation].cg = nil
-            end
-            buildStack(purchases[nation], orders.getPosition() - orders.getTransformForward() * 10, orders.getRotation(), true, || nil)
-        end, delay)
-        delay = delay + 0.5
-    end
-    Wait.time(|| transferUnits(), delay)
-end
-
-function displayPurchases(nation, purchases, row)
-    for unit, _ in pairs(Costs) do self.UI.setValue('production-' .. nation .. '-' .. unit, purchases[unit] or '') end
-    self.UI.show('production-' .. nation)
-end
-
-function hidePurchases(player)
-    local vis = self.UI.getAttribute('production', 'visibility')
-    self.UI.setAttribute('production', 'visibility', vis:gsub('(|?)' .. player.color .. '(|?)', function (l, r)
-        if l == '|' and r == '|' then return '|' else return '' end
-    end))
-end
-
--- -- Step 4: Transfer new units to industries
-
--- Rewrite so that each player clicks a button to signal that they are ready,
--- and then their stacks are automatically merged with an industry token placed on top.
-function transferUnits()
-    onObjectDrop = function (_, drop) if drop.getName() == 'bomb_industry' and not drop.is_face_down then drop.registerCollisions() end end
-    onObjectCollisionEnter = function (obj, collision_info) if Colors[collision_info.collision_object.getName()] then
-        mergeStack(obj, getStack(obj), true)
-        obj.unregisterCollisions()
-        table.insert(state.objects.construction, obj)
-    end end
-end
+#include phases/production
 
 -- Helper Functions --
 #include stacks
 #include dice
+#include cards
+
+function validateCommand(params)
+    local command = state.objects.commands[params[1]][params[2]]
+    return command ~= nil and getRegion(command) ~= nil
+end
+
+function validateRegion(params)
+    local region = params[1]
+    return Map.data.regions[region] ~= nil
+end
 
 function isCapital(region)
     for _, id in ipairs(Scenarios[state.scenario].capitals) do if id == region then return true end end
@@ -288,17 +206,20 @@ function isCapital(region)
 end
 
 function isCommand(name)
-    local force = name:match('^%b[]%a+%b[]%s%d+%a%a%s(%a+)')
-    return force == 'Army' or force == 'Air' or force == 'Fleet'
+    local force = commandForce(name)
+    return force == 'army' or force == 'air' or force == 'fleet'
 end
 
 function commandNation(command)
     local name = command.getName()
     if name == 'cfighter' then return command.getVar('nation')
-    else return name:match('^%b[](%a+)'):lower() end
+    else return name:lower():match('%b[](%a+)%b[]') end
 end
 
+function commandForce(name) return name:lower():match('^%b[]%a+%b[]%s%w+%s(%a+)') end
+
 function getRegion(obj)
+    if type(obj) == 'table' then obj = obj[1] end
     local pos = Map.obj.positionToLocal(obj.getPosition())
     return Map.obj.call('findRegion', {pos.x, pos.z})
 end
@@ -308,11 +229,10 @@ function getCommands(region)
     local commands, side, force = {axis = {}, allies = {}}
     for nation, cmds in pairs(state.objects.commands) do
         side = Alliance[nation]
-        for num, command in pairs(cmds) do
-            if getRegion(command) == region then
-                if num < 10 then force = 'fleet' elseif num < 20 then force = 'air' else force = 'army' end
-                commands[side][force] = commands[side][force] or {}
-                table.insert(commands[side][force], command)
+        for num, command in pairs(cmds) do if getRegion(command) == region then
+            if num < 10 then force = 'fleet' elseif num < 20 then force = 'air' else force = 'army' end
+            commands[side][force] = commands[side][force] or {}
+            table.insert(commands[side][force], command)
     end end end
     for nation, cfighters in pairs(state.objects.cfighters) do
         for _, cfighter in ipairs(cfighters) do if cfighter ~= nil then
@@ -348,8 +268,23 @@ function getAllCommands()
     return commands
 end
 
+function getNewCommand(nation, force)
+    if type(nation) == 'table' then nation, force = nation.nation, nation.force end
+    for id, command in pairs(state.objects.commands[nation]) do
+        local pos = command.getPosition()
+        if (math.abs(pos.x) > 45 or pos.z < -45) then
+            if id < 10 then if force == 'fleet' then return command end
+            elseif id < 20 then if force == 'air' then return command end
+            elseif force == 'army' then return command end
+    end end
+end
+
 function getOwnership(region)
-    if state.objects.flags[region] ~= nil then return state.objects.flags[region].getName():match('^%a+') end
+    if state.objects.flags[region] ~= nil then
+        local name = state.objects.flags[region].getName()
+        if name:match('^Defense') then return name:match('%b[](%a+)%b[]'):lower()
+        else return name:match('^%a+'):lower() end
+    end
     return Prefixes[region:sub(1, 1)]
 end
 
@@ -368,7 +303,7 @@ function returnPiece(obj)
             callback = || obj.setPositionSmooth(tray.getPosition() + vector(math.random() * 3 - 1.5, 1 + math.random() * 2, math.random() * 3 - 1.5))
     end end
     obj.setPositionSmooth(obj.getPosition() + vector(0, 3, 0))
-    Wait.condition(|| callback(), || not obj.isSmoothMoving())
+    Wait.condition(callback, || not obj.isSmoothMoving())
 end
 
 function returnPieceGUID(data) returnPiece(getObjectFromGUID(data[1])) end
@@ -377,65 +312,17 @@ function destroyObjects(objs)
     for _, obj in ipairs(objs) do obj.destruct() end
 end
 
-function rollDice(positions, callback)
-    local DiceBag = getObjectFromGUID(GUIDs.Bags.Dice)
-    local delay, ready, dice = 0, false, {}
-    for _, pos in ipairs(positions) do
-        Wait.time(function () DiceBag.takeObject({
-            position = pos,
-            rotation = {math.random(360), math.random(360), math.random(360)},
-            smooth = false,
-            callback_function = function (die)
-                die.setVelocity({0, 0, 0})
-                die.use_gravity = false
-                die.angular_drag = 1.6
-                local x, z = math.random() - 0.5, math.random() - 0.5
-                local scale = (math.abs(x) + math.abs(z)) / 8
-                Wait.condition(function ()
-                    die.addTorque({x / scale, 0, z / scale})
-                    Wait.time(function ()
-                        die.setRotationSmooth(die.getRotationValues()[die.getValue()].rotation)
-                        table.insert(dice, die)
-            end, 2) end, || ready) end
-        }) end, delay)
-        delay = delay + 0.25
-    end
-    Wait.time(function () ready = true end, delay)
-    Wait.condition(|| callback(dice), || #dice == #positions)
-end
-
-function diceValues(dice)
-    local values = {}
-    for _, die in ipairs(dice) do table.insert(values, getDieColor(die)) end
-    return values
-end
-
 function test()
-    local units, top = {}
-    for _, obj in ipairs(Player.Black.getSelectedObjects()) do
-        if isCommand(obj.getName()) then top = obj
-        else table.insert(units, obj) end
-    end
-    mergeStack(top, units)
+    getObjectFromGUID('198655').call('resetSnaps')
 end
 
 function toggleDebug(_, value, id)
     Debug = value == 'True'
     UI.setAttribute(id, 'text', 'Debug log ' .. (Debug and 'ON' or 'OFF'))
-    Map.obj.setVar('Debug', Debug)
-    MoraleBoard.setVar('Debug', Debug)
-    BattleBoards[1].setVar('Debug', Debug)
-    BattleBoards[2].setVar('Debug', Debug)
 end
 
 function checkScenario(nation)
     return state.scenario == 'global' or Scenarios[state.scenario].nations[nation]
-end
-
-function getTurnOrder()
-    if state.turn_order then return state.turn_order else
-        -- lookup turn tokens
-    end
 end
 
 function setBlinker(obj, hcolor, on_time, delay)
@@ -471,6 +358,18 @@ function ordinalize(n)
     elseif n % 10 == 2 then return n .. 'nd'
     elseif n % 10 == 3 then return n .. 'rd'
     else return n .. 'th' end
+end
+
+function mapBFS(q, path, visit, v)
+    local region, d, node
+    if type(q) == 'table' then
+        while not node or v[node[2]] do node = table.remove(q, 1) end
+        d, region = node[1], node[2]
+        visit(region, d, v)
+        if v.result then return v.result end
+    else d, region, q, v = 0, q, {}, {[q] = 'start'} end
+    for _, target in ipairs(Map.data.regions[region].adjacent) do if path(target, d) then table.insert(q, {d + 1, target:match('%a%d+')}) end end
+    return mapBFS(q, path, visit, v)
 end
 
 -- function setHomelandSnaps()

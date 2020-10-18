@@ -1,3 +1,3 @@
 function debug(...)
-    if Debug then print('[808080](DEBUG) ', ...) end
+    if Global.getVar('Debug') then print('[808080](DEBUG) ', ...) end
 end

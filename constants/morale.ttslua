@@ -1,0 +1,15 @@
+Nations = {japan = 0, italy = 1, germany = 2, usa = 3, ussr = 4, uk = 5, china = 6}
+Spots = {medal_goods = 0, stress = 1, infantry = 2, artillery = 3, armor = 4, fighter = 5,
+        cfighter = 5, bomber = 6, submarine = 7, cruiser = 8, carrier = 9, battleship = 10}
+Values = {infantry = 2, artillery = 2, armor = 4, fighter = 4, cfighter = 4,
+        bomber = 6, submarine = 6, cruiser = 10, carrier = 20, battleship = 20}
+Levels = {0, 20, 36, 52, 70, 90}
+Shades = {'ffffff', 'ffff80', 'e0c040', 'c08000', 'c02000', '800000'}
+Thresholds = {
+    {japan = 7, italy = 4, germany = 6, usa = 5, ussr = 6, uk = 6, china = 4},
+    {japan = 6, italy = 4, germany = 6, usa = 5, ussr = 6, uk = 4, china = 4},
+}
+Snaps = {
+    rows = {0.87, 0.65, 0.43, 0.2, -0.01, -0.225, -0.45},
+    cols = {1.41, 0.885, 0.675, 0.495, 0.30, 0.12, -0.06, -0.33, -0.67, -1.005, -1.345}
+}

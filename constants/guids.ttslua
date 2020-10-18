@@ -21,8 +21,8 @@ GUIDs = {
             cfighter = '48d1e6'
         }
     },
-    Territories = '16fc10',
-    MoraleBoard = '33e612',
+    Neutrals = 'c28a9b',
+    MoraleBoard = '198655',
     MoraleZones = {
         uk = 'eb2170',
         china = '79070f',

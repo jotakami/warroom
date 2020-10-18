@@ -1,0 +1,97 @@
+function resolveBombing(hotspot)
+    local region, bombers = getRegion(hotspot), 0
+    local commands = getCommands(region)
+    for _, command in ipairs(commands.axis.air or commands.allies.air) do bombers = bombers + (command.getTable('units').bomber or 0) end
+    debug('Resolving strategic bombing in ', region, ' with ', bombers, ' bombers')
+    rollBomber(hotspot, getBombTargets(region), bombers - 1, function ()
+        debriefAirCommands(commands)
+        returnPiece(hotspot)
+    end)
+end
+
+function getBombTargets(region)
+    if type(region) == 'table' then region = region[1] end
+    local targets = {yellow = {}, blue = {}, green = {}, red = {}, white = {}}
+    local resources = lossLimit(region)
+    if resources.osr then targets.yellow.osr = resources.osr end
+    if resources.iron then targets.blue.iron = resources.iron end
+    if resources.oil then targets.red.oil = resources.oil end
+    for _, units in ipairs(state.objects.construction) do if units.getVar('region') == region then
+        for num, unit in units.getName():gmatch('(%d) %b[](%a+)%b[]') do
+            local unit_type = unit:lower()
+            if unit_type:find('infantry') or unit_type:find('submarine') then targets.yellow[unit_type] = num + 0
+            elseif unit_type:find('artillery') or unit_type:find('cruiser') then targets.blue[unit_type] = num + 0
+            elseif unit_type:find('armor') or unit_type:find('carrier') or unit_type:find('fighter') then targets.green[unit_type] = num + 0
+            elseif unit_type:find('battleship') or unit_type:find('bomber') then targets.red[unit_type] = num + 0 end
+    end end end
+    if Map.data.regions[region].industry then
+        targets.white.bomb = Map.data.regions[region].industry - #(state.objects.bombs[region] or {})
+        if targets.white.bomb == 0 then targets.white.bomb = nil end
+    elseif not state.objects.bombs[region] then targets.white.bomb = 1 end
+    return targets
+end
+
+function rollBomber(hotspot, targets, remaining, callback)
+    local offset = (Map.obj.positionToLocal(hotspot.getPosition()) - Map.data.center):setAt('y', 0):normalized()
+    local region, anchor = getRegion(hotspot), hotspot.getPosition() + vector(0, 1.8, 0)
+    rollDice({
+        anchor + offset, anchor + offset:rotateOver('y', 90),
+        anchor + offset:rotateOver('y', 90), anchor + offset:rotateOver('y', 90)
+    }, function (dice) Wait.time(function ()
+        table.sort(dice, |a, b| DiceOrder[getDieColor(a)] < DiceOrder[getDieColor(b)])
+        debug('Bombing result: ', getDieColor(dice[1]), ', ', getDieColor(dice[2]), ', ', getDieColor(dice[3]), ', ', getDieColor(dice[4]))
+        self.setVar('assignBomb' .. region, function (_, val, guid)
+            local color, target = val:match('(%a+)%-(%a+)')
+            local die = getObjectFromGUID(guid)
+            stopBlinker(die)
+            die.destruct()
+            hotspot.UI.setXml('')
+            bombHit(region, target, hotspot.getPosition() + vector(0, 1, 0))
+            targets[color][target] = targets[color][target] > 1 and targets[color][target] - 1 or nil
+            assignBombDice(dice, targets, hotspot, remaining, callback)
+        end)
+        assignBombDice(dice, targets, hotspot, remaining, callback)
+    end, 1) end)
+end
+
+function assignBombDice(dice, targets, hotspot, remaining, callback)
+    local waiting
+    while not waiting do if #dice == 0 then
+        waiting = Wait.time(function ()
+            if remaining == 0 then debug('Last bomber complete') callback()
+            else debug('Rolling next bomber') rollBomber(hotspot, targets, remaining - 1, callback) end
+        end, 1)
+    else
+        local die = table.remove(dice, 1)
+        local hit_color, valid, count = getDieColor(die), {}, 0
+        for color, hit_types in pairs(targets) do if hit_color == 'black' or hit_color == color then
+            for hit_type, _ in pairs(hit_types) do count, valid[color] = count + 1, hit_types end
+        end end
+        debug('Assigning ', hit_color, ' bomb hit, ', count, ' valid targets')
+        if count > 0 then
+            setBlinker(die)
+            createHitButtons(hotspot, valid, die.getGUID())
+            waiting = true
+        else die.destruct() end
+    end end
+end
+
+function bombHit(region, target, position)
+    if type(region) == 'table' then region, target, position = region[1], region[2], region[3] end
+    local owner = getOwnership(region)
+    if target == 'osr' or target == 'iron' or target == 'oil' then
+        state.objects.resources[owner].call('addResources', {[target] = -1})
+    elseif target == 'bomb' then
+        local bombs = state.objects.bombs[region]
+        local bomb = getObjectFromGUID(GUIDs.Bags.bomb_industry).takeObject({
+            position = bombs and bombs[#bombs].getPosition() + vector(0, 0.25, 0) or position,
+            rotation = bombs and bombs[#bombs].getRotation() or {180, math.random(360), 0}
+        })
+        if bombs then table.insert(bombs, bomb)
+        else state.objects.bombs[region] = {bomb} end
+    else for _, stack in ipairs(state.objects.construction) do
+        if getRegion(stack) == region and stack.getTable('units')[target] then
+            removeUnit(stack, target, || nil)
+            break
+    end end end
+end

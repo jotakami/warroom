@@ -1,0 +1,81 @@
+function cardRegion(card) return card.getName():lower():match('^%a%d+') end
+
+function sortCards(cards, prefix)
+    table.sort(cards, |a, b| compareCards(a, b, prefix))
+end
+
+function compareCards(a, b, prefix)
+    local ap, an = a.getName():lower():match('^(%a)(%d+)')
+    local bp, bn = b.getName():lower():match('^(%a)(%d+)')
+    an, bn = an + 0, bn + 0
+    if ap == bp then return an < bn
+    elseif ap == prefix then return true
+    elseif bp == prefix then return false
+    else return ap < bp end
+end
+
+function getCard(id, nation)
+    for n, guids in pairs(GUIDs.Nations) do if not nation or nation == n then
+        for _, card in ipairs(getObjectFromGUID(guids.card_zone).getObjects()) do
+            if cardRegion(card) == id then return card end
+    end end end
+end
+
+function takeCard(id, nation)
+    debug('Taking ', id, ' card from ', nation)
+    local moves, index = {}
+    local cards = getObjectFromGUID(GUIDs.Nations[nation].card_zone).getObjects()
+    sortCards(cards, regionPrefix(nation))
+    for i, card in ipairs(cards) do
+        if cardRegion(card) == id then
+            index = i
+            table.insert(moves, {position = card.getPosition() + vector(0, 5, 0), rotation = card.getRotation():setAt('x', 0):setAt('z', 0)})
+        end
+        if index then table.insert(moves, {position = card.getPosition(), rotation = card.getRotation()}) end
+    end
+    local start = math.floor((index - 1) / 12) * 12 + 1
+    for i = start, #cards, 1 do if i < index then
+        cards[i].setLock(true)
+        cards[i].setPosition(cards[i].getPosition() + vector(0, 0.1, 0))
+    else
+        cards[i].setPositionSmooth(moves[i - index + 1].position, false, i % 12 == 1)
+        if i == index then cards[i].setRotationSmooth(moves[1].rotation, false, i % 12 == 1)
+        else cards[i].setRotationSmooth(moves[i - index + 1].rotation:setAt('z', cards[i].getRotation().z), false, i % 12 == 1) end
+    end end
+    if start < index then Wait.condition(function ()
+        for i = start, index - 1, 1 do cards[i].setLock(false) end
+    end, || not cards[index].isSmoothMoving()) end
+    return cards[index]
+end
+
+function giveCard(new_card, nation)
+    debug('Giving ', new_card.getName(), ' card to ', nation)
+    local moves, index = {}
+    local cards = getObjectFromGUID(GUIDs.Nations[nation].card_zone).getObjects()
+    sortCards(cards, regionPrefix(nation))
+    for i, card in ipairs(cards) do
+        if not index and compareCards(new_card, card, regionPrefix(nation)) then index = i end
+        if index then table.insert(moves, {position = card.getPosition(), rotation = card.getRotation()}) end
+    end
+    local rack = getObjectFromGUID(GUIDs.Nations[nation].territories[math.floor(#cards / 12) + 1])
+    table.insert(moves, {
+        position = rack.positionToWorld(rack.getSnapPoints()[#cards % 12 + 1].position),
+        rotation = cards[#cards].getRotation()
+    })
+    new_card.setPositionSmooth(moves[1].position)
+    new_card.setRotationSmooth(moves[1].rotation:setAt('z', new_card.getRotation().z))
+    if index then
+        local start = math.floor((index - 1) / 12) * 12 + 1
+        for i = start, #cards, 1 do
+            if i < index then
+                cards[i].setLock(true)
+                cards[i].setPosition(cards[i].getPosition() + vector(0, 0.1, 0))
+            else
+                cards[i].setPositionSmooth(moves[i - index + 2].position)
+                cards[i].setRotationSmooth(moves[i - index + 2].rotation:setAt('z', cards[i].getRotation().z))
+        end end
+        if start < index then Wait.condition(function ()
+            for i = start, index - 1, 1 do cards[i].setLock(false) end
+        end, || not new_card.isSmoothMoving()) end
+    end
+end

@@ -10,9 +10,8 @@ end
 function resolveMovement()
     updateTracker('Resolve movement orders', '3 - Movement Operations')
     UI.show('movement')
-    local order = getTurnOrder()
-    movementComplete = |data| resolveOrders(order[order[data.nation] + 1])
-    resolveOrders(order[1])
+    movementComplete = |data| resolveOrders(state.turn_order[state.turn_order[data.nation] + 1])
+    resolveOrders(state.turn_order[1])
 end
 
 function resolveOrders(nation)
@@ -22,6 +21,63 @@ function resolveOrders(nation)
         movementComplete = nil
         deployCarrierFighters()
     else state.objects.orders[nation].call('resolveOrders') end
+end
+
+function evaluateOrder(params)
+    local nation, id, target = params[1], tonumber(params[2]), params[3]:lower():gsub('-', '')
+    local command = state.objects.commands[nation][id]
+    local region = getRegion(command)
+    UI.setValue('movement-order', command.getName():match('^[^\n]+'):gsub('%b[]', '') .. ' moves to ' .. params[3])
+    -- check pathing to see if command can move
+end
+
+function commandMoved(params)
+    debug('Command moved, nation=', params.nation, ', command=', params.command)
+    local nation = params.nation
+    local is_axis, region = isAxis(nation), getRegion(state.objects.commands[nation][params.command])
+    if params.command > 19 and getOwnership(region) == 'neutral' and (is_axis or not Map.data.regions[region].allied) then
+        neutralInvasion(region, nation, is_axis and 'allies' or 'axis')
+    end
+end
+
+function neutralInvasion(region, invader, other)
+    debug('Neutral ', properName(region), ' was invaded')
+    local data = Map.data.regions[region]
+    local commands, min, owner = getAllCommands(), 8
+    for _, nation in ipairs(mapBFS(region, |target| target:match('%a%d+(%g?)') ~= '^', function (r, d, v)
+        if v.d and d > v.d then
+            local result = {}
+            for nation, side in pairs(Alliance) do if side == other and v[nation] then table.insert(result, nation) end end
+            v.result = result
+        elseif commands[r] and commands[r][other].army then for _, c in ipairs(commands[r][other].army) do
+            local nation = commandNation(c)
+            if state.pact_broken or (invader ~= 'japan' or nation ~= 'ussr') and (invader ~= 'ussr' or nation ~= 'japan') then
+                v[nation], v.d = true, d
+        end end end
+        v[r] = true
+    end)) do if state.turn_order[nation] < min then owner, min = nation, state.turn_order[nation] end end
+    local pos = Map.obj.positionToWorld({data.centroid[1], 0.6, data.centroid[2]})
+    local rot = vector(0, Map.obj.call('rotationToCenter', data.centroid), 0)
+    local callback = function (units)
+        getObjectFromGUID(GUIDs.Nations[owner].flag_bag).takeObject({
+            position = pos, rotation = rot,
+            callback_function = function (flag)
+                mergeStack(flag, units)
+                state.objects.commands[owner][999] = flag
+                state.objects.flags[region] = flag
+        end})
+        local deck, index = state.objects.neutrals
+        for _, card in ipairs(deck.getObjects()) do if card.name:find(region:upper()) then index = card.index break end end
+        deck.takeObject({
+            index = index,
+            position = deck.getPosition() + vector(0, 3, 0),
+            callback_function = |card| giveCard(card, owner)
+        })
+    end
+    if data.army then buildStack(data.army, pos, rot, true, function (units)
+        pos = pos + vector(0, 2, 0)
+        callback(units)
+    end) else callback() end
 end
 
 -- -- Step 3: Carrier fighter movement
@@ -38,7 +94,7 @@ function deployCarrierFighters()
                 local rotation, bump = commands[i].getRotation(), 0
                 if isAxis(nation) then rotation, bump = rotation + vector(0, 0, 180), 0.22 end
                 state.objects.cfighters[nation] = {}
-                state.objects.orders[nation].call('carrierFighters')
+                state.objects.orders[nation].call('cfighterMovement')
                 ready[nation] = false
                 updateStatus(nation, false)
                 for j = 1, count, 1 do
@@ -62,6 +118,7 @@ function deployCarrierFighters()
     end end end
     Wait.condition(function ()
         playerReady = nil
+        for nation, _ in pairs(ready) do state.objects.orders[nation].call('cfighterDone') end
         combatOperations()
     end, function ()
         for _, value in pairs(ready) do if not value then return false end end

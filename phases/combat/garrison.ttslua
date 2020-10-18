@@ -1,0 +1,98 @@
+function resolveGarrison(hotspot)
+    local region, invaders, commands, unit_types = getRegion(hotspot), {}, {}, {}
+    local axis_owned = isAxis(getOwnership(region))
+    for side, forces in pairs(getCommands(region)) do
+        for force, objs in pairs(forces) do for _, command in ipairs(objs) do
+            local nation = commandNation(command)
+            if isAxis(nation) ~= axis_owned then
+                if not invaders[nation] then table.insert(invaders, nation) end
+                invaders[nation] = true
+            end
+            if force == 'army' then
+                table.insert(commands, command)
+                for _, unit in ipairs{'Infantry', 'Artillery', 'Armor'} do
+                    if command.getName():find(unit) and not unit_types[unit:lower()] then
+                        unit_types[unit:lower()] = true
+                        table.insert(unit_types, unit:lower())
+    end end end end end end
+    local offset = (hotspot.getPosition() - Map.obj.positionToWorld(Map.data.center)):setAt('y', 0):normalized():rotateOver('y', 90) * 0.75
+    local anchor = hotspot.getPosition() + vector(0, 1.8, 0)
+    rollDice({anchor + offset, anchor - offset}, function (dice) Wait.time(function ()
+        local values, hit = diceValues(dice)
+        if values[1] == 'black' then hit = values[2]
+        elseif values[2] == 'black' then hit = values[1]
+        elseif values[1] == values[2] then hit = values[1] end
+        if hit == 'black' then if #unit_types == 1 then hit = unit_types[1]
+        else hit = 'any' end
+        elseif hit == 'yellow' and unit_types.infantry then hit = 'infantry'
+        elseif hit == 'blue' and unit_types.artillery then hit = 'artillery'
+        elseif hit == 'green' and unit_types.armor then hit = 'armor'
+        else hit = nil end
+        local callback = function ()
+            destroyObjects(dice)
+            territoryControl(hotspot, getCommands(region), invaders)
+        end
+        if hit then assignHit(hotspot, hit, commands, callback)
+        else callback() end
+    end, 1) end)
+end
+
+function assignHit(hotspot, hit_type, commands, callback)
+    local targets, count, unique = {}, 0
+    for _, command in ipairs(commands) do
+        local nation = commandNation(command)
+        for ut in command.getName():gmatch('%d%s%b[](%u%a+)%b[]') do
+            local unit_type = ut:lower()
+            if hit_type == 'any' or unit_type == hit_type then
+                if not targets[nation] then targets[nation] = {} end
+                if not targets[nation][unit_type] then
+                    targets[nation][unit_type] = command
+                    count = count + 1
+                    if count == 1 then unique = {command = command, unit = unit_type}
+                    elseif count > 1 then unique = nil end
+    end end end end
+    if count == 0 then callback()
+    elseif unique then removeUnit(unique.command, unique.unit, callback)
+    else
+        local click_fun = 'assignHit' .. getRegion(hotspot)
+        createHitButtons(hotspot, targets)
+        self.setVar(click_fun, function (_, value)
+            local nation, unit_type = value:match('(%a+)%-(%a+)')
+            hotspot.UI.setXml('')
+            removeUnit(targets[nation][unit_type], unit_type, callback)
+            self.setVar(click_fun, nil)
+        end)
+    end
+end
+
+function createHitButtons(hotspot, targets, guid)
+    local click_fun, height, width = 'Global/assign' .. (guid and 'Bomb' or 'Hit') .. getRegion(hotspot) .. '(', 0, 0
+    local rotation = Map.obj.call('rotationToCenter', Map.obj.positionToLocal(hotspot.getPosition())) + Map.rotation.y
+    for _, hit_types in pairs(targets) do
+        width = width + 1
+        for _, _ in pairs(hit_types) do height = height + 1 end
+    end
+    local cols = {}
+    for class, hit_types in pairs(targets) do
+        local col = {}
+        for hit_type, _ in pairs(hit_types) do
+            local attr = {id = guid, image = hit_type, onClick = click_fun .. class .. '-' .. hit_type .. ')'}
+            if not guid then attr.icon, attr.text = class, ' ' end
+            table.insert(col, {tag = 'Button', attributes = attr})
+        end
+        if width > 1 and #col < height then
+            local pad = (height - #col) * 60
+            col = {tag = 'Panel', children = col, attributes = {
+                padding = '0 0 ' .. pad .. ' ' .. pad
+            }}
+        end
+        table.insert(cols, {tag = 'VerticalLayout', children = col, attributes = {}})
+    end
+    if width > 1 then cols = {tag = 'HorizontalLayout', children = cols, attributes = {}}
+    else cols = cols[1] end
+    cols.attributes.height = height * 120
+    cols.attributes.width = width * 120
+    cols.attributes.position = '0 0 -250'
+    cols.attributes.rotation = '0 0 ' .. (hotspot.getRotation().y - rotation)
+    hotspot.UI.setXmlTable({cols})
+end

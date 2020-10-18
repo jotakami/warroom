@@ -23,13 +23,11 @@ function stackUnits(types, units, position, rotation, fast, callback)
     else
         local unit_type = table.remove(types)
         getUnit(unit_type, {
-            position = position,
-            rotation = rotation,
+            position = position, rotation = rotation,
             callback_function = function (obj)
                 table.insert(units, obj)
                 if not fast then next() end
-            end
-        })
+        end})
         if fast then Wait.frames(|| next(), unit_type == types[1] and 1 or 10) end
     end
 end
@@ -56,7 +54,6 @@ function sortUnits(units)
 end
 
 function getStack(command)
-    command.clearContextMenu()
     local types, units = '', {}
     for _, unit_type in ipairs(StackOrder) do types = types .. unit_type .. ',' end
     for _, hit in ipairs(Physics.cast({
@@ -67,6 +64,7 @@ function getStack(command)
         table.insert(units, hit.hit_object)
     end end
     table.sort(units, function (a, b) return a.getPosition().y < b.getPosition().y end)
+    while #units > 8 do table.remove(units, 1) end
     return units
 end
 
@@ -119,8 +117,30 @@ function alignRotation(unit, rot)
     else unit.setRotationSmooth(rot, false, true) end
 end
 
+function formStack(command, player)
+    local units, force, invalid = getStack(command), commandForce(command.getName())
+    for _, obj in ipairs(Player[player].getSelectedObjects()) do
+        local new = true
+        if Colors[obj.getName():gsub('cfighter', 'no')] then
+            for _, unit in ipairs(units) do if obj.getGUID() == unit.getGUID() then new = false break end end
+            if new then table.insert(units, obj) end
+    end end
+    if #units > 0 and #units < 9 then for _, unit in ipairs(units) do
+        if StackOrder[unit.getName()] < 4 then if force ~= 'air' then invalid = true break end
+        elseif StackOrder[unit.getName()] < 7 then if force ~= 'army' then invalid = true break end
+        elseif force ~= 'fleet' then invalid = true break end
+    end else invalid = true end
+    if not invalid then
+        command.clearContextMenu()
+        mergeStack(command, units)
+    else debug('Could not form stack') end
+end
+
 function mergeStack(top, units)
-    local count, desc, isProduction = {}, '', top.getName() == 'bomb_industry'
+    debug('Merging stack under ', top.getName())
+    local count, desc = {}, ''
+    local is_production = top.getName() == 'bomb_industry'
+    local flag_nation = top.getName():match('(%a+) flag')
     if not checkStack(top, units) then return alignStack(top, units, mergeStack) end
     for _, unit in ipairs(units) do
         count[unit.getName()] = (count[unit.getName()] or 0) + 1
@@ -131,27 +151,38 @@ function mergeStack(top, units)
         table.insert(count, count[type])
         table.insert(count, type)
     end end
-    if isProduction then top.tooltip = true end
-    top.setName((isProduction and 'Units under construction' or top.getName()) .. '\n' .. desc:sub(1, -2))
+    if is_production or flag_nation then top.tooltip = true end
+    top.setName((
+        is_production and 'Units under construction' or
+        flag_nation and 'Defense force (' .. colorize(flag_nation, flag_nation:lower()) .. ')' or
+        top.getName()
+        ) .. '\n' .. desc:sub(1, -2)
+    )
     top.clearContextMenu()
-    top.addContextMenuItem('Break stack', || breakStack(top))
+    if not flag_nation then
+        top.addContextMenuItem('Break stack', || breakStack(top))
+        if not is_production then top.addContextMenuItem('Combine stacks', |player| combineStacks(top, player)) end
+    end
     top.setTable('units', count)
 end
 
 function breakStack(stack)
-    local units = stack.removeAttachments()
+    local name, units = stack.getName(), stack.removeAttachments()
     stack.clearContextMenu()
-    stack.addContextMenuItem('Form stack', || mergeStack(stack, getStack(stack)))
+    stack.addContextMenuItem('Form stack', |player| formStack(stack, player))
     stack.setVar('units', nil)
-    if stack.getName():match('construction') then
+    if name:match('construction') then
         stack.setName('bomb_industry')
         stack.tooltip = false
     else
-        local name, guid = stack.getName():match('^([^\n]+)\n'), stack.getGUID()
-        local nation = name:match('%b[](%a+)%b[]'):lower()
+        local guid, nation = stack.getGUID(), name:match('%b[](%a+)%b[]')
+        if name:match('Defense') then
+            name, nation, guid = nation .. ' flag', 'neutral-' .. nation, nil
+            stack.tooltip = false
+        else name = name:match('^([^\n]+)\n') end
         stack.setName(name)
         for _, unit in ipairs(units) do Wait.condition(function ()
-            unit.setVar('nation', nation)
+            unit.setVar('nation', nation:lower())
             unit.setVar('command', guid)
         end, || not unit.spawning) end
     end
@@ -205,4 +236,26 @@ function removeFromStack(stack, unit_type, unit_callback, callback)
                 callback()
             end, || not stack.isSmoothMoving())
     end end, || spawning == 0)
+end
+
+function combineStacks(command, player)
+    local commands, name, i = Player[player].getSelectedObjects(), command.getName(), 1
+    local nation, force, count = commandNation(command), commandForce(name), #command.getAttachments()
+    while i <= #commands do
+        if Colors[commands[i].getName():gsub('cfighter', 'no')] then count, i = count + 1, i + 1
+        elseif not isCommand(commands[i].getName())
+            or commandNation(commands[i]) ~= nation or commandForce(commands[i].getName()) ~= force
+            or commands[i].getGUID() == command.getGUID() then table.remove(commands, i)
+        else count, i = count + #commands[i].getAttachments(), i + 1 end
+    end
+    if #commands > 0 and count < 9 then
+        local units = breakStack(command)
+        for _, cmd in ipairs(commands) do
+            if isCommand(cmd.getName()) then
+                for _, unit in ipairs(breakStack(cmd)) do table.insert(units, unit) end
+                Wait.frames(|| returnPiece(cmd), 1)
+            else table.insert(units, cmd)
+        end end
+        Wait.frames(|| mergeStack(command, units), 1)
+    else debug('Can\'t merge the selected units') end
 end

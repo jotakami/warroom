@@ -1,3 +1,47 @@
 DiceOrder = {yellow = 1, blue = 2, green = 3, red = 4, black = 5, white = 6}
 
 function getDieColor(die) return die.getRotationValue():sub(9):lower() end
+
+function dicePositions(n, center, norm)
+    debug('Calculating dice positions')
+    if n == 1 then return {center}
+    else
+        local radius = norm * (1 / (math.sqrt(2) * math.sin(math.pi / n)))
+        local positions = {center + radius}
+        for i = 2, n do positions[i] = center + radius:rotateOver('y', 360 / n) end
+        return positions
+    end
+end
+
+function diceValues(dice)
+    local values = {}
+    for _, die in ipairs(dice) do table.insert(values, getDieColor(die)) end
+    return values
+end
+
+function rollDice(positions, callback)
+    local DiceBag = getObjectFromGUID(GUIDs.Bags.Dice)
+    local delay, ready, dice = 0, false, {}
+    for _, pos in ipairs(positions) do
+        Wait.time(function () DiceBag.takeObject({
+            position = pos,
+            rotation = {math.random(360), math.random(360), math.random(360)},
+            smooth = false,
+            callback_function = function (die)
+                die.setVelocity({0, 0, 0})
+                die.use_gravity = false
+                die.angular_drag = 1.6
+                local x, z = math.random() - 0.5, math.random() - 0.5
+                local scale = (math.abs(x) + math.abs(z)) / 8
+                Wait.condition(function ()
+                    die.addTorque({x / scale, 0, z / scale})
+                    Wait.time(function ()
+                        die.setRotationSmooth(die.getRotationValues()[die.getValue()].rotation)
+                        table.insert(dice, die)
+            end, 2) end, || ready) end
+        }) end, delay)
+        delay = delay + 0.25
+    end
+    Wait.time(function () ready = true end, delay)
+    Wait.condition(|| callback(dice), || #dice == #positions)
+end

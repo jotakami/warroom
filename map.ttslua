@@ -144,5 +144,5 @@ function signed_area(a, b, c)
 end
 
 function rotationToCenter(point)
-    return (math.atan2(point.x - MapData.center.x, point.z - MapData.center.z) / math.pi + 1) * 180
+    return (math.atan2((point.x or point[1]) - MapData.center.x, (point.z or point[2]) - MapData.center.z) / math.pi + 1) * 180
 end

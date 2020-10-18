@@ -1,0 +1,73 @@
+function production()
+    setAdvance('round', 'Start new round')
+    writeProduction()
+end
+
+-- -- Step 2: Note purchase of units
+
+function writeProduction()
+    local ready = {}
+    for nation, orders in pairs(state.objects.orders) do
+        orders.call('writeProduction')
+        ready[nation] = false
+    end
+    playerReady = function (data)
+        local all_ready = true
+        for nation, value in pairs(ready) do if data[nation] ~= nil then
+            ready[nation] = data[nation]
+            all_ready = all_ready and data[nation]
+        else all_ready = all_ready and ready[nation] end end
+        if all_ready then
+            playerReady = nil
+            revealPurchases()
+    end end
+end
+
+-- -- Step 3: Reveal purchases and update resources
+
+function revealPurchases()
+    local purchases, delay = {}, 0
+    self.UI.setAttribute('production', 'visibility', 'White|Green|Orange|Blue|Brown|Red|Yellow|Pink|Grey|Black')
+    self.UI.show('production')
+    for i, nation in ipairs(state.turn_order) do
+        Wait.time(function ()
+            local orders = state.objects.orders[nation]
+            purchases[nation] = {}
+            for unit, qty in pairs(orders.call('revealPurchases')) do purchases[nation][unit] = qty end
+            orders.call('payPurchases')
+            displayPurchases(nation, purchases[nation], i)
+            if purchases[nation].cg then
+                MoraleBoard.call('addGoods', {nation = nation, value = purchases[nation].cg})
+                purchases[nation].cg = nil
+            end
+            buildStack(purchases[nation], orders.getPosition() - orders.getTransformForward() * 10, orders.getRotation(), true, || nil)
+        end, delay)
+        delay = delay + 0.5
+    end
+    Wait.time(|| transferUnits(), delay)
+end
+
+function displayPurchases(nation, purchases, row)
+    for unit, _ in pairs(Costs) do self.UI.setValue('production-' .. nation .. '-' .. unit, purchases[unit] or '') end
+    self.UI.show('production-' .. nation)
+end
+
+function hidePurchases(player)
+    local vis = self.UI.getAttribute('production', 'visibility')
+    self.UI.setAttribute('production', 'visibility', vis:gsub('(|?)' .. player.color .. '(|?)', function (l, r)
+        if l == '|' and r == '|' then return '|' else return '' end
+    end))
+end
+
+-- -- Step 4: Transfer new units to industries
+
+-- Rewrite so that each player clicks a button to signal that they are ready,
+-- and then their stacks are automatically merged with an industry token placed on top.
+function transferUnits()
+    onObjectDrop = function (_, drop) if drop.getName() == 'bomb_industry' and not drop.is_face_down then drop.registerCollisions() end end
+    onObjectCollisionEnter = function (obj, collision_info) if Colors[collision_info.collision_object.getName()] then
+        mergeStack(obj, getStack(obj), true)
+        obj.unregisterCollisions()
+        table.insert(state.objects.construction, obj)
+    end end
+end

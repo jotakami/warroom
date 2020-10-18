@@ -1,0 +1,115 @@
+function makeRepairs()
+    local count, units = getDamagedUnits()
+    repairUnit = function (_, value)
+        local guid, resource, stack_guid = value:match('^(%w+)-(%a+)-?(%w*)')
+        local obj, stack = getObjectFromGUID(guid), stack_guid ~= '' and getObjectFromGUID(stack_guid) or nil
+        _repairUnit(obj, units, resource, stack)
+        Wait.condition(function () count = count - 1 end, || not obj.isSmoothMoving())
+    end
+    destroyUnit = function (_, guid)
+        local obj = getObjectFromGUID(guid)
+        _destroyUnit(units, obj)
+        assignHit(obj, nil, function () count = count - 1 end)
+    end
+    Wait.condition(function ()
+        repairUnit, destroyUnit = nil, nil
+        removeCasualties()
+        returnUnits()
+        resetState()
+    end, || count == 0)
+end
+
+function _repairUnit(obj, units, resource, stack)
+    local nation, j = obj.getVar('nation'):match('%a+$')
+    local Resources = getObjectFromGUID(Global.getTable('GUIDs').Nations[nation].resources)
+    local resources = Resources.call('totals')
+    for i, unit in ipairs(units[nation]) do if unit.getGUID() == obj.getGUID() then j = i
+    elseif resources[resource] == 1 then unit.UI.hide(resource) end end
+    clearRepair(obj, j, units[nation])
+    if stack ~= nil then stackOn(obj, stack)
+    else obj.setPositionSmooth(obj.getPosition():setAt('x',
+        self.positionToWorld({ZoneParams[combatMode()].sides[Alliance[nation]].nations[nation], 0, 0}).x
+    )) end
+    Resources.call('addResources', {[resource] = -1})
+end
+
+function _destroyUnit(units, obj)
+    local nation, j = obj.getVar('nation'):match('%a+$')
+    for i, unit in ipairs(units[nation]) do if unit.getGUID() == obj.getGUID() then j = i end end
+    clearRepair(obj, j, units[nation])
+end
+
+function clearRepair(obj, index, t)
+    table.remove(t, index)
+    obj.UI.setXml('')
+    stopBlinker(obj)
+end
+
+function getDamagedUnits()
+    local mode, count, units = combatMode(), 0, {}
+    for side, unit_zones in pairs(Zones.units[mode]) do
+        for unit, stances in pairs(unit_zones) do for stance, zone in pairs(stances) do
+            local stacks, damaged, sustained, align = {}
+            for _, obj in ipairs(zone.getObjects()) do
+                align = getColumn(obj)
+                if align == 'damaged' then damaged = obj
+                elseif align == 'sustained' then sustained = obj
+                elseif not stacks[align] or isAbove(obj, stacks[align]) then stacks[align] = obj end
+            end
+            if sustained then
+                local nation = sustained.getVar('nation')
+                if stacks[nation] then stackOn(sustained, stacks[nation])
+                else sustained.setPositionSmooth(sustained.getPosition():setAt('x', self.positionToWorld({ZoneParams[mode].sides[side].nations[nation], 0, 0}).x)) end
+                stacks[nation] = sustained
+            end
+            if damaged then
+                local nation = damaged.getVar('nation'):match('%a+$')
+                if checkPortAdvantage(side) and unit ~= 'fighter' and unit ~= 'bomber' then
+                    if stacks[nation] then stackOn(damaged, stacks[nation])
+                    else damaged.setPositionSmooth(damaged.getPosition():setAt('x', self.positionToWorld({ZoneParams[mode].sides[side].nations[nation], 0, 0}).x)) end
+                else
+                    count = count + 1
+                    if not units[nation] then units[nation] = {} end
+                    table.insert(units[nation], damaged)
+                    createRepairButtons(damaged, side, stacks[nation])
+    end end end end end
+    return count, units
+end
+
+function createRepairButtons(obj, side, stackObj)
+    local nation, sign = obj.getVar('nation'):match('%a+$'), (side == 'axis' and -1 or 1) * (obj.is_face_down and -1 or 1)
+    local scale_factor = obj.getName() == 'cfighter' and 2 or 1
+    local x, z = sign * 80 * scale_factor, obj.is_face_down and ' 2' or ' -29'
+    local rotation, scale = '0 ' .. (obj.is_face_down and '180' or '0') .. ' 180', scale_factor .. ' ' .. scale_factor
+    debug('Creating repair buttons for ', nation, ' ', obj.getName())
+    local resources = getObjectFromGUID(Global.getTable('GUIDs').Nations[nation].resources).call('totals')
+    local buttons = {
+        {tag = 'Image', attributes = {
+            position = '0 0' .. z, rotation = rotation, scale = scale,
+            height = 50, width = 50,
+            image = nation
+        }},
+        {tag = 'Button', attributes = {
+            position = -x .. ' 0' .. z, rotation = rotation, scale = scale,
+            height = 40, width = 40,
+            text = 'X', fontSize = 32, textColor = 'white',
+            colors = 'black|black|black|clear',
+            onClick = self.getGUID() .. '/destroyUnit('.. obj.getGUID() .. ')'
+        }}
+    }
+    local y = {oil = 50 * scale_factor, iron = 0, osr = -50 * scale_factor}
+    for resource, value in pairs(resources) do
+        if value > 0 then
+            local onClick = self.getGUID() .. '/repairUnit('.. obj.getGUID() .. '-' .. resource
+            if stackObj then onClick = onClick .. '-' .. stackObj.getGUID() end
+            table.insert(buttons, {tag = 'Button', attributes = {
+                id = resource,
+                position = x .. ' ' .. y[resource] .. z, rotation = rotation,
+                scale = scale, height = 50, width = 50,
+                icon = resource, colors = 'clear|clear|clear|clear',
+                onClick = onClick  .. ')'
+            }})
+    end end
+    obj.UI.setXmlTable(buttons)
+    setBlinker(obj)
+end

@@ -1,19 +1,18 @@
+#include constants/morale
 #include debug
 
 function onLoad(saved_state)
     Zones = {}
-    for nation, guid in pairs(Global.getTable('GUIDs').MoraleZones) do
-        Zones[nation] = getObjectFromGUID(guid)
-    end
+    for nation, guid in pairs(Global.getTable('GUIDs').MoraleZones) do Zones[nation] = getObjectFromGUID(guid) end
     local bag_guids = Global.getTable('GUIDs').Bags
     Bags = {
         Stress = {getObjectFromGUID(bag_guids.Stress[1]), nil, getObjectFromGUID(bag_guids.Stress[3])},
         MedalGoods = getObjectFromGUID(bag_guids.medal_goods)
     }
     state = {pending = {}, stress = {}, medals = {}}
-    for nation, _ in pairs(Nations) do
-        state.pending[nation] = {casualties = {}, stress = 0, medals = 0}
-    end
+    for nation, _ in pairs(Nations) do state.pending[nation] = {casualties = {}, stress = 0, medals = 0} end
+    resetSnaps()
+    resetUI()
 end
 
 function stackCasualties(data)
@@ -340,14 +339,39 @@ end
 
 function snapOffset(nation, spot) return 1 + Nations[nation] * 11 + Spots[spot] end
 
-Nations = {japan = 0, italy = 1, germany = 2, usa = 3, ussr = 4, uk = 5, china = 6}
-Spots = {medal_goods = 0, stress = 1, infantry = 2, artillery = 3, armor = 4, fighter = 5,
-        cfighter = 5, bomber = 6, submarine = 7, cruiser = 8, carrier = 9, battleship = 10}
-Values = {infantry = 2, artillery = 2, armor = 4, fighter = 4, cfighter = 4,
-        bomber = 6, submarine = 6, cruiser = 10, carrier = 20, battleship = 20}
-Levels = {0, 20, 36, 52, 70, 90}
-Shades = {'ffffff', 'ffff80', 'e0c040', 'c08000', 'c02000', '800000'}
-Thresholds = {
-    {japan = 7, italy = 4, germany = 6, usa = 5, ussr = 6, uk = 6, china = 4},
-    {japan = 6, italy = 4, germany = 6, usa = 5, ussr = 6, uk = 4, china = 4},
-}
+function flipBoard()
+    self.setPositionSmooth(self.getPosition() + vector(0, 0.2, 0))
+    self.setRotationSmooth({0, 0, 180})
+    Wait.condition(function ()
+        resetUI()
+        resetSnaps()
+    end, || not self.isSmoothMoving())
+end
+
+function resetUI()
+    local xml, flipped = self.UI.getXmlTable(), self.is_face_down
+    for _, element in ipairs(xml) do if element.tag == 'Defaults' then
+        for _, default in ipairs(element.children) do
+            if default.attributes.class == 'stress' then flipPosition(default, flipped) end
+            if default.attributes.rotation then default.attributes.rotation = '180 ' .. (flipped and 0 or 180) .. ' 0'
+        end end
+    elseif element.attributes.id:find('button') then flipPosition(element, flipped) end end
+    self.UI.setXmlTable(xml)
+end
+
+function flipPosition(element, flipped)
+    local xy = element.attributes.position:match('^%-?(%d*%.?%d+%s%-?%d*%.?%d+%s)')
+    element.attributes.position = flipped and '-' .. xy .. '0.1' or xy .. '-20.1'
+end
+
+function resetSnaps()
+    local snaps, flipped = {}, self.is_face_down
+    for i, row in ipairs(Snaps.rows) do for j, col in ipairs(Snaps.cols) do
+        if i < 7 or j < 6 then table.insert(snaps, {
+            position = {flipped and -col or col, flipped and 0 or 0.2, row},
+            rotation = {0, 0, flipped and 180 or 0},
+            rotation_snap = true
+        }) end
+    end end
+    self.setSnapPoints(snaps)
+end
