@@ -6,29 +6,8 @@ function resolveBombing(hotspot)
     rollBomber(hotspot, getBombTargets(region), bombers - 1, function ()
         debriefAirCommands(commands)
         returnPiece(hotspot)
+        clearHotspot(region)
     end)
-end
-
-function getBombTargets(region)
-    if type(region) == 'table' then region = region[1] end
-    local targets = {yellow = {}, blue = {}, green = {}, red = {}, white = {}}
-    local resources = lossLimit(region)
-    if resources.osr then targets.yellow.osr = resources.osr end
-    if resources.iron then targets.blue.iron = resources.iron end
-    if resources.oil then targets.red.oil = resources.oil end
-    for _, units in ipairs(state.objects.construction) do if units.getVar('region') == region then
-        for num, unit in units.getName():gmatch('(%d) %b[](%a+)%b[]') do
-            local unit_type = unit:lower()
-            if unit_type:find('infantry') or unit_type:find('submarine') then targets.yellow[unit_type] = num + 0
-            elseif unit_type:find('artillery') or unit_type:find('cruiser') then targets.blue[unit_type] = num + 0
-            elseif unit_type:find('armor') or unit_type:find('carrier') or unit_type:find('fighter') then targets.green[unit_type] = num + 0
-            elseif unit_type:find('battleship') or unit_type:find('bomber') then targets.red[unit_type] = num + 0 end
-    end end end
-    if Map.data.regions[region].industry then
-        targets.white.bomb = Map.data.regions[region].industry - #(state.objects.bombs[region] or {})
-        if targets.white.bomb == 0 then targets.white.bomb = nil end
-    elseif not state.objects.bombs[region] then targets.white.bomb = 1 end
-    return targets
 end
 
 function rollBomber(hotspot, targets, remaining, callback)
@@ -74,24 +53,4 @@ function assignBombDice(dice, targets, hotspot, remaining, callback)
             waiting = true
         else die.destruct() end
     end end
-end
-
-function bombHit(region, target, position)
-    if type(region) == 'table' then region, target, position = region[1], region[2], region[3] end
-    local owner = getOwnership(region)
-    if target == 'osr' or target == 'iron' or target == 'oil' then
-        state.objects.resources[owner].call('addResources', {[target] = -1})
-    elseif target == 'bomb' then
-        local bombs = state.objects.bombs[region]
-        local bomb = getObjectFromGUID(GUIDs.Bags.bomb_industry).takeObject({
-            position = bombs and bombs[#bombs].getPosition() + vector(0, 0.25, 0) or position,
-            rotation = bombs and bombs[#bombs].getRotation() or {180, math.random(360), 0}
-        })
-        if bombs then table.insert(bombs, bomb)
-        else state.objects.bombs[region] = {bomb} end
-    else for _, stack in ipairs(state.objects.construction) do
-        if getRegion(stack) == region and stack.getTable('units')[target] then
-            removeUnit(stack, target, || nil)
-            break
-    end end end
 end

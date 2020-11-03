@@ -1,73 +1,184 @@
-function production()
-    setAdvance('round', 'Start new round')
-    writeProduction()
-end
-
 -- -- Step 2: Note purchase of units
 
-function writeProduction()
-    local ready = {}
+function writeProduction(resume)
+    updateTracker('Write unit purchase orders', '7 - Production', 'production')
+    resetStatus()
+    enableSave('production')
+    state.save_ok = 'production'
+    local ready, trades = {}, eligibleTrades()
     for nation, orders in pairs(state.objects.orders) do
-        orders.call('writeProduction')
+        orders.call('writeProduction', {trades[nation], resume})
         ready[nation] = false
     end
     playerReady = function (data)
         local all_ready = true
-        for nation, value in pairs(ready) do if data[nation] ~= nil then
-            ready[nation] = data[nation]
-            all_ready = all_ready and data[nation]
-        else all_ready = all_ready and ready[nation] end end
+        for nation, status in pairs(ready) do if data[nation] ~= nil then
+            updateStatus(nation, data[nation])
+            ready[nation], all_ready = data[nation], all_ready and data[nation]
+        else all_ready = all_ready and status end end
         if all_ready then
             playerReady = nil
+            disableSave()
             revealPurchases()
     end end
+end
+
+function eligibleTrades()
+    local trades = {axis = {}, allies = {}}
+    for region, data in pairs(Map.data.regions) do if data.trade then
+        local owner = getOwnership(region)
+        if owner == 'neutral' then for _, link in ipairs(data.adjacent) do
+            local id, flag = link:match('(%a%d+)(.?)')
+            owner = getOwnership(id)
+            if flag == '$' then
+                local commands, side = getCommands(id)
+                if not commands.axis.fleet then trades.allies[data.trade] = trades.allies[data.trade] or 'sea'
+                elseif commands.axis.fleet and not commands.allies.fleet and not data.allied then
+                    trades.axis[data.trade] = trades.axis[data.trade] or 'sea'
+            end elseif owner and owner ~= 'neutral' and not getCard(id, owner).is_face_down then
+                trades[Alliance[owner]][data.trade] = 'land'
+        end end else trades[Alliance[owner]][data.trade] = 'land' end
+    end end
+    for _, nation in ipairs(state.turn_order) do
+        trades[nation] = {}
+        for resource, flag in pairs(trades[Alliance[nation]]) do
+            trades[nation][resource] = flag == 'land' or flag == 'sea' and getStressZone(nation) < 3
+            debug(nation, ' can trade ', resource)
+    end end
+    trades.china = nil
+    return trades
 end
 
 -- -- Step 3: Reveal purchases and update resources
 
 function revealPurchases()
-    local purchases, delay = {}, 0
-    self.UI.setAttribute('production', 'visibility', 'White|Green|Orange|Blue|Brown|Red|Yellow|Pink|Grey|Black')
-    self.UI.show('production')
-    for i, nation in ipairs(state.turn_order) do
-        Wait.time(function ()
-            local orders = state.objects.orders[nation]
-            purchases[nation] = {}
-            for unit, qty in pairs(orders.call('revealPurchases')) do purchases[nation][unit] = qty end
-            orders.call('payPurchases')
-            displayPurchases(nation, purchases[nation], i)
-            if purchases[nation].cg then
-                MoraleBoard.call('addGoods', {nation = nation, value = purchases[nation].cg})
-                purchases[nation].cg = nil
-            end
-            buildStack(purchases[nation], orders.getPosition() - orders.getTransformForward() * 10, orders.getRotation(), true, || nil)
-        end, delay)
-        delay = delay + 0.5
-    end
-    Wait.time(|| transferUnits(), delay)
+    updateTracker('Reveal purchases and update resources')
+    local purchases, new_units, delay = {}, {}, 0
+    UI.setAttribute('production', 'visibility', 'White|Green|Orange|Blue|Brown|Red|Yellow|Pink|Grey|Black')
+    UI.show('production')
+    UI.setAttributes('hud-button', {
+        image = 'production', highlightedSprite = 'production-hover', pressedSprite = 'production-push',
+        visibility = 'Grey', active = true
+    })
+    for i, nation in ipairs(state.turn_order) do Wait.time(function ()
+        local orders = state.objects.orders[nation]
+        purchases[nation] = {}
+        for unit, qty in pairs(orders.call('revealPurchases')) do purchases[nation][unit] = qty end
+        orders.call('payPurchases')
+        displayPurchases(nation, purchases[nation], i)
+        if purchases[nation].cg then
+            MoraleBoard.call('addGoods', {nation = nation, value = purchases[nation].cg})
+            purchases[nation].cg = nil
+        end
+        local pos, rot = orders.getPosition() - orders.getTransformForward() * 10, orders.getRotation()
+        buildStack(purchases[nation], pos, rot, true, function (units) new_units[nation] = units end)
+    end, (i - 1) * 0.5) end
+    Wait.condition(|| transferUnits(new_units), function ()
+        for _, nation in ipairs(state.turn_order) do if new_units[nation] == nil then return false end end
+        return true
+    end)
 end
 
-function displayPurchases(nation, purchases, row)
-    for unit, _ in pairs(Costs) do self.UI.setValue('production-' .. nation .. '-' .. unit, purchases[unit] or '') end
-    self.UI.show('production-' .. nation)
-end
-
-function hidePurchases(player)
-    local vis = self.UI.getAttribute('production', 'visibility')
-    self.UI.setAttribute('production', 'visibility', vis:gsub('(|?)' .. player.color .. '(|?)', function (l, r)
-        if l == '|' and r == '|' then return '|' else return '' end
-    end))
+function displayPurchases(nation, purchases, col)
+    UI.setValue('production-cg' .. col, purchases.cg or '')
+    for unit, _ in pairs(Units) do if unit ~= 'cfighter' then
+        UI.setValue('production-' .. unit .. col, purchases[unit] or '')
+    end end
 end
 
 -- -- Step 4: Transfer new units to industries
 
--- Rewrite so that each player clicks a button to signal that they are ready,
--- and then their stacks are automatically merged with an industry token placed on top.
-function transferUnits()
-    onObjectDrop = function (_, drop) if drop.getName() == 'bomb_industry' and not drop.is_face_down then drop.registerCollisions() end end
-    onObjectCollisionEnter = function (obj, collision_info) if Colors[collision_info.collision_object.getName()] then
-        mergeStack(obj, getStack(obj), true)
-        obj.unregisterCollisions()
-        table.insert(state.objects.construction, obj)
+function transferUnits(new_units)
+    updateTracker('Transfer new units to industries', nil, 'transfer')
+    local ready = {}
+    for nation, orders in pairs(state.objects.orders) do if #new_units[nation] > 0 then
+        debug(#new_units[nation], ' new units for ', nation)
+        orders.call('showReady')
+        ready[nation] = false
+        updateStatus(nation)
+        for _, unit in ipairs(new_units[nation]) do unit.highlightOn(colorTable(Colors[nation])) end
+    else debug('No new units for ', nation) orders.call('hideReady') end end
+    playerReady = function (data)
+        local all_ready = true
+        for nation, status in pairs(ready) do if data[nation] then
+            debug(nation, ' toggled status to ready')
+            local valid, units = checkProduction(nation, new_units[nation])
+            if valid then
+                debug('Placement is valid, creating construction stacks')
+                placeIndustryTokens(units)
+                updateStatus(nation, true)
+                ready[nation], all_ready = true, all_ready and true
+                state.objects.orders[nation].call('hideReady')
+            else
+                debug('Placement is invalid, resetting ready button')
+                flashRed(units, colorTable(Colors[nation]))
+                state.objects.orders[nation].call('showReady')
+            end
+        else all_ready = all_ready and status end end
+        if all_ready then
+            playerReady = nil
+            UI.hide('production')
+            UI.hide('hud-button')
+            Wait.time(startNewRound, 3)
     end end
+end
+
+function checkProduction(nation, units)
+    debug('Checking production placements for ', nation)
+    if #units == 0 then return false end
+    local by_region, invalid = {}, {}
+    for _, unit in ipairs(units) do
+        debug('Checking ', unit.getName(), ' ', unit.guid)
+        local region = getRegion(unit)
+        if not region then table.insert(invalid, unit) debug('Invalid placement: unit not on map')
+        elseif getOwnership(region) ~= nation then table.insert(invalid, unit) debug('Invalid placement: unit not in region controlled by owner')
+        elseif Map.data.regions[region].mobilization and unit.getName() ~= 'infantry' then table.insert(invalid, unit) debug('Invalid placement: only infantry can mobilize')
+        elseif not hasPort(region) and unitType(unit) == 'fleet' then table.insert(invalid, unit) debug('Invalid placement: naval unit in region without port')
+        else
+            debug('Placement in ', region, ' is valid')
+            by_region[region] = by_region[region] or {}
+            table.insert(by_region[region], unit)
+    end end
+    for region, produced in pairs(by_region) do
+        if (nation == 'china' and Map.data.regions[region].mobilization or productionLimit(region)) < #produced then
+            debug('Invalid placement: units exceed production capacity in ', region)
+            for _, unit in ipairs(produced) do table.insert(invalid, unit) end
+    else debug('Production within limit in ', region) end end
+    if #invalid > 0 then return false, invalid
+    else return true, by_region end
+end
+
+function productionLimit(region)
+    return (Map.data.regions[region].industry or 0) - #(state.objects.bombs[region] or {})
+end
+
+function flashRed(units, color)
+    local count = 9
+    Wait.time(function ()
+        if count == 1 then for _, unit in ipairs(units) do unit.highlightOn(color) end
+        elseif count % 2 == 1 then for _, unit in ipairs(units) do unit.highlightOn({1, 0.2, 0.2}) end
+        else for _, unit in ipairs(units) do unit.highlightOff() end end
+        count = count - 1
+    end, 0.5, count)
+end
+
+function placeIndustryTokens(units)
+    for region, objs in pairs(units) do if Map.data.regions[region].mobilization then
+        local merged = false
+        for _, command in pairs(state.objects.commands.china) do
+            if getRegion(command) == region and #command.getAttachments() + #objs < 9 then
+                debug('Found command to merge mobilized units into')
+                local combined = breakStack(command)
+                for _, unit in ipairs(objs) do table.insert(combined, unit) end
+                Wait.frames(|| mergeStack(command, combined), 5)
+                merged = true
+                break
+        end end
+        if not merged then debug('Creating new command for mobilized units') mergeStack(getNewCommand('china', 'army'), objs) end
+    else getObjectFromGUID(GUIDs.Bags.bomb_industry).takeObject({
+        position = objs[1].getPosition() + vector(0, 2, 0),
+        callback_function = function (obj)
+            mergeStack(obj, objs)
+            state.objects.construction[region] = obj
+    end}) end end
 end

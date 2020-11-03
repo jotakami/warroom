@@ -1,0 +1,89 @@
+function morale()
+    updateTracker('Convert casualties into stress', '6 - Morale', 'casualties')
+    resetStatus()
+    MoraleBoard.UI.show('convert-button')
+end
+
+function breakPact(nation)
+    if not state.pact_broken then
+        MoraleBoard.call('addStress', {nation = nation, value = 6})
+        state.pact_broken = true
+    end
+end
+
+-- -- Step 1: Convert casualties into stress
+
+-- -- Step 2: Resolve medals and stress tokens
+
+function updateStressZone(nation, delta)
+    if type(nation) == 'table' then nation, delta = nation[1], nation[2] end
+    debug('Updating stress zone for ', nation)
+    local token = state.objects.homeland_tokens[nation]
+    local pos, snap_index = Map.obj.positionToLocal(token.getPosition())
+    for i, snap in ipairs(Map.snaps) do if pos == snap.position then snap_index = i + 7 * delta break end end
+    token.setPositionSmooth(Map.obj.positionToWorld(Map.snaps[snap_index].position))
+    token.setRotationSmooth(Map.snaps[snap_index].rotation + Map.rotation)
+    local zone_index = math.floor((snap_index - 1) / 7)
+    local zone_msg = '[' .. StressZones[zone_index].color .. ']' .. StressZones[zone_index].name .. ' Zone[-]'
+    broadcastToAll(colorize(properName(nation), nation) .. ' has ' .. (delta > 0 and 'advanced' or 'recovered') .. ' to the ' .. zone_msg)
+end
+
+-- -- Step 3: Apply stress zone penalties
+
+function getStressZone(nation)
+    if type(nation) == 'table' then nation = nation[1] end
+    local angle = Map.obj.call('rotationToCenter', Map.obj.positionToLocal(state.objects.homeland_tokens[nation].getPosition()))
+    if angle > 276.25 then return 6 else return math.floor((angle - 0.5) / 45) end
+end
+
+function applyStressPenalties()
+    updateTracker('Apply stress zone penalties', nil, 'stress')
+    resetStatus()
+    local ready, waiting = {}, false
+    for _, nation in ipairs(state.turn_order) do
+        local zone = getStressZone(nation)
+        if zone > 1 then
+            debug(nation, ' is in zone ', zone, ' and incurs a stress penalty')
+            state.objects.orders[nation].call('showReady')
+            ready[nation], waiting = false, true
+            --civilUnrest(nation, waiting)
+            --if zone == 6 then massDesertions(nation, waiting) end
+        else updateStatus(nation, true)
+    end end
+    if not waiting then production() else playerReady = function (data)
+        local all_ready = true
+        for nation, status in pairs(ready) do if data[nation] ~= nil then
+            debug(nation, ' toggled ready state')
+            updateStatus(nation, data[nation])
+            ready[nation] = data[nation]
+            all_ready = all_ready and data[nation]
+        else all_ready = all_ready and status end end
+        if all_ready then
+            for nation, orders in pairs(state.objects.orders) do orders.call('hideReady') end
+            writeProduction()
+    end end end
+    --[[function tookPenalty(_, nation) waiting[nation] = waiting[nation] - 1 end
+    Wait.condition(function ()
+        tookPenalty = nil
+        production()
+    end, function ()
+        for _, count in pairs(waiting) do if count > 0 then return false end end
+        return true
+    end)]]
+end
+
+function civilUnrest(nation, waiting)
+    local resources, total = state.objects.resources[nation], 0
+    for _, value in pairs(resources.call('totals')) do total = total + value end
+    if total > 0 then
+        waiting[nation] = waiting[nation] + math.max(total, 3)
+    end
+end
+
+function massDesertions(nation, waiting)
+    local stress = MoraleBoard.call('getStress', {nation = nation})
+    waiting[nation] = waiting[nation] + stress
+    if stress > 0 then
+        debug('Not implemented')
+    end
+end

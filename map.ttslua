@@ -1,6 +1,6 @@
 #include constants/map
 #include constants/nations
-#include debug
+#include utils/debug
 
 function onLoad()
     prepareRegionData()

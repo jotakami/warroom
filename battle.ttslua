@@ -1,9 +1,10 @@
 #include constants/battle
 #include constants/nations
 #include xml/battle
-#include stacks
-#include dice
-#include debug
+#include utils/stacks
+#include utils/dice
+#include utils/debug
+#include utils/commands
 
 --- Save and load ---
 

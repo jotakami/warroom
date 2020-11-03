@@ -1,0 +1,14 @@
+Units = {
+    infantry = {force = 'army', cost = {oil = 0, iron = 0, osr = 2}},
+    artillery = {force = 'army', cost = {oil = 0, iron = 2, osr = 1}},
+    armor = {force = 'army', cost = {oil = 1, iron = 2, osr = 1}},
+    fighter = {force = 'air', cost = {oil = 2, iron = 1, osr = 1}},
+    cfighter = {force = 'air'},
+    bomber = {force = 'air', cost = {oil = 2, iron = 2, osr = 1}},
+    submarine = {force = 'fleet', cost = {oil = 1, iron = 2, osr = 1}},
+    cruiser = {force = 'fleet', cost = {oil = 2, iron = 3, osr = 2}},
+    carrier = {force = 'fleet', cost = {oil = 4, iron = 3, osr = 3}},
+    battleship = {force = 'fleet', cost = {oil = 3, iron = 4, osr = 3}}
+}
+
+function unitType(unit) return Units[unit.getName()].force end

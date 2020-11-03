@@ -1,41 +1,39 @@
 -- Phase 4: Combat Operations
 
 function combatOperations()
-    updateTracker('Resolve hotspots', '4 - Combat Operations')
+    updateTracker('Resolve hotspots', '4 - Combat Operations', 'combat')
     resetStatus()
-    state.combat = {landings = {}}
     state.combat.hotspots = checkHotspots()
-    local highlights, turn = {}, 1
-    updateTurn(state.turn_order[turn])
-    onObjectHover = function (player, obj)
-        if obj ~= nil and obj.getName() == 'hotspot' and not obj.getVar('busy') then
-            local region, nation = getRegion(obj), state.turn_order[turn]
-            removeHighlights(player, highlights)
-            if region then
-                local commands = getCommands(region)
-                local combatants = hotspotCombatants(region, commands)
-                obj.setTable('combatants', combatants)
-                if combatants[nation] then for _, side in pairs(commands) do
-                    for _, force in pairs(side) do for _, command in ipairs(force) do
-                        command.setColorTint(colorTable(Colors[nation]))
-                        table.insert(highlights[player], command)
-        end end end end end else removeHighlights(player, highlights)
+    for i = #state.combat.landings, 1, -1 do
+        local command = state.combat.landings[i]
+        if state.combat.hotspots[getRegion(command)] then table.remove(state.combat.landings, i)
+        else placeLandingArrow(command) end
+    end
+    local turn = updateCombatTurn(#state.turn_order)
+    onObjectHover = function (player, obj) if obj ~= nil and obj.getName() == 'hotspot' and not obj.is_face_down then
+        highlightCombatants(obj, state.turn_order[turn])
     end end
     onObjectRandomize = function (obj) if obj.getName() == 'hotspot' then
-        obj.setVelocity({0, 0, 0})
-        if obj.getVar('raid') then self.call('raid' .. getRegion(obj))
-        elseif not obj.getVar('busy') then
-            local region = getRegion(obj)
-            if region then if not resolveHotspot(obj) then obj.setVar('busy', true) end
-            else
-                turn = turn % #state.turn_order + 1
-                updateTurn(state.turn_order[turn])
-    end end end end end
+        if rollHotspot(obj, state.turn_order[turn]) then turn = updateCombatTurn(turn) end
+    end end
 end
 
-function removeHighlights(player, highlights)
-    for _, command in ipairs(highlights[player] or {}) do command.setColorTint({1, 1, 1}) end
-    highlights[player] = {}
+function highlightCombatants(hotspot, nation)
+    local region = getRegion(hotspot)
+    if region then
+        debug('Checking hotspot in region ', region)
+        local data, commands = state.combat.hotspots[region], getCommands(region)
+        if data or hotspotType(region, commands) then
+            debug('Data exists, or hotspot type is not nil')
+            if not data then
+                debug('New hotspot, adding to list')
+                data = {obj = hotspot, type = hotspotType(hotspot, commands)}
+                state.combat.hotspots[region] = data
+            end
+            data.combatants = hotspotCombatants(region, commands)
+            if data.combatants[nation] then for _, side in pairs(commands) do for _, force in pairs(side) do
+                for _, command in ipairs(force) do command.highlightOn(colorTable(Colors[nation]), 3) end
+    end end end end end
 end
 
 function checkHotspots()
@@ -43,18 +41,37 @@ function checkHotspots()
     local hotspots, hotspot_bag = {}, getObjectFromGUID(GUIDs.Bags.hotspot)
     for _, obj in ipairs(getAllObjects()) do if obj.getName() == 'hotspot' then
         local region = getRegion(obj)
-        if region then if not hotspots[region] then hotspots[region] = obj else returnPiece(obj) end end
+        if region then if not hotspots[region] then hotspots[region] = {obj = obj} else returnPiece(obj) end end
     end end
     for region, commands in pairs(getAllCommands()) do
-        if hotspotType(region, commands) then if not hotspots[region] then
-            debug('Missing ', hotspotType(region, commands), ' hotspot in region ', region)
-            local pos = Map.data.regions[region].centroid or Map.data.regions[region].circle.c
-            hotspots[region] = hotspot_bag.takeObject({position = Map.obj.positionToWorld({pos[1], 0.8, pos[2]})})
-        end elseif hotspots[region] then
-            returnPiece(hotspots[region])
+        local hotspot_type = hotspotType(region, commands)
+        if hotspot_type then
+            if not hotspots[region] then
+                debug('Missing ', hotspotType(region, commands), ' hotspot in region ', region)
+                local pos = Map.data.regions[region].centroid or Map.data.regions[region].circle.c
+                hotspots[region] = {obj = hotspot_bag.takeObject({position = Map.obj.positionToWorld({pos[1], 0.8, pos[2]})})}
+            end
+            hotspots[region].type, hotspots[region].combatants = hotspot_type, hotspotCombatants(region, commands)
+        elseif hotspots[region] then
+            returnPiece(hotspots[region].obj)
             hotspots[region] = nil
     end end
     return hotspots
+end
+
+function rollHotspot(hotspot, nation)
+    hotspot.setVelocity({0, 0, 0})
+    local region = getRegion(hotspot)
+    if region and not hotspot.is_face_down then
+        local data = state.combat.hotspots[region]
+        if data and data.status ~= 'done' then
+            debug('Rolling hotspot with status ', data.status)
+            if data.status == 'raid' then self.call('raid' .. region)
+            elseif data.status ~= 'busy' and data.combatants[nation] and resolveHotspot(hotspot) then
+                data.status = data.status or 'busy'
+                return true
+    end else returnPiece(hotspot) end end
+    return false
 end
 
 function resolveHotspot(hotspot)
@@ -69,7 +86,9 @@ function resolveHotspot(hotspot)
         sinkTransports(region)
         removeCarrierFighters(region)
         returnPiece(hotspot)
-    else returnPiece(hotspot) end
+        clearHotspot(region)
+    else returnPiece(hotspot) return false end
+    return true
 end
 
 function hotspotType(region, commands)
@@ -111,6 +130,21 @@ function hotspotType(region, commands)
     return nil
 end
 
+function hotspotCombatants(region, commands)
+    local combatants, owner = {}, getOwnership(region)
+    if owner then combatants[owner] = true end
+    for _, side in pairs(commands) do for _, force in pairs(side) do for _, command in ipairs(force) do
+        combatants[commandNation(command)] = true
+    end end end
+    if hotspotType(region, commands) == 'raid' then
+        local clusters, side = activeConvoys(region), (commands.axis.air or commands.axis.fleet) and 'allies' or 'axis'
+        for _, cluster in ipairs(clusters[side]) do for origin, _ in pairs(cluster) do
+            owner = getOwnership(origin:match('^%a%d+'))
+            if owner ~= 'neutral' then combatants[owner] = true end
+    end end end
+    return combatants
+end
+
 function concatLists(...)
     local t = {}
     for _, list in pairs({...}) do if list then for _, item in ipairs(list) do table.insert(t, item) end end end
@@ -142,9 +176,8 @@ function activeConvoys(region)
                 temp[side] = temp[side] or {}
                 temp[side][origin] = convoy
             else
-                local from_region, to_region = origin:match('(%w+)%-(%w+)')
-                side = Alliance[getOwnership(from_region)]
-                if side == Alliance[getOwnership(to_region)] then
+                side = Alliance[getOwnership(origin:match('(%w+)%-'))]
+                if side == Alliance[getOwnership(origin:match('%-(%w+)'))] then
                     temp[side] = temp[side] or {}
                     temp[side][origin] = convoy
         end end end
@@ -155,18 +188,19 @@ function activeConvoys(region)
     return clusters
 end
 
-function hotspotCombatants(region, commands)
-    local combatants, owner = {}, getOwnership(region)
-    if owner then combatants[owner] = true end
-    for _, side in pairs(commands) do for _, force in pairs(side) do for _, command in ipairs(force) do
-        combatants[commandNation(command)] = true
-    end end end
-    if hotspotType(region, commands) == 'raid' then
-        local clusters, side = activeConvoys(region), (commands.axis.air or commands.axis.fleet) and 'allies' or 'axis'
-        for _, cluster in ipairs(clusters[side]) do for origin, _ in ipairs(cluster) do
-            combatants[getOwnership(origin:match('^%a%d+'))] = true
-    end end end
-    return combatants
+function updateCombatTurn(turn)
+    local next_turn, count, nation = turn
+    updateStatus(state.turn_order[turn])
+    while not count do
+        next_turn = next_turn % #state.turn_order + 1
+        nation = state.turn_order[next_turn]
+        if next_turn == turn then count = 0 end
+        for region, data in pairs(state.combat.hotspots) do
+            if not data.status and data.combatants[nation] then count = (count or 0) + 1 debug('Found unresolved hotspot for ', nation, ' in ', region) end
+    end end
+    updateTurn(nation)
+    if count > 0 then updateStatus(nation, count, nil, 'hotspot') end
+    return next_turn
 end
 
 -- -- Non-battle hotspots
@@ -188,16 +222,85 @@ function sinkTransports(hotspot)
     checkTransports(region, commands)
     debriefAirCommands(commands)
     returnPiece(hotspot)
+    clearHotspot(region)
 end
 
--- -- -- Helpers
+-- -- -- Common helper functions
+
+function createHitButtons(hotspot, targets, guid, offset)
+    local click_fun, height, width = 'Global/assign' .. (guid and 'Bomb' or 'Hit') .. getRegion(hotspot) .. '(', 0, 0
+    local rotation = Map.obj.call('rotationToCenter', Map.obj.positionToLocal(hotspot.getPosition() + (offset or vector(0, 0, 0)))) + Map.rotation.y
+    for _, hit_types in pairs(targets) do
+        width = width + 1
+        for _, _ in pairs(hit_types) do height = height + 1 end
+    end
+    local cols = {}
+    for class, hit_types in pairs(targets) do
+        local col = {}
+        for hit_type, _ in pairs(hit_types) do
+            local attr = {id = guid or hit_type, image = hit_type, onClick = click_fun .. class .. '-' .. hit_type .. ')'}
+            if not guid and not offset then attr.icon, attr.text = class, ' ' end
+            table.insert(col, {tag = 'Button', attributes = attr})
+        end
+        if width > 1 and #col < height then
+            local pad = (height - #col) * 60
+            col = {tag = 'Panel', children = col, attributes = { padding = '0 0 ' .. pad .. ' ' .. pad}}
+        end
+        table.insert(cols, {tag = 'VerticalLayout', children = col, attributes = {}})
+    end
+    if width > 1 then cols = {tag = 'HorizontalLayout', children = cols, attributes = {}}
+    else cols = cols[1] end
+    cols.attributes.height, cols.attributes.width = height * 120, width * 120
+    local pos = {x = 0, y = -250, z = 0}
+    if offset then pos.x, pos.y, pos.z = pos.x + math.floor(offset.x * 100), pos.y - math.floor(offset.y * 100) + 150, pos.z + math.floor(offset.z * 100) end
+    cols.attributes.position = pos.x .. ' ' .. pos.z .. ' ' .. pos.y
+    cols.attributes.rotation = '0 0 ' .. (hotspot.getRotation().y - rotation)
+    hotspot.UI.setXmlTable({cols})
+end
+
+function getBombTargets(region)
+    if type(region) == 'table' then region = region[1] end
+    local targets = {yellow = {}, blue = {}, green = {}, red = {}, white = {}}
+    local resources = lossLimit(region)
+    if resources.osr then targets.yellow.osr = resources.osr end
+    if resources.iron then targets.blue.iron = resources.iron end
+    if resources.oil then targets.red.oil = resources.oil end
+    if state.objects.construction[region] then for num, unit in state.objects.construction[region].getName():gmatch('(%d) %b[](%a+)%b[]') do
+        local unit_type = unit:lower()
+        if unit_type:find('infantry') or unit_type:find('submarine') then targets.yellow[unit_type] = num + 0
+        elseif unit_type:find('artillery') or unit_type:find('cruiser') then targets.blue[unit_type] = num + 0
+        elseif unit_type:find('armor') or unit_type:find('carrier') or unit_type:find('fighter') then targets.green[unit_type] = num + 0
+        elseif unit_type:find('battleship') or unit_type:find('bomber') then targets.red[unit_type] = num + 0 end
+    end end
+    if Map.data.regions[region].industry then
+        targets.white.bomb = Map.data.regions[region].industry - #(state.objects.bombs[region] or {})
+        if targets.white.bomb == 0 then targets.white.bomb = nil end
+    elseif not state.objects.bombs[region] then targets.white.bomb = 1 end
+    return targets
+end
+
+function bombHit(region, target, position)
+    if type(region) == 'table' then region, target, position = region[1], region[2], region[3] end
+    local owner = getOwnership(region)
+    if target == 'osr' or target == 'iron' or target == 'oil' then
+        state.objects.resources[owner].call('addResources', {[target] = -1})
+    elseif target == 'bomb' then
+        local bombs = state.objects.bombs[region]
+        local bomb = getObjectFromGUID(GUIDs.Bags.bomb_industry).takeObject({
+            position = bombs and bombs[#bombs].getPosition() + vector(0, 0.25, 0) or position,
+            rotation = bombs and bombs[#bombs].getRotation() or {180, math.random(360), 0}
+        })
+        if bombs then table.insert(bombs, bomb)
+        else state.objects.bombs[region] = {bomb} end
+    else removeUnit(state.objects.construction[region], target, || nil) end
+end
 
 function removeUnit(stack, unit_type, callback)
     removeFromStack(stack, unit_type, function (unit)
         if isCommand(stack.getName()) then unit.setVar('nation', commandNation(stack))
         else unit.setVar('nation', getOwnership(getRegion(stack))) end
         MoraleBoard.call('stackCasualties', {unit.getGUID()})
-    end, callback)
+    end, function () if #stack.getAttachments() == 0 then Wait.time(callback, 2) else callback() end end)
 end
 
 function lossLimit(region)

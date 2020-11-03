@@ -139,7 +139,7 @@ function initXML(order_rows, is_china)
             {tag = 'Panel', attributes = {class = 'resolved', rotation = '0 0 90', padding = '10 10 45 255'}},
             {tag = 'Panel', attributes = {class = 'canceled', rotation = '0 0 270', padding = '10 10 45 255'}},
             {tag = 'InputField', attributes = {
-                colors = '#FFFFFF3F|#FFFFFF7F|#FFFFFF00|#00000000',
+                colors = '#ffffff3f|#ffffff7f|#ffffff00|#00000000',
                 scale = '0.8 1', fontSize = '72',
                 placeholder = ' ', interactable = 'false'
             }},
@@ -155,24 +155,23 @@ function initXML(order_rows, is_china)
                 onValueChanged = 'updatePurchase'
             }},
             {tag = 'Button', attributes = {class = 'resolved',
-                colors = '#FFFFFFB2|#00CC00B2|#00CC00FF|#00000033',
+                colors = '#ffffffb2|#00cc00b2|#00cc00ff|#a04040b2',
                 fontSize = '40', text = 'Resolved', active = 'false',
                 onClick = 'orderResolved'
             }},
             {tag = 'Button', attributes = {class = 'canceled',
-                colors = '#FFFFFFB2|#FF0000B2|#FF0000FF|#00000033',
+                colors = '#ffffffb2|#ff0000b2|#ff0000ff|#000000b2',
                 fontSize = '40', text = 'Canceled', active = 'false',
                 onClick = 'orderCanceled'
             }},
             {tag = 'ToggleButton', attributes = {rotation = '0 0 180', active = false}},
             {tag = 'ToggleButton', attributes = {class = 'ready',
+                height = '32', width = '64', position = '415 -588 -59',
                 scale = '2.4 3', text = 'Ready', fontSize = '18',
-                colors = '#FFFFFF|#00FF00|#FFFF00|#404040FF',
-                isOn = true, onValueChanged = 'toggleReady'
+                colors = '#ffffff|#00ff00|#ffff00|#404040ff', isOn = true
             }},
             {tag = 'ToggleButton', attributes = {class = 'trade',
-                height = '30', width = '30',
-                color = '#FFFFFF33', fontSize = '20',
+                height = '30', width = '30', fontSize = '20', color = '#ffffff33',
                 onValueChanged = 'toggleTrade', transition = 'None'
             }},
             {tag = 'Text', attributes = {scale = '0.8 1', fontSize = '72'}},
@@ -188,10 +187,13 @@ function initXML(order_rows, is_china)
         defaults(order_rows, is_china),
         round(),
         {tag = 'ToggleButton', attributes = {class = 'ready', id = 'orders-ready',
-            height = '32', width = '64', position = '415 -588 -59'
+            onValueChanged = 'ordersReady'
         }},
-        {tag = 'ToggleButton', attributes = {class = 'ready', id = 'cfighters-ready',
-            height = '32', width = '64', position = '415 -588 -59'
+        {tag = 'ToggleButton', attributes = {class = 'ready', id = 'production-ready',
+            onValueChanged = 'productionReady'
+        }},
+        {tag = 'ToggleButton', attributes = {class = 'ready', id = 'other-ready',
+            onValueChanged = 'otherReady'
         }},
         movement(order_rows, 'command', |a, b| movementInput(a, b), {id = 'commands', cellPadding = '60 60 50 210'}),
         movement(order_rows, 'target', |a, b| movementInput(a, b), {id = 'targets', cellPadding = '40 40 210 50'}),
@@ -201,9 +203,6 @@ function initXML(order_rows, is_china)
         preTrade(is_china),
         postTrade(is_china),
         purchases(is_china),
-        {tag = 'ToggleButton', attributes = {class = 'ready', id = 'production-ready',
-            height = '24', width = '78', position = '-157 798 -59'
-        }},
         remaining(is_china)
     }
     if not is_china then table.insert(xml, bid()) end

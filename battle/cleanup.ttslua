@@ -18,6 +18,7 @@ function returnUnits()
                 Wait.frames(function ()
                     local original = unit.getTable('returnTo')
                     if original then
+                        unit.setLock(true)
                         unit.setPositionSmooth(original.position)
                         unit.setRotationSmooth(original.rotation)
                     else debug('Couldn\'t return carrier fighter ', unit.getGUID()) end
@@ -33,7 +34,7 @@ function returnUnits()
         max_delay = math.max(max_delay, delay)
     end
     local hotspot = state.hotspot.getGUID()
-    Wait.frames(|| Wait.time(|| Global.call('battleDebrief', {hotspot, combatants}), 2), max_delay)
+    Wait.frames(|| Wait.time(|| Global.call('battleDebrief', {hotspot, combatants}), 3), max_delay)
 end
 
 function returnStack(command, units, original, delay)

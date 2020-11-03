@@ -2,7 +2,7 @@ function resolveBattle(hotspot)
     local Board
     if BattleBoards[1].call('isReady') then Board = BattleBoards[1]
     elseif BattleBoards[2].call('isReady') then Board = BattleBoards[2] end
-    if not Board then debug('No available battle boards') return true end
+    if not Board then debug('No available battle boards') return false end
     hotspot.highlightOn({0.8, 0.1, 0.1})
     local region, ready = getRegion(hotspot), {axis = false, allies = false}
     local sea_region = Map.data.regions[region].is_sea
@@ -23,6 +23,7 @@ function resolveBattle(hotspot)
         Board.call('setStances')
         if sea_region then checkPortAdvantage(region, Board) end
     end, || ready.axis and ready.allies)
+    return true
 end
 
 function getDropPoints(board)
@@ -78,7 +79,7 @@ function checkPortAdvantage(region, board)
     for _, link in ipairs(Map.data.regions[region].adjacent) do if link:match('$$') then
         local owner = getOwnership(link:sub(1, -2))
         local side = Alliance[owner]
-        if not pa[side] and getStressZone(owner) < 3 then pa[side] = true end
+        if side and not pa[side] and getStressZone(owner) < 3 then pa[side] = true end
     end end
     for side, _ in pairs(pa) do board.call('setPortAdvantage', {side}) end
 end

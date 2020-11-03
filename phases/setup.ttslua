@@ -1,27 +1,23 @@
 -- Game and Scenario Setup
 
 function chooseScenario(_, value, id)
-    for _, label in ipairs{'global', 'europe', 'pacific', 'eastern'} do Map.obj.UI.hide(label) end
-    for i = 1, 4 do for _, label in ipairs{'status', 'advance'} do Map.obj.UI.show(label .. '-' .. i) end end
+    UI.hide('scenarios')
     UI.show('tracker')
     UI.setValue('scenario', Scenarios[id].label)
     UI.setValue('round', '-')
-    UI.setValue('phase', 'Game setup')
-    UI.setValue('step', 'Unpacking components')
+    updateTracker('Unpacking components', 'Game setup', 'setup')
     unpackComponents(id)
 end
 
 function unpackComponents(scenario)
     state = {scenario = scenario or 'global', round = 0, turn_order = {}, objects = {
-        orders = {}, resources = {},
-        homeland_tokens = {}, turn_tokens = {},
-        commands = {}, cfighters = {},
-        construction = {}, bombs = {}, flags = {}
+        orders = {}, resources = {}, homeland_tokens = {}, turn_tokens = {},
+        commands = {}, cfighters = {}, construction = {}, bombs = {}, flags = {}
     }}
     if state.scenario == 'europe' or state.scenario == 'pacific' then MoraleBoard.call('flipBoard') end
     setupNeutralCards()
     local i, ready = 1, {}
-    for _, nation in ipairs{'usa', 'germany', 'italy', 'uk', 'china', 'ussr', 'japan'} do if checkScenario(nation) then
+    for _, nation in ipairs{'usa', 'germany', 'italy', 'uk', 'ussr', 'china', 'japan'} do if checkScenario(nation) then
         local guids = GUIDs.Nations[nation]
         ready[nation] = {cards = false, commands = false}
         state.objects.orders[nation] = getObjectFromGUID(guids.orders)
@@ -47,6 +43,7 @@ function unpackComponents(scenario)
     end end
     Wait.condition(function ()
         placeHotspot()
+        UI.show('resources')
         startNewRound()
     end, function ()
         for _, status in pairs(ready) do if status ~= true then return false end end
@@ -194,10 +191,9 @@ function placeHotspot()
 end
 
 function startNewRound()
-    onObjectCollisionEnter = nil
     state.round = state.round + 1
     setRound(state.round)
-    resetTurnOrder()
+    resetTurnTokens()
     resourceIncome()
 end
 
@@ -206,7 +202,7 @@ function setRound(round)
     UI.setValue('round', round)
 end
 
-function resetTurnOrder()
+function resetTurnTokens()
     local i, p = 0
     for _, token in pairs(state.objects.turn_tokens) do
         i = i + 1

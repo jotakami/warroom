@@ -1,20 +1,21 @@
-function writeOrders()
-    updateTracker('Write orders and bids', '2 - Strategic Planning')
+function writeOrders(resume)
+    updateTracker('Write orders and bids', '2 - Strategic Planning', 'orders')
     resetStatus()
+    enableSave('planning')
     local ready = {}
     for _, nation in ipairs(state.turn_order) do
-        state.objects.orders[nation].call('writeOrders')
+        state.objects.orders[nation].call('writeOrders', {getStressZone(nation) > 3, resume})
         ready[nation] = false
     end
     playerReady = function (data)
         local all_ready = true
         for nation, value in pairs(ready) do if data[nation] ~= nil then
             updateStatus(nation, data[nation])
-            ready[nation] = data[nation]
-            all_ready = all_ready and data[nation]
+            ready[nation], all_ready = data[nation], all_ready and data[nation]
         else all_ready = all_ready and ready[nation] end end
         if all_ready then
             playerReady = nil
+            disableSave()
             revealBids()
     end end
 end
@@ -35,7 +36,7 @@ function revealBids()
 end
 
 function setTurnOrder(bids)
-    updateTracker('Establish turn order')
+    updateTracker('Establish turn order', nil, 'turn_order')
     state.new_turn_order = {}
     local order, spots = {}, {}
     for nation, bid in pairs(bids) do

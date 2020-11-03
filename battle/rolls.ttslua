@@ -26,8 +26,10 @@ function rollRound(stage, side, switch, targets)
         rollDice(num, function (results)
             local a, b = 1, #results.objs
             while a < b do results.objs[a], results.objs[b], a, b = results.objs[b], results.objs[a], a + 1, b - 1 end
-            if stage == 'bomb' then assignBombs(side, results.objs, targets, callback)
-            else assignHits(side, stage, results.objs, callback) end
+            if stage == 'bomb' then assignBombs(side, results.objs, targets, function ()
+                assignBomb = nil
+                callback()
+            end) else assignHits(side, stage, results.objs, callback) end
         end)
     end
 end
@@ -133,14 +135,10 @@ function assignBombs(side, dice, targets, callback)
         else toggleBombButton(side, i, false, target.color == 'white') end end
         if waiting then
             setBlinker(die)
+            local region, pos = state.hotspot.getVar('region'), state.hotspot.getPosition() + vector(0, 1, 0)
             assignBomb = function (_, _, id)
-                assignBomb = nil
                 local index = id:match('%d+') + 0
-                Global.call('bombHit', {
-                    state.hotspot.getVar('region'),
-                    targets[index].target,
-                    state.hotspot.getPosition() + vector(0, 1, 0)
-                })
+                Global.call('bombHit', {region, targets[index].target, pos})
                 stopBlinker(die)
                 die.destruct()
                 targets[index].qty = targets[index].qty - 1

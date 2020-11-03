@@ -1,4 +1,5 @@
 GUIDs = {
+    Furniture = {'fbbe68', '6040df', '0eba69', '85f759', 'd814dd', 'e586be', '9afeff', '0ddbec'},
     Map = '047ba2',
     Bags = {
         Dice = 'ed9dc9',

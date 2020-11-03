@@ -3,14 +3,15 @@ function onLoad()
     Orders = getObjectFromGUID(Global.getTable('GUIDs').Nations[Nation].orders)
     PegBag = getObjectFromGUID(Global.getTable('GUIDs').Bags.Pegs)
     Pegs = {}
+    state = {iron = 0, iron_more = 0, osr = 0, osr_more = 0}
+    disable_collision = {}
     if Nation ~= 'china' then state.oil = 0 state.oil_more = 0 end
     loaded = true
 end
 
 function onCollisionEnter(collision_info)
     if not loaded then return end
-    local peg = collision_info.collision_object
-    local resource, value
+    local peg, resource, value = collision_info.collision_object
     for i, snap in ipairs(self.getSnapPoints()) do
         if distance3d(self.positionToLocal(collision_info.contact_points[1]), snap.position) < 0.005 then
             if i < 22 then if Nation ~= 'china' then resource, value = 'oil', i - 1 end
@@ -18,55 +19,52 @@ function onCollisionEnter(collision_info)
             else resource, value = 'osr', i - 43 end
             break
     end end
-    if peg.getName() == resource then
-        state[resource] = value
-        Pegs[resource] = peg
-    elseif peg.getName() == 'more' then
-        state[resource .. '_more'] = value
-        Pegs[resource .. '_more'] = peg
-    end
-    Orders.call('updateResources', totals())
+    if not disable_collision[resource] then
+        if peg.getName() == resource then state[resource], Pegs[resource] = value, peg
+        elseif peg.getName() == 'more' then state[resource .. '_more'], Pegs[resource .. '_more'] = value, peg end
+        broadcastUpdate(totals())
+    else disable_collision[resource] = nil end
 end
 
 function onCollisionExit(collision_info)
     if not loaded then return end
     for spot, peg in pairs(Pegs) do
         if peg and collision_info.collision_object.getGUID() == peg.getGUID() and #spot > 4 then
-            state[spot] = 0
-            Pegs[spot] = nil
-            Orders.call('updateResources', totals())
+            if disable_collision[spot:match('^%a+')] then return end
+            state[spot], Pegs[spot] = 0, nil
+            broadcastUpdate(totals())
             break
     end end
 end
 
 function addResources(data)
     if Nation == 'china' then data.oil = nil end
-    for resource, value in pairs(data) do
-        data[resource] = state[resource] + state[resource .. '_more'] + value
-    end
+    for resource, value in pairs(data) do data[resource] = state[resource] + state[resource .. '_more'] + value end
     setResources(data)
 end
 
 function setResources(data)
-    local current = totals()
+    local current, offset, total = totals(), {oil = 1, iron = 22, osr = 43}, {}
     for resource, value in pairs(data) do
-        local offset = {oil = 1, iron = 22, osr = 43}
-        if current[resource] < 21 then if value < 21 then
-            Pegs[resource].setPositionSmooth(pegPosition(offset[resource] + value))
-        else
-            Pegs[resource].setPositionSmooth(pegPosition(offset[resource] + 20))
-            PegBag.takeObject({
-                position = pegPosition(offset[resource] + value - 20),
-                smooth = false
-            })
-    end end end
+        state[resource], disable_collision[resource] = value, true
+        local more = offset[resource] + value - 20
+        if current[resource] < 20 or value < 20 then Pegs[resource].setPositionSmooth(pegPosition(offset[resource] + math.min(value, 20))) end
+        if value > 21 then if current[resource] < 21 then
+            Pegs[resource .. '_more'] = PegBag.takeObject({position = pegPosition(more), smooth = false})
+        else Pegs[resource .. '_more'].setPositionSmooth(pegPosition(more))
+        end elseif current[resource] > 20 then Pegs[resource .. '_more'].destruct()
+    end end
+    for resource, value in pairs(current) do data[resource] = data[resource] or value end
+    broadcastUpdate(data)
+end
+
+function broadcastUpdate(data)
+    Orders.call('updateResources', data)
+    Global.call('updateResources', {nation = Nation, data = data})
 end
 
 function totals()
-    local resources = {
-        iron = state.iron + state.iron_more,
-        osr = state.osr + state.osr_more
-    }
+    local resources = {iron = state.iron + state.iron_more, osr = state.osr + state.osr_more}
     if Nation ~= 'china' then resources.oil = state.oil + state.oil_more end
     return resources
 end
@@ -78,5 +76,3 @@ end
 function distance3d(p1, p2)
     return ((p2[1] - p1[1])^2 + (p2[2] - p1[2])^2 + (p2[3] - p1[3])^2) ^ 0.5
 end
-
-state = {iron = 0, iron_more = 0, osr = 0, osr_more = 0}

@@ -2,6 +2,14 @@ DiceOrder = {yellow = 1, blue = 2, green = 3, red = 4, black = 5, white = 6}
 
 function getDieColor(die) return die.getRotationValue():sub(9):lower() end
 
+function setDieColor(die, color)
+    for _, value in ipairs(die.getRotationValues()) do
+        if value.value:sub(9):lower() == color then
+            die.setRotationSmooth(value.rotation)
+            break
+    end end
+end
+
 function dicePositions(n, center, norm)
     debug('Calculating dice positions')
     if n == 1 then return {center}

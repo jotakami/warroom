@@ -1,4 +1,4 @@
-#include constants/colors
+#include ../constants/colors
 
 StackOrder = {
     'bomber', 'cfighter', 'fighter',
@@ -14,27 +14,23 @@ function buildStack(unit_counts, position, rotation, fast, callback)
     for _, type in ipairs(StackOrder) do if unit_counts[type] then
         for i = 1, unit_counts[type], 1 do table.insert(types, type) end
     end end
-    stackUnits(types, units, position, rotation, fast, callback)
+    if #types > 0 then stackUnits(types, units, position, rotation, fast, callback)
+    else callback({}) end
 end
 
 function stackUnits(types, units, position, rotation, fast, callback)
     local next = || stackUnits(types, units, position + vector(0, 0.21, 0), rotation, fast, callback)
-    if #types == 0 then callback(units)
-    else
-        local unit_type = table.remove(types)
-        getUnit(unit_type, {
-            position = position, rotation = rotation,
-            callback_function = function (obj)
-                table.insert(units, obj)
-                if not fast then next() end
-        end})
-        if fast then Wait.frames(|| next(), unit_type == types[1] and 1 or 10) end
-    end
+    local unit_type = table.remove(types)
+    local done = #types == 0
+    getUnit(unit_type, {position = position, rotation = rotation, callback_function = function (obj)
+        table.insert(units, obj)
+        if done then callback(units) elseif not fast then next() end
+    end})
+    if fast and not done then Wait.frames(next, unit_type == types[1] and 1 or 20) end
 end
 
 function getUnit(unit_type, params)
-    if type(params) == 'table' then if UnitQueues[unit_type] then
-        table.insert(UnitQueues[unit_type], params)
+    if type(params) == 'table' then if UnitQueues[unit_type] then table.insert(UnitQueues[unit_type], params)
     else
         UnitQueues[unit_type] = {params}
         getUnit(unit_type, 1)
@@ -70,18 +66,25 @@ end
 
 function checkStack(top, units)
     local pos, rot_y, order, align = units[1].getPosition(), units[1].getRotation().y, StackOrder[units[1].getName()]
-    for _, unit in ipairs(units) do
+    for i = 1, #units do
+        local unit = units[i + 1] or top
         local rot = unit.getRotation()
         if rot.x > 180 then rot.x = 360 - rot.x end
         if rot.z > 180 then rot.z = 360 - rot.z end
-        if (unit.getPosition() - pos):magnitude() > 0.02 then debug('Bad position, target=', pos, ', actual=', unit.getPosition(), ', delta=', (unit.getPosition() - pos):magnitude()) align = 'position'
-        elseif (rot - vector(0, rot_y, 0)):magnitude() > 1 then debug('Bad rotation, target=', vector(0, rot_y, 0), ', actual=', rot, ', delta=', (rot - vector(0, rot_y, 0)):magnitude()) align = 'rotation'
-        elseif StackOrder[unit.getName()] > order then debug('Bad order') align = 'order' end
-        if align then return false end
+        if (unit.getPosition() - pos):setAt('y', 0):magnitude() > 0.02 then
+            debug('Bad position, target=', pos, ', actual=', unit.getPosition(), ', delta=', (unit.getPosition() - pos):magnitude())
+            return 'position'
+        elseif (rot - vector(0, rot_y, 0)):magnitude() > 1 then
+            debug('Bad rotation, target=', vector(0, rot_y, 0), ', actual=', rot, ', delta=', (rot - vector(0, rot_y, 0)):magnitude())
+            return 'rotation'
+        elseif i < #units and StackOrder[unit.getName()] > order then
+            debug('Bad order')
+            return 'order'
+        end
         pos.y = unit.getPosition().y + 0.21
         order = StackOrder[unit.getName()]
     end
-    return true
+    return false
 end
 
 function alignStack(top, units, callback)
@@ -141,7 +144,7 @@ function mergeStack(top, units)
     local count, desc = {}, ''
     local is_production = top.getName() == 'bomb_industry'
     local flag_nation = top.getName():match('(%a+) flag')
-    if not checkStack(top, units) then return alignStack(top, units, mergeStack) end
+    if checkStack(top, units) then return alignStack(top, units, mergeStack) end
     for _, unit in ipairs(units) do
         count[unit.getName()] = (count[unit.getName()] or 0) + 1
         top.addAttachment(unit)
@@ -156,8 +159,7 @@ function mergeStack(top, units)
         is_production and 'Units under construction' or
         flag_nation and 'Defense force (' .. colorize(flag_nation, flag_nation:lower()) .. ')' or
         top.getName()
-        ) .. '\n' .. desc:sub(1, -2)
-    )
+    ) .. '\n' .. desc:sub(1, -2))
     top.clearContextMenu()
     if not flag_nation then
         top.addContextMenuItem('Break stack', || breakStack(top))
@@ -220,7 +222,7 @@ function removeFromStack(stack, unit_type, unit_callback, callback)
     for i, unit in ipairs(units) do Wait.condition(function () spawning = spawning - 1 end, || not units[i].spawning) end
     Wait.condition(function ()
         if #units == 1 and units[1].getName() == unit_type then
-            returnPiece(stack)
+            Global.call('returnPieceGUID', {stack.guid})
             unit_callback(units[1])
             callback()
         else
@@ -253,7 +255,7 @@ function combineStacks(command, player)
         for _, cmd in ipairs(commands) do
             if isCommand(cmd.getName()) then
                 for _, unit in ipairs(breakStack(cmd)) do table.insert(units, unit) end
-                Wait.frames(|| returnPiece(cmd), 1)
+                Wait.frames(|| Global.call('returnPieceGUID', {cmd.guid}), 1)
             else table.insert(units, cmd)
         end end
         Wait.frames(|| mergeStack(command, units), 1)

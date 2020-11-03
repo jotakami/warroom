@@ -35,7 +35,7 @@ function resolveRaid(hotspot)
             command.setVectorLines()
             debug('Command ', command.getGUID(), ' was moved, clearing target line')
         end) end
-        hotspot.setVar('raid', true)
+        state.combat.hotspots[region].status = 'raid'
         self.setVar('raid' .. region, function ()
             debug('Confirming convoy raid in ', region)
             self.setVar('raid' .. region, nil)
@@ -81,11 +81,13 @@ function setRaidTarget(command, targets, clusters)
 end
 
 function rollRaid(hotspot, commands, clusters)
+    local region = getRegion(hotspot)
     for _, cluster in ipairs(clusters) do for _, command in ipairs(cluster.raiders) do command.setVectorLines() end end
     rollConvoyCluster(hotspot, clusters, function ()
-        checkTransports(getRegion(hotspot), commands)
+        checkTransports(region, commands)
         debriefAirCommands(commands)
         returnPiece(hotspot)
+        clearHotspot(region)
     end)
 end
 
@@ -103,33 +105,57 @@ function rollConvoyCluster(hotspot, clusters, callback)
             end
             debug('Found ', count, ' units raiding this cluster')
             anchor = (anchor * (1 / #cluster.raiders)):setAt('y', 8.5)
-            local hits = {wild = {}}
-            local roll_callback = function () convoyHits(anchor, hits, cluster, || rollConvoyCluster(hotspot, clusters, callback)) end
+            local hits, pos = {wild = {}}, (Map.obj.positionToLocal(hotspot.getPosition()) - Map.data.center):setAt('y', 0):normalized()
+            local roll_callback = || convoyHits(anchor, hits, cluster, || rollConvoyCluster(hotspot, clusters, callback))
             debug('Rolling dice')
-            rollDice(dicePositions(count, anchor, (Map.obj.positionToLocal(hotspot.getPosition()) - Map.data.center):setAt('y', 0):normalized()), function (dice) Wait.time(function ()
+            rollDice(dicePositions(count, anchor, pos), function (dice) Wait.time(function ()
                 debug('Processing roll results')
                 for _, die in ipairs(dice) do
                     local color = getDieColor(die)
-                    if color == 'red' and cluster.resources.oil and not hits.oil then hits.oil = die debug('Red die hits oil')
-                    elseif color == 'blue' and cluster.resources.iron and not hits.iron then hits.iron = die debug('Blue die hits iron')
-                    elseif color == 'yellow' and cluster.resources.osr and not hits.osr then hits.osr = die debug('Yellow die hits osr')
-                    elseif color == 'black' then table.insert(hits.wild, die) debug('Rolled black die')
-                    else die.destruct() debug('Rolled ', color, ' miss') end
+                    if color == 'red' and cluster.resources.oil and not hits.oil then hits.oil = die
+                    elseif color == 'blue' and cluster.resources.iron and not hits.iron then hits.iron = die
+                    elseif color == 'yellow' and cluster.resources.osr and not hits.osr then hits.osr = die
+                    elseif color == 'black' then table.insert(hits.wild, die)
+                    else die.destruct() end
                 end
                 if #hits.wild > 0 then
                     local missed = {}
                     for _, res in ipairs{'oil', 'iron', 'osr'} do if cluster.resources[res] and not hits[res] then table.insert(missed, res) end end
                     if #hits.wild < #missed then
-                        debug('Need to assign black dice')
+                        local hit_types = {resources = {}}
+                        for _, res in ipairs(missed) do hit_types.resources[res] = true end
+                        chooseWildHits(hits, hit_types, anchor, cluster.raiders[1], 'assignHit' .. getRegion(hotspot), roll_callback)
                     else
                         debug('Black dice assigned automatically')
-                        for i, die in ipairs(hits.wild) do if i > #missed then die.destruct() else hits[missed[i]] = die end end
+                        for i, die in ipairs(hits.wild) do if i > #missed then die.destruct()
+                        else
+                            hits[missed[i]] = die
+                            setDieColor(die, missed[i] == 'oil' and 'red' or missed[i] == 'iron' and 'blue' or 'yellow')
+                        end end
                         roll_callback()
-                    end
-                else roll_callback() end
+                end else roll_callback() end
             end, 1) end)
         else rollConvoyCluster(hotspot, clusters, callback) end
     else callback() end
+end
+
+function chooseWildHits(hits, hit_types, anchor, obj, fun_name, callback)
+    debug('Setting up raid hit buttons')
+    createHitButtons(obj, hit_types, nil, anchor - obj.getPosition())
+    hits.wild[1].highlightOn({1, 1, 1})
+    self.setVar(fun_name, function (_, value, _)
+        local res, die = value:match('%-(%a+)'), table.remove(hits.wild, 1)
+        die.highlightOff()
+        hits[res] = die
+        setDieColor(die, res == 'oil' and 'red' or res == 'iron' and 'blue' or 'yellow')
+        if #hits.wild > 0 then
+            obj.UI.hide(res)
+            hits.wild[1].highlightOn({1, 1, 1})
+        else
+            obj.UI.setXml('')
+            self.setVar(fun_name, nil)
+            callback()
+    end end)
 end
 
 function convoyHits(pos, hits, cluster, callback)
@@ -138,11 +164,11 @@ function convoyHits(pos, hits, cluster, callback)
     for _, _ in pairs(hits) do num = num + 1 end
     if num > 0 then
         debug('Assessing convoy hits')
-        local offset = (Map.obj.positionToLocal(pos) - Map.data.center):setAt('y', 0):normalized():rotateOver('y', 90) * 0.71
+        local offset = (Map.obj.positionToLocal(pos) - Map.data.center):setAt('y', 0):normalized():rotateOver('y', 90) * (1 / 0.71)
         pos = pos + offset * 0.5 * (num - 1)
         for _, res in ipairs{'oil', 'iron', 'osr'} do if hits[res] then
             hits[res].setPositionSmooth(pos)
-            pos = pos - offset * 0.5
+            pos = pos - offset
         end end
         Wait.condition(function () Wait.frames(function ()
             for _, die in pairs(hits) do die.destruct() end

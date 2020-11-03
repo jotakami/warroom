@@ -1,0 +1,92 @@
+-- -- Step 1: Land air commands
+
+function landAirCommands()
+    debug('Landing air commands')
+    updateTracker('Land air commands', '5 - Refit & Deploy', 'landing')
+    updateTurn()
+    resetStatus()
+    local ready = {}
+    for _, nation in ipairs(state.turn_order) do ready[nation] = true end
+    onObjectRandomize, onObjectHover = nil, nil
+    for nation, cfighters in pairs(state.objects.cfighters) do for _, cfighter in ipairs(cfighters) do
+        if cfighter ~= nil and cfighter.getPosition().z < 45 then returnPiece(cfighter) end
+    end end
+    state.objects.cfighters = {}
+    debug('Removed remaining carrier fighters')
+    for _, landing in ipairs(state.combat.landings) do
+        local nation = commandNation(landing)
+        state.objects.orders[nation].call('showReady')
+        ready[nation] = false
+        getObjectFromGUID(landing.getJoints()[1].joint_object_guid).destruct()
+        landing.jointTo()
+        landing.highlightOn(colorTable(Colors[nation]))
+    end
+    for _, nation in ipairs(state.turn_order) do updateStatus(nation, ready[nation]) end
+    if #state.combat.landings > 0 then playerReady = function (data)
+        local all_ready = true
+        for nation, status in pairs(ready) do if data[nation] ~= nil then
+            debug(nation, ' toggled ready state')
+            updateStatus(nation, data[nation])
+            ready[nation], all_ready = data[nation], all_ready and data[nation]
+            for _, landing in ipairs(state.combat.landings) do if commandNation(landing) == nation then
+                if data[nation] then landing.highlightOff() else landing.highlightOn(colorTable(Colors[nation])) end
+        end end else all_ready = all_ready and status end end
+        if all_ready then
+            state.combat = nil
+            deployUnits()
+    end end else
+        state.combat = nil
+        deployUnits()
+    end
+end
+
+-- -- Step 2/3: Deploy units and reorganize commands
+
+function deployUnits()
+    debug('Deploying new units and reorganizing commands')
+    updateTracker('Deploy units and reorganize commands', '5 - Refit & Deploy', 'deploy')
+    resetStatus()
+    local ready, new_units, checker = {}, {}
+    for nation, orders in pairs(state.objects.orders) do
+        ready[nation] = false
+        orders.call('showReady')
+    end
+    for region, stack in pairs(state.objects.construction) do if stack ~= nil then
+        debug('Deploying unit stack ', stack.getName(), ' in ', region)
+        local nation, units = getOwnership(region), breakStack(stack)
+        new_units[nation] = new_units[nation] or {}
+        for _, unit in ipairs(units) do table.insert(new_units[nation], unit) end
+        returnPiece(stack)
+        state.objects.orders[nation].UI.setAttribute('other-ready', 'interactable', false)
+        -- TODO: check for overproduction due to bombed industries
+    end end
+    state.objects.construction = {}
+    checker = Wait.time(function () if not checkDeployment(new_units) then Wait.stop(checker) end end, 2, -1)
+    enableSave('refit')
+    playerReady = function (data)
+        local all_ready = true
+        for nation, status in pairs(ready) do if data[nation] ~= nil then
+            debug(nation, ' toggled ready state')
+            updateStatus(nation, data[nation])
+            ready[nation], all_ready = data[nation], all_ready and data[nation]
+        else all_ready = all_ready and status end end
+        if all_ready then
+            playerReady = nil
+            for _, orders in pairs(state.objects.orders) do orders.call('hideReady') end
+            Wait.stop(checker)
+            disableSave()
+            morale()
+    end end
+end
+
+function checkDeployment(new_units)
+    local more = false
+    for nation, units in pairs(new_units) do
+        for i = #units, 1, -1 do if units[i] == nil then table.remove(units, i) end end
+        if #units == 0 then
+            new_units[nation] = nil
+            state.objects.orders[nation].UI.setAttribute('other-ready', 'interactable', true)
+        else more = true end
+    end
+    return more
+end

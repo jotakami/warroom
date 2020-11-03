@@ -64,35 +64,3 @@ function assignHit(hotspot, hit_type, commands, callback)
         end)
     end
 end
-
-function createHitButtons(hotspot, targets, guid)
-    local click_fun, height, width = 'Global/assign' .. (guid and 'Bomb' or 'Hit') .. getRegion(hotspot) .. '(', 0, 0
-    local rotation = Map.obj.call('rotationToCenter', Map.obj.positionToLocal(hotspot.getPosition())) + Map.rotation.y
-    for _, hit_types in pairs(targets) do
-        width = width + 1
-        for _, _ in pairs(hit_types) do height = height + 1 end
-    end
-    local cols = {}
-    for class, hit_types in pairs(targets) do
-        local col = {}
-        for hit_type, _ in pairs(hit_types) do
-            local attr = {id = guid, image = hit_type, onClick = click_fun .. class .. '-' .. hit_type .. ')'}
-            if not guid then attr.icon, attr.text = class, ' ' end
-            table.insert(col, {tag = 'Button', attributes = attr})
-        end
-        if width > 1 and #col < height then
-            local pad = (height - #col) * 60
-            col = {tag = 'Panel', children = col, attributes = {
-                padding = '0 0 ' .. pad .. ' ' .. pad
-            }}
-        end
-        table.insert(cols, {tag = 'VerticalLayout', children = col, attributes = {}})
-    end
-    if width > 1 then cols = {tag = 'HorizontalLayout', children = cols, attributes = {}}
-    else cols = cols[1] end
-    cols.attributes.height = height * 120
-    cols.attributes.width = width * 120
-    cols.attributes.position = '0 0 -250'
-    cols.attributes.rotation = '0 0 ' .. (hotspot.getRotation().y - rotation)
-    hotspot.UI.setXmlTable({cols})
-end
