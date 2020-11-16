@@ -7,6 +7,10 @@ function writeOrders(resume)
         state.objects.orders[nation].call('writeOrders', {getStressZone(nation) > 3, resume})
         ready[nation] = false
     end
+    if state.scenario == 'global' and not state.pact_broken then
+        state.objects.orders.japan.UI.setAttribute('pact', 'interactable', true)
+        state.objects.orders.ussr.UI.setAttribute('pact', 'interactable', true)
+    end
     playerReady = function (data)
         local all_ready = true
         for nation, value in pairs(ready) do if data[nation] ~= nil then
@@ -19,6 +23,13 @@ function writeOrders(resume)
             revealBids()
     end end
 end
+
+function validateCommand(params)
+    local command = state.objects.commands[params[1]][params[2]]
+    return command ~= nil and getRegion(command) ~= nil
+end
+
+function validateRegion(params) return Map.data.regions[params[1]] ~= nil end
 
 function revealBids()
     updateTracker('Reveal bids')
@@ -72,8 +83,10 @@ end
 
 function payBids()
     state.turn_order, state.new_turn_order = state.new_turn_order, nil
-    for i, nation in ipairs(state.turn_order) do UI.setAttribute('tracker' .. i, 'image', nation) end
-    for nation, orders in pairs(state.objects.orders) do orders.call('payBid') end
+    for i, nation in ipairs(state.turn_order) do
+        UI.setAttribute('tracker' .. i, 'image', nation)
+        state.objects.orders[nation].call('payBid')
+    end
     updateTurn()
     resetStatus()
     flipHotspots()

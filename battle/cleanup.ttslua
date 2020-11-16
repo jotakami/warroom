@@ -120,5 +120,5 @@ function resetState()
     self.UI.hide(mode .. '-status-panel')
     for _, side in ipairs{'axis', 'allies'} do self.UI.show(mode .. '-' .. side .. '-roll-frame') end
     onObjectEnterScriptingZone, onObjectLeaveScriptingZone = nil, nil
-    state = {}
+    state, AlertID = {}, 'Battle'
 end

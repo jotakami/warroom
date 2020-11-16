@@ -9,6 +9,11 @@ function onLoad(saved_state)
     Resources = getObjectFromGUID(Global.getTable('GUIDs').Nations[Nation].resources)
     if Nation ~= 'china' then Trades = {oil = 2, iron = 3, osr = 5} end
     NumOrders = Nation ~= 'china' and Nation ~= 'italy' and 9 or 6
+    local assets = {}
+    for _, asset in ipairs(UI.getCustomAssets()) do if asset.name == 'confirm'
+        or asset.name == 'cancel' or asset.name == 'invalid' or asset.name == 'pact'
+        or asset.name == 'pin' or asset.name == 'neutral' then table.insert(assets, asset) end end
+    self.UI.setCustomAssets(assets)
     self.UI.setXmlTable(initXML(NumOrders / 3, Nation == 'china'))
     state = {}
     if saved_state ~= '' then loadSave(saved_state)
@@ -26,7 +31,7 @@ end
 
 function loadSave(saved_state)
     state = JSON.decode(saved_state)
-    Wait.frames(function ()
+    Wait.condition(function ()
         for i, move in pairs(state.moves or {}) do
             self.UI.setAttribute('command' .. i, 'text', move.command or '')
             self.UI.setAttribute('target' .. i, 'text', move.target or '')
@@ -39,7 +44,7 @@ function loadSave(saved_state)
             if unit == 'cg' then for resource, value in pairs(data) do if resource ~= 'quantity' then
                 updatePurchase(nil, value == 0 and '' or value, 'cg-' .. resource)
             end end else updatePurchase(nil, data.quantity == 0 and '' or data.quantity, unit .. '-purchase') end
-    end end, 1)
+    end end, || self.UI.getXml() ~= '')
 end
 
 -- GAME PHASE FUNCTIONS --
@@ -149,7 +154,8 @@ function revealBid()
 end
 
 function payBid()
-    if Nation ~= 'china' then Resources.call('addResources', {oil = -state.bid}) end
+    if Nation ~= 'china' and state.bid > 0 then Resources.call('addResources', {oil = -state.bid})
+    else Resources.call('broadcastUpdate') end
 end
 
 -- Phase 3: Movement Operations
@@ -157,37 +163,48 @@ end
 function resolveOrders()
     self.UI.setAttribute('commands', 'visibility', '')
     self.UI.setAttribute('targets', 'visibility', '')
+    self.UI.show('resolve')
     resolveOrder(1)
+    return state.moves
 end
 
 function resolveOrder(num)
-    local rid, cid = 'resolved' .. num, 'canceled' .. num
     if num <= NumOrders then
         local move = state.moves[num]
         if move and move.command and move.target then
-            self.UI.setAttributes(rid, {text = 'Resolve', active = true, interactable = true})
-            self.UI.show(cid)
-            local flag = Global.call('evaluateOrder', {Nation, tonumber(move.command), move.target})
-            if flag then debug('Order flagged: ', flag) end
-            if flag == 'invalid' then self.UI.setAttributes(rid, {text = 'Invalid', interactable = false})
-            elseif flag == 'pact' then self.UI.setAttributes(rid, 'text', 'Break Pact')
-            elseif flag == 'pinned' then self.UI.setAttributes(rid, {text = 'Pinned', interactable = false})
-            elseif flag == 'partial' then self.UI.setAttribute(rid, 'text', 'Pinned') end
-        else orderCanceled(nil, nil, cid) end
-    else Global.call('movementComplete', {nation = Nation}) end
-end
-
-function orderResolved(_, _, id)
-    local action, i = id:match('(%a+)(%d)')
-    self.UI.hide('resolved' .. i)
-    self.UI.hide('canceled' .. i)
-    if action == 'resolved' then Global.call('commandMoved', {nation = Nation, command = tonumber(state.moves[tonumber(i)].command)}) end
-    resolveOrder(i + 1)
-end
-
-function orderCanceled(_, _, id)
-    self.UI.show('slash' .. id:sub(-1))
-    orderResolved(nil, nil, id)
+            local confirm, cancel = {text = 'Confirm', icon = 'confirm', active = true}, {text = 'Cancel', icon = 'cancel'}
+            cancelOrder = function ()
+                Global.call('orderCanceled', {Nation, num})
+                resolveOrder(num + 1)
+            end
+            local flag = Global.call('parseOrder', {Nation, num, move.command, move.target})
+            if flag == 'pact' then confirm.text, confirm.icon, confirmOrder = 'Break pact', 'pact', function ()
+                Global.call('breakPact', {Nation})
+                resolveOrder(num)
+            end elseif flag == 'neutral' then confirm.text, confirm.icon, confirmOrder = 'Invasion', 'neutral', function ()
+                Global.call('invadeNeutral', {Nation, move.target})
+                resolveOrder(num + 1)
+            end else
+                confirmOrder = function ()
+                    if move.command > 9 and move.command < 20 then Global.call('setLanding', {Nation, move.command}) end
+                    resolveOrder(num + 1)
+                end
+                if flag == 'invalid' then confirm.active, cancel.text, cancel.icon = false, 'Invalid', 'invalid'
+                elseif flag == 'pinned' then confirm.active, cancel.text, cancel.icon = false, 'Pinned', 'pin'
+                elseif flag == 'partial' then confirm.icon = 'pin'
+            end end
+            self.UI.setAttribute('resolve', 'offsetXY', (num - 1) % 3 * -260 .. ' ' .. math.floor((num - 1) / 3) * 356)
+            self.UI.setAttributes('confirm', confirm)
+            self.UI.setAttributes('cancel', cancel)
+            Global.call('orderButtons', {Nation, num, confirm, cancel})
+        else
+            self.UI.show('slash' .. num)
+            resolveOrder(num + 1)
+    end else
+        confirmOrder, cancelOrder = nil, nil
+        self.UI.hide('resolve')
+        Global.call('movementComplete', {nation = Nation})
+    end
 end
 
 function otherReady(_, value, id)
@@ -214,7 +231,8 @@ function writeProduction(params)
             for resource, value in pairs(data.cost) do if value > 0 then state.production[unit][resource] = 0 end end
     end end end
     if Nation ~= 'china' then
-        if not resume then state.trade, state.production.cg.oil = {routes = trades}, 0 end
+        if not resume then state.trade, state.production.cg.oil = {routes = trades}, 0
+        else state.trade.routes = trades end
         for resource, _ in pairs(state.resources) do for _, label in ipairs{'trade', 'plus', 'minus'} do
             self.UI.show(label .. '-' .. resource)
     end end end
@@ -360,6 +378,15 @@ function updateResources(data)
         self.UI.setValue('resources-' .. resource, value)
     end end
     updateTrade()
+end
+
+function breakPact(player)
+    if not Pact then
+        Pact = 1
+        Wait.time(function () Pact = nil end, 2)
+        broadcastToColor('Press 3 times rapidly to break the pact', player.color)
+    else Pact = Pact + 1 end
+    if Pact == 3 then Global.call('breakPact', {Nation}) end
 end
 
 -- HELPER FUNCTIONS --

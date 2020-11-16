@@ -9,4 +9,7 @@ function commandNation(command)
     else return name:lower():match('%b[](%a+)%b[]') end
 end
 
-function commandForce(name) return name:lower():match('^%b[]%a+%b[]%s%w+%s(%a+)') end
+function commandForce(name)
+    if type(name) == 'table' then name = name[1] end
+    return name:lower():match('^%b[]%a+%b[]%s%w+%s(%a+)')
+end

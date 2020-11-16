@@ -2,7 +2,7 @@ HelpText = {
     setup =
 [[Please wait while all game components are placed in their starting positions.]],
     orders =
-[[Each nation writes secret orders on their orders chart. The orders are not visible to any player on the opposing alliance, but allied players can see them.
+[[Each nation writes secret orders on their orders chart. The orders are not visible to any player on the opposing team, but allied players can see them.
 
 For each set of orders, enter the command number in the upper text field and the destination region in the lower text field. Unidentifiable commands or regions, as well as oil bids which exceed your oil supply, will be highlighted in red. You will be unable to submit your orders until these errors are corrected.
 
@@ -16,18 +16,30 @@ WARNING: Once a token has been placed, you cannot change your turn order! Any ch
 [[In turn order, each nation executes their movement orders in sequence. The current movement order is displayed in the center of the screen.
 
 To execute an order as written, move the command to the destination region and then click the 'Resolved' button on your orders chart. To cancel an order, leave the command as is and click the 'Canceled' button.
+
 If an order is invalid, or a command is fully pinned, the 'Resolved' button will be unavailable and the order must be canceled.
+
 If an order would break the Soviet-Japanese Pact, the 'Resolved' button will change to indicate this and, if clicked, will immediately break the pact and apply 6 stress to the offending party.
 
-NOTE: The script evaluates movement orders based on where the command is physically located on the map. To avoid unexpected script issues, avoid moving commands before their movement orders have appeared, and only click 'Resolved' once the command has been moved to its final destination.]],
+NOTE: Landing arrows will automatically be placed on any air commands that have moved or participate in combat, so there is no need to place these manually.
+
+WARNING: The script evaluates movement orders based on where the command is physically located on the map. To avoid unexpected script issues, avoid moving commands before their movement orders have appeared, and only click 'Resolved' once the command has been moved to its final destination.]],
     cfighters =
 [[Each nation with carrier units now deploys carrier fighters. Carrier fighters have been placed on top of naval commands which contain carrier units, and each fighter is highlighted with the color of the controlling nation to avoid confusion.
 
 Once you have finished deploying carrier fighters, click the 'Ready' button on your orders chart to continue.]],
     combat =
 [[In turn order, each nation chooses a hotspot to resolve. The status bar indicates the number of remaining hotspots for the active player. Hover over an eligible hotspot to highlight all participating commands, and press the 'R' key to resolve it.
+
 BATTLES: All units will automatically move to an open battle board. Most aspects of combat are fully automated and self-explanatory--just click the 'Ready' buttons when done choosing stances, and click 'Roll' to start throwing dice.
-RAIDS: Convoy raids and undefended strategic bombing are rolled directly on the map. If multiple convoys are available to raid, then orange lines will be drawn to indicate the closest raid target for each command. To change targets, just move the command close to the desired target. Hover over the hotspot and press 'R' again to confirm your choices and start rolling.]],
+
+RAIDS: Convoy raids and undefended strategic bombing are rolled directly on the map. If multiple convoys are available to raid, then orange lines will be drawn to indicate the closest raid target for each command. To change targets, just move the command close to the desired target. Hover over the hotspot and press 'R' again to confirm your choices and start rolling.
+
+BOMBING: Resources and units under construction in the target region will automatically be detected and buttons will appear to assign each die to an eligible target. When bombing undefended territories, the dice will be rolled directly on the map.
+
+When capturing territory, if multiple nations participated then buttons will appear above the hotspot after combat to choose which nation gains control and which nation receives the medal(s).
+
+Once the final hotspot has been resolved, the game will automatically proceed to the next phase.]],
     landing =
 [[Air commands which moved or participated in combat must land in a friendly territory now. All commands which are eligible to land are highlighted in their owner's color.
 

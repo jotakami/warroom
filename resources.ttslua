@@ -3,8 +3,7 @@ function onLoad()
     Orders = getObjectFromGUID(Global.getTable('GUIDs').Nations[Nation].orders)
     PegBag = getObjectFromGUID(Global.getTable('GUIDs').Bags.Pegs)
     Pegs = {}
-    state = {iron = 0, iron_more = 0, osr = 0, osr_more = 0}
-    disable_collision = {}
+    state, disable_collision = {iron = 0, iron_more = 0, osr = 0, osr_more = 0}, {}
     if Nation ~= 'china' then state.oil = 0 state.oil_more = 0 end
     loaded = true
 end
@@ -27,14 +26,12 @@ function onCollisionEnter(collision_info)
 end
 
 function onCollisionExit(collision_info)
-    if not loaded then return end
-    for spot, peg in pairs(Pegs) do
-        if peg and collision_info.collision_object.getGUID() == peg.getGUID() and #spot > 4 then
-            if disable_collision[spot:match('^%a+')] then return end
+    if loaded and collision_info.collision_object.held_by_color then for spot, peg in pairs(Pegs) do
+        if peg ~= nil and spot:match('more') and collision_info.collision_object.getGUID() == peg.getGUID() then
             state[spot], Pegs[spot] = 0, nil
             broadcastUpdate(totals())
             break
-    end end
+    end end end
 end
 
 function addResources(data)
@@ -46,19 +43,20 @@ end
 function setResources(data)
     local current, offset, total = totals(), {oil = 1, iron = 22, osr = 43}, {}
     for resource, value in pairs(data) do
-        state[resource], disable_collision[resource] = value, true
-        local more = offset[resource] + value - 20
-        if current[resource] < 20 or value < 20 then Pegs[resource].setPositionSmooth(pegPosition(offset[resource] + math.min(value, 20))) end
-        if value > 21 then if current[resource] < 21 then
+        state[resource], state[resource .. '_more'] = math.min(value, 20), math.max(value - 20, 0)
+        local more = offset[resource] + state[resource .. '_more']
+        if current[resource] < 20 or value < 20 then Pegs[resource].setPositionSmooth(pegPosition(offset[resource] + state[resource])) end
+        if value > 20 then if current[resource] < 21 then
             Pegs[resource .. '_more'] = PegBag.takeObject({position = pegPosition(more), smooth = false})
-        else Pegs[resource .. '_more'].setPositionSmooth(pegPosition(more))
-        end elseif current[resource] > 20 then Pegs[resource .. '_more'].destruct()
-    end end
+        else Pegs[resource .. '_more'].setPositionSmooth(pegPosition(more)) end
+        elseif current[resource] > 20 then Pegs[resource .. '_more'].destruct() end
+    end
     for resource, value in pairs(current) do data[resource] = data[resource] or value end
     broadcastUpdate(data)
 end
 
 function broadcastUpdate(data)
+    data = data or totals()
     Orders.call('updateResources', data)
     Global.call('updateResources', {nation = Nation, data = data})
 end

@@ -4,19 +4,31 @@
 #include utils/stacks
 #include utils/dice
 #include utils/debug
-#include utils/commands
+#include utils/blinker
 
 --- Save and load ---
 
 function onLoad()
-    state = {}
-    self.UI.setXml(XML)
+    state, RepairAssets, AlertID = {}, {}, 'Battle'
+    local GUIDs, assets = Global.getTable('GUIDs'), {}
     loadZones()
-    local GUIDs = Global.getTable('GUIDs')
     HotspotBag, ArrowBag = getObjectFromGUID(GUIDs.Bags.hotspot), getObjectFromGUID(GUIDs.Bags.arrow)
     DieBags = {getObjectFromGUID(DieGUIDs[1]), getObjectFromGUID(DieGUIDs[2])}
     MoraleBoard = getObjectFromGUID(GUIDs.MoraleBoard)
     self.addContextMenuItem('Reset script', || resetState())
+    for _, asset in ipairs(UI.getCustomAssets()) do
+        if asset.name:match('dice') or CombatParams.land.units[asset.name] or CombatParams.sea.units[asset.name] or asset.name == 'bomb' then
+            table.insert(assets, asset)
+        elseif asset.name:match('[io][irs][lor]') then
+            table.insert(assets, asset)
+            table.insert(RepairAssets, asset)
+    end end
+    self.UI.setCustomAssets(assets)
+    self.UI.setXml(XML)
+    Wait.condition(function ()
+        self.UI.hide('axis-bomb-targets')
+        self.UI.hide('allies-bomb-targets')
+    end, || self.UI.getXml() ~= '')
 end
 
 --- Battle setup ---
@@ -68,11 +80,5 @@ function stackOn(obj1, obj2)
     if obj2.is_face_down then pos = pos + vector(0, 0.01, 0) else pos = pos + vector(0, 0.22, 0) end
     obj1.setPositionSmooth(pos)
 end
-
-function setBlinker(obj)
-    obj.highlightOn({1, 1, 1}, 0.5)
-    obj.setVar('blinker', Wait.time(|| obj.highlightOn({1, 1, 1}, 0.5), 1, -1))
-end
-function stopBlinker(obj) Wait.stop(obj.getVar('blinker')) end
 
 function other(side) if side == 'axis' then return 'allies' else return 'axis' end end

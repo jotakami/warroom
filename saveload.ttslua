@@ -1,0 +1,156 @@
+function onLoad(saved_state)
+    deactivateFurniture()
+    Map = {obj = getObjectFromGUID(GUIDs.Map)}
+    Map.position, Map.rotation, Map.snaps = Map.obj.getPosition(), Map.obj.getRotation(), Map.obj.getSnapPoints()
+    Wait.condition(function () Map.data = Map.obj.getTable('MapData') end, || Map.obj.getVar('loaded') ~= nil)
+    MoraleBoard = getObjectFromGUID(GUIDs.MoraleBoard)
+    BattleBoards = {getObjectFromGUID(GUIDs.BattleBoards[1]), getObjectFromGUID(GUIDs.BattleBoards[2])}
+    UnitQueues, state = {}, {}
+    if saved_state ~= '' then loadState(saved_state) else UI.setXmlTable(setupXML()) end
+end
+
+function deactivateFurniture()
+    local guids = {GUIDs.Map}
+    for _, guid in ipairs(GUIDs.Furniture) do table.insert(guids, guid) end
+    for _, data in pairs(GUIDs.Nations) do
+        table.insert(guids, data.resources)
+        for _, tray in ipairs(data.trays) do table.insert(guids, tray) end
+        for _, rack in ipairs(data.territories) do table.insert(guids, rack) end
+    end
+    for _, guid in ipairs(guids) do getObjectFromGUID(guid).interactable = false end
+end
+
+function loadState(saved_state)
+    saved_state = JSON.decode(saved_state)
+    state = {
+        scenario = saved_state.scenario, round = saved_state.round,
+        turn_order = saved_state.turn_order, pact_broken = saved_state.pact_broken,
+        objects = {
+            orders = {}, resources = {}, homeland_tokens = {}, turn_tokens = {},
+            commands = {}, cfighters = {}, construction = {}, bombs = {}, flags = {}
+    }}
+    for i, nation in ipairs(state.turn_order) do state.turn_order[nation] = i end
+    for i, nation in ipairs(state.turn_order) do for _, label in ipairs{'orders', 'resources'} do
+        state.objects[label][nation] = getObjectFromGUID(GUIDs.Nations[nation][label])
+    end end
+    if saved_state.combat then
+        state.combat = {landings = {}, hotspots = {}, turn = saved_state.combat.turn}
+        for region, data in pairs(saved_state.combat.hotspots) do state.combat.hotspots[region] = data end
+    end
+    convertObjects(saved_state, state, false)
+    addCommandMenuItems()
+    for nation, objs in pairs(state.objects.cfighters) do for _, cfighter in ipairs(objs) do
+        cfighter.setVar('nation', nation)
+    end end
+    UI.setXmlTable(setupXML(state.scenario))
+    Wait.condition(function ()
+        UI.setAttributes('resources', {active = true, visibility = Vis.none})
+        UI.show('resources-button')
+        UI.setValue('scenario', Scenarios[state.scenario].label)
+        UI.setValue('round', state.round)
+        for i, nation in ipairs(state.turn_order) do
+            UI.setAttributes('tracker' .. i, {image = nation, active = true})
+            UI.show('status' .. i)
+            for _, resource in ipairs{'oil', 'iron', 'osr'} do UI.show('frame-' .. resource .. i) end
+        end
+        if state.scenario == 'global' and not state.pact_broken then
+            state.objects.orders.japan.UI.show('pact')
+            state.objects.orders.ussr.UI.show('pact')
+        end
+        Wait.condition(|| resumePhase(saved_state.phase), function ()
+            for _, orders in pairs(state.objects.orders) do if orders.spawning then return false end end
+            return true
+    end) end, || UI.getAttribute('save', 'image') ~= nil)
+end
+
+function addCommandMenuItems()
+    for _, commands in pairs(state.objects.commands) do for _, command in pairs(commands) do
+        Wait.condition(function ()
+            if #command.getAttachments() > 0 then
+                command.addContextMenuItem('Break stack', || breakStack(command))
+                if not command.getName():match('construction') then
+                    command.addContextMenuItem('Combine stacks', |player| combineStacks(command, player))
+            end else command.addContextMenuItem('Form stack', |player| formStack(command, player)) end
+        end, || not command.spawning)
+    end end
+end
+
+function resumePhase(phase)
+    for _, orders in pairs(state.objects.orders) do
+        orders.UI.setValue('round', state.round)
+        if phase ~= 'production' then
+            orders.UI.hide('post_trade')
+            orders.UI.hide('remaining')
+    end end
+    Wait.frames(function ()
+        if phase == 'planning' then writeOrders(true)
+        elseif phase == 'combat' then combatOperations(true)
+        elseif phase == 'refit' then deployUnits()
+        elseif phase == 'production' then writeProduction(true) end
+    end, 1)
+end
+
+function onSave()
+    if not state.save_ok then return '' end
+    debug('Generating save data')
+    local saved_state = {
+        scenario = state.scenario, round = state.round, phase = state.save_ok,
+        turn_order = {}, pact_broken = state.pact_broken,
+        guids = {
+            homeland_tokens = {}, turn_tokens = {}, commands = {},
+            cfighters = {}, construction = {}, bombs = {}, flags = {}
+    }}
+    for _, nation in ipairs(state.turn_order) do table.insert(saved_state.turn_order, nation) end
+    if state.combat then
+        saved_state.combat = {landings = {}, hotspots = {}, turn = state.combat.turn}
+        for region, data in pairs(state.combat.hotspots) do
+            saved_state.combat.hotspots[region] = {status = data.status, type = data.type, combatants = data.combatants}
+    end end
+    convertObjects(state, saved_state, true)
+    return JSON.encode(saved_state)
+end
+
+function convertObjects(data, new_data, toGUID)
+    local label, new_label = toGUID and 'objects' or 'guids', toGUID and 'guids' or 'objects'
+    for _, nation in ipairs(data.turn_order) do
+        new_data[new_label].homeland_tokens[nation] = convertObject(data[label].homeland_tokens[nation], toGUID)
+        new_data[new_label].turn_tokens[nation] = convertObject(data[label].turn_tokens[nation], toGUID)
+        new_data[new_label].commands[nation] = {}
+        for id, command in pairs(data[label].commands[nation]) do
+            new_data[new_label].commands[nation][id] = convertObject(command, toGUID)
+        end
+        if data[label].cfighters[nation] then
+            new_data[new_label].cfighters[nation] = {}
+            for _, cfighter in ipairs(data[label].cfighters[nation]) do
+                table.insert(new_data[new_label].cfighters[nation], convertObject(cfighter, toGUID))
+    end end end
+    for _, key in ipairs{'flags', 'construction'} do for region, item in pairs(data[label][key]) do
+        new_data[new_label][key][region] = convertObject(item, toGUID)
+    end end
+    for region, bombs in pairs(data[label].bombs) do
+        new_data[new_label].bombs[region] = {}
+        for _, bomb in ipairs(bombs) do table.insert(new_data[new_label].bombs[region], convertObject(bomb, toGUID)) end
+    end
+    new_data[new_label].neutrals = convertObject(data[label].neutrals, toGUID)
+    if data.combat then
+        for _, obj in ipairs(data.combat.landings) do table.insert(new_data.combat.landings, convertObject(obj, toGUID)) end
+        for region, params in pairs(data.combat.hotspots) do
+            if params.obj ~= nil then new_data.combat.hotspots[region].obj = convertObject(params.obj, toGUID) end
+    end end
+end
+
+function convertObject(object_or_guid, toGUID)
+    if toGUID then return object_or_guid.guid else return getObjectFromGUID(object_or_guid) end
+end
+
+function saveOK() return state.save_ok end
+
+function enableSave(phase)
+    state.save_ok = phase
+    UI.setAttributes('save', {image = 'save-ok', tooltip = 'OK to save'})
+end
+
+function disableSave()
+    state.save_ok = nil
+    UI.setAttributes('save', {image = 'save-ng', tooltip = 'Cannot save properly'})
+end

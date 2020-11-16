@@ -1,22 +1,20 @@
+-- -- Step 1: Convert casualties into stress
+
 function morale()
     updateTracker('Convert casualties into stress', '6 - Morale', 'casualties')
     resetStatus()
-    MoraleBoard.UI.show('convert-button')
-end
-
-function breakPact(nation)
-    if not state.pact_broken then
-        MoraleBoard.call('addStress', {nation = nation, value = 6})
-        state.pact_broken = true
+    if state.scenario == 'global' and not state.pact_broken then
+        state.objects.orders.japan.UI.setAttribute('pact', 'interactable', false)
+        state.objects.orders.ussr.UI.setAttribute('pact', 'interactable', false)
     end
+    MoraleBoard.UI.show('convert-button')
+    state.pact_broken = state.pact_broken and true
 end
-
--- -- Step 1: Convert casualties into stress
 
 -- -- Step 2: Resolve medals and stress tokens
 
 function updateStressZone(nation, delta)
-    if type(nation) == 'table' then nation, delta = nation[1], nation[2] end
+    if type(nation) == 'table' then nation, delta = table.unpack(nation) end
     debug('Updating stress zone for ', nation)
     local token = state.objects.homeland_tokens[nation]
     local pos, snap_index = Map.obj.positionToLocal(token.getPosition())
@@ -50,7 +48,7 @@ function applyStressPenalties()
             --if zone == 6 then massDesertions(nation, waiting) end
         else updateStatus(nation, true)
     end end
-    if not waiting then production() else playerReady = function (data)
+    if not waiting then writeProduction() else playerReady = function (data)
         local all_ready = true
         for nation, status in pairs(ready) do if data[nation] ~= nil then
             debug(nation, ' toggled ready state')

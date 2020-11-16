@@ -9,10 +9,11 @@ end
 function setupCombat(data)
     local setup = data[1]
     state.hotspot = data[2]
-    local region = state.hotspot.getVar('region')
+    local region = Global.call('getRegion', {state.hotspot}):gsub('([aimp])', '%1-'):upper()
+    AlertID = 'Battle ' .. region
     debug('setup: ', setup, ', hotspot: ', state.hotspot.getGUID(), ', region: ', region)
-    self.UI.setValue(setup .. '-region', region:gsub('([aimp])', '%1-'):upper())
-    self.UI.setAttribute(setup .. '-region', 'color', '#' .. (Colors[Prefixes[region:sub(1, 1)] or 'sea']))
+    self.UI.setValue(setup .. '-region', region)
+    self.UI.setAttribute(setup .. '-region', 'color', '#' .. (Colors[Prefixes[region:sub(1, 1):lower()] or 'sea']))
     if (setup == 'land') == self.is_face_down then
         flipBoard()
         Wait.condition(function ()

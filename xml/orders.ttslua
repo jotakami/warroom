@@ -1,17 +1,26 @@
 function initXML(order_rows, is_china)
+    local Z = ' -59'
     local function round()
         return {tag = 'Text', attributes = {id = 'round',
             height = '97', width = '105',
-            position = '560 -586 -59', rotation = '0 0 180'
+            position = '560 -586' .. Z, rotation = '0 0 180'
         }}
     end
 
     local function bid()
         return {tag = 'InputField', attributes = {id = 'bid',
             height = '97', width = '105',
-            position = '71 -586 -59', rotation = '0 0 180',
+            position = '71 -586' .. Z, rotation = '0 0 180',
             characterValidation = 'Integer', characterLimit = '2',
             onValueChanged = 'updateBid'
+        }}
+    end
+
+    local function pact()
+        return {tag = 'Button', attributes = {id = 'pact',
+            height = '90', width = '200', position = '0 -775' .. Z, rotation = '0 0 180', scale = '0.8 1',
+            text = 'Break pact', fontSize = '28', icon = 'pact', colors = '#c0c0c0ff|white|red|#a0a0a080',
+            onClick = 'breakPact', interactable = 'false', active = 'false'
         }}
     end
 
@@ -31,9 +40,18 @@ function initXML(order_rows, is_china)
         return {tag = 'InputField', attributes = {class = label, id = label .. count}}
     end
 
-    local function movementButton(label, count)
-        return {tag = 'Panel', attributes = {class = label}, children = {
-            {tag = 'Button', attributes = {class = label, id = label .. count}}
+    local function movementButtons()
+        return {tag = 'Panel', attributes = {id = 'resolve',
+            height = '320', width = '260', position = '670 -390' .. Z,
+            rotation = '0 0 180', scale = '0.8 1', active = 'false'}, children = {
+                {tag = 'Button', attributes = {class = 'resolve', id = 'confirm',
+                    position = '-130 0 0', rotation = '0 0 90', text = 'Confirm', icon = 'resources',
+                    colors = '#ffffffff|#00cc00ff|#00cc00ff|#000000b2', onClick = 'confirmOrder'
+                }},
+                {tag = 'Button', attributes = {class = 'resolve', id = 'cancel',
+                    position = '130 0 0', rotation = '0 0 -90', text = 'Cancel', icon = 'resources-hover',
+                    colors = '#ffffffff|#ff0000ff|#ff0000ff|#000000b2', onClick = 'cancelOrder'
+                }}
         }}
     end
 
@@ -75,7 +93,7 @@ function initXML(order_rows, is_china)
             } or {}})
         end
         return {tag = 'TableLayout', attributes = {id = 'post_trade',
-            class = 'totals', height = '145', position = '-575 -610 -59'
+            class = 'totals', height = '145', position = '-575 -610' .. Z
         }, children = {{tag = 'Row', children = col_xml}}}
     end
 
@@ -113,7 +131,7 @@ function initXML(order_rows, is_china)
             } or {}})
         end
         return {tag = 'TableLayout', attributes = {id = 'remaining',
-            class = 'totals', height = '290', position = '-570 655 -59'
+            class = 'totals', height = '290', position = '-570 655' .. Z
         }, children = {{tag = 'Row', children = cost_xml}, {tag = 'Row', children = remaining_xml}}}
     end
 
@@ -122,22 +140,20 @@ function initXML(order_rows, is_china)
             {tag = 'TableLayout', attributes = {rotation = '0 0 180', cellBackgroundColor = 'clear'}},
             {tag = 'TableLayout', attributes = {class = 'movement',
                 height = 356 * order_rows .. '', width = '780',
-                position = '410 ' .. (order_rows == 3 and '-34' or '-212') .. ' -59'
+                position = '410 ' .. (order_rows == 3 and '-34' or '-212') .. Z
             }},
             {tag = 'TableLayout', attributes = {class = 'resources',
                 height = is_china and '125' or '250', width = '770',
-                position = '405 ' .. (is_china and '592' or '655') .. ' -59'
+                position = '405 ' .. (is_china and '592' or '655') .. Z
             }},
             {tag = 'TableLayout', attributes = {class = 'purchases',
                 height = is_china and '321' or '1070', width = '700',
-                position = '-452 ' .. (is_china and '-389' or '-15') .. ' -59'
+                position = '-452 ' .. (is_china and '-389' or '-15') .. Z
             }},
             {tag = 'TableLayout', attributes = {class = 'totals', width = '525'}},
             {tag = 'Panel', attributes = {class = 'resources', padding = '80 50 0 20'}},
             {tag = 'Panel', attributes = {class = 'plus_minus', padding = '95 0 42 12'}},
             {tag = 'Panel', attributes = {class = 'trade', padding = '0 80 42 12'}},
-            {tag = 'Panel', attributes = {class = 'resolved', rotation = '0 0 90', padding = '10 10 45 255'}},
-            {tag = 'Panel', attributes = {class = 'canceled', rotation = '0 0 270', padding = '10 10 45 255'}},
             {tag = 'InputField', attributes = {
                 colors = '#ffffff3f|#ffffff7f|#ffffff00|#00000000',
                 scale = '0.8 1', fontSize = '72',
@@ -154,19 +170,12 @@ function initXML(order_rows, is_china)
                 characterValidation = 'Integer', characterLimit = '2',
                 onValueChanged = 'updatePurchase'
             }},
-            {tag = 'Button', attributes = {class = 'resolved',
-                colors = '#ffffffb2|#00cc00b2|#00cc00ff|#a04040b2',
-                fontSize = '40', text = 'Resolved', active = 'false',
-                onClick = 'orderResolved'
-            }},
-            {tag = 'Button', attributes = {class = 'canceled',
-                colors = '#ffffffb2|#ff0000b2|#ff0000ff|#000000b2',
-                fontSize = '40', text = 'Canceled', active = 'false',
-                onClick = 'orderCanceled'
+            {tag = 'Button', attributes = {class = 'resolve',
+                height = '75', width = '240', ignoreLayout = 'true', fontSize = '30'
             }},
             {tag = 'ToggleButton', attributes = {rotation = '0 0 180', active = false}},
             {tag = 'ToggleButton', attributes = {class = 'ready',
-                height = '32', width = '64', position = '415 -588 -59',
+                height = '32', width = '64', position = '415 -588' .. Z,
                 scale = '2.4 3', text = 'Ready', fontSize = '18',
                 colors = '#ffffff|#00ff00|#ffff00|#404040ff', isOn = true
             }},
@@ -186,6 +195,7 @@ function initXML(order_rows, is_china)
     local xml = {
         defaults(order_rows, is_china),
         round(),
+        pact(),
         {tag = 'ToggleButton', attributes = {class = 'ready', id = 'orders-ready',
             onValueChanged = 'ordersReady'
         }},
@@ -197,9 +207,8 @@ function initXML(order_rows, is_china)
         }},
         movement(order_rows, 'command', |a, b| movementInput(a, b), {id = 'commands', cellPadding = '60 60 50 210'}),
         movement(order_rows, 'target', |a, b| movementInput(a, b), {id = 'targets', cellPadding = '40 40 210 50'}),
-        movement(order_rows, 'resolved', |a, b| movementButton(a, b)),
-        movement(order_rows, 'canceled', |a, b| movementButton(a, b)),
         movement(order_rows, 'slash', |a, b| movementSlash(a, b)),
+        movementButtons(),
         preTrade(is_china),
         postTrade(is_china),
         purchases(is_china),

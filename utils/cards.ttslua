@@ -21,61 +21,71 @@ function getCard(id, nation)
     end end end
 end
 
-function takeCard(id, nation)
-    debug('Taking ', id, ' card from ', nation)
-    local moves, index = {}
-    local cards = getObjectFromGUID(GUIDs.Nations[nation].card_zone).getObjects()
+function takeCard(id, nation, callback)
+    local card_zone = getObjectFromGUID(GUIDs.Nations[nation].card_zone)
+    local cards, moves, index, locked = card_zone.getObjects(), {}
     sortCards(cards, regionPrefix(nation))
-    for i, card in ipairs(cards) do
-        if cardRegion(card) == id then
-            index = i
-            table.insert(moves, {position = card.getPosition() + vector(0, 5, 0), rotation = card.getRotation():setAt('x', 0):setAt('z', 0)})
-        end
-        if index then table.insert(moves, {position = card.getPosition(), rotation = card.getRotation()}) end
-    end
-    local start = math.floor((index - 1) / 12) * 12 + 1
-    for i = start, #cards, 1 do if i < index then
-        cards[i].setLock(true)
-        cards[i].setPosition(cards[i].getPosition() + vector(0, 0.1, 0))
-    else
-        cards[i].setPositionSmooth(moves[i - index + 1].position, false, i % 12 == 1)
-        if i == index then cards[i].setRotationSmooth(moves[1].rotation, false, i % 12 == 1)
-        else cards[i].setRotationSmooth(moves[i - index + 1].rotation:setAt('z', cards[i].getRotation().z), false, i % 12 == 1) end
+    for i, card in ipairs(cards) do if card.getLock() then locked = true else
+        if cardRegion(card) == id then index = i end
+        if index then table.insert(moves, card.getPosition()) end
     end end
-    if start < index then Wait.condition(function ()
-        for i = start, index - 1, 1 do cards[i].setLock(false) end
-    end, || not cards[index].isSmoothMoving()) end
-    return cards[index]
+    if locked then Wait.condition(|| Wait.frames(|| takeCard(id, nation, callback), 3), function ()
+        for _, card in ipairs(card_zone.getObjects()) do if card.getLock() then return false end end
+        return true
+    end) elseif index then
+        debug('Taking ', id, ' card from ', nation)
+        cards[index].setLock(true)
+        cards[index].setPositionSmooth(cards[index].getPosition() + vector(0, 5, 0))
+        cards[index].setRotationSmooth({0, cards[index].getRotation().y, 0})
+        local start = index < #cards and math.floor((index - 1) / 12) * 12 + 1 or index
+        for i = start, #cards do if i ~= index then
+            cards[i].setLock(true)
+            if i > index then
+                cards[i].setPositionSmooth(moves[i - index])
+                if i % 12 == 0 and i < #cards then cards[i].rotate({0.91, 0, 0})
+                elseif i % 12 == 1 and i < #cards then cards[i].rotate({-0.91, 0, 0}) end
+            else cards[i].translate({0, 0.1, 0}) end
+        end end
+        if start < index then Wait.condition(function ()
+            for i = start, #cards do if i ~= index then cards[i].setLock(false) end end
+        end, function ()
+            for i = start, #cards do if i ~= index and cards[i].isSmoothMoving() then return false end end
+            return true
+        end) end
+        Wait.condition(|| callback(cards[index]), || not cards[index].isSmoothMoving())
+    else debug('Couldn\'t take ', id, ' card from ', nation) end
 end
 
 function giveCard(new_card, nation)
     debug('Giving ', new_card.getName(), ' card to ', nation)
-    local moves, index = {}
-    local cards = getObjectFromGUID(GUIDs.Nations[nation].card_zone).getObjects()
+    local card_zone = getObjectFromGUID(GUIDs.Nations[nation].card_zone)
+    local cards, moves, locked = card_zone.getObjects(), {}
+    local index = #cards + 1
     sortCards(cards, regionPrefix(nation))
-    for i, card in ipairs(cards) do
-        if not index and compareCards(new_card, card, regionPrefix(nation)) then index = i end
-        if index then table.insert(moves, {position = card.getPosition(), rotation = card.getRotation()}) end
-    end
-    local rack = getObjectFromGUID(GUIDs.Nations[nation].territories[math.floor(#cards / 12) + 1])
-    table.insert(moves, {
-        position = rack.positionToWorld(rack.getSnapPoints()[#cards % 12 + 1].position),
-        rotation = cards[#cards].getRotation()
-    })
-    new_card.setPositionSmooth(moves[1].position)
-    new_card.setRotationSmooth(moves[1].rotation:setAt('z', new_card.getRotation().z))
-    if index then
+    for i, card in ipairs(cards) do if card.getLock() then locked = true else
+        if i < index and compareCards(new_card, card, regionPrefix(nation)) then index = i end
+        if i >= index then table.insert(moves, card.getPosition()) end
+    end end
+    if not locked then
+        local rack = getObjectFromGUID(GUIDs.Nations[nation].territories[math.floor(#cards / 12) + 1])
+        table.insert(moves, rack.positionToWorld(rack.getSnapPoints()[#cards % 12 + 1].position))
+        table.insert(cards, index, new_card)
         local start = math.floor((index - 1) / 12) * 12 + 1
-        for i = start, #cards, 1 do
-            if i < index then
-                cards[i].setLock(true)
-                cards[i].setPosition(cards[i].getPosition() + vector(0, 0.1, 0))
-            else
-                cards[i].setPositionSmooth(moves[i - index + 2].position)
-                cards[i].setRotationSmooth(moves[i - index + 2].rotation:setAt('z', cards[i].getRotation().z))
-        end end
-        if start < index then Wait.condition(function ()
-            for i = start, index - 1, 1 do cards[i].setLock(false) end
-        end, || not new_card.isSmoothMoving()) end
-    end
+        for i = start, #cards do
+            cards[i].setLock(true)
+            if i >= index then
+                cards[i].setPositionSmooth(moves[i - index + 1])
+                if i == index then cards[i].setRotationSmooth({i % 12 > 0 and i < #cards and 0.91 or 0, rack.getRotation().y, 0})
+                elseif i % 12 == 1 and i < #cards then cards[i].rotate({0.91, 0, 0})
+                elseif i % 12 == 0 and i > index and i < #cards then cards[i].rotate({-0.91, 0, 0}) end
+            else cards[i].translate({0, 0.1, 0}) end
+        end
+        Wait.condition(function () for i = start, #cards do cards[i].setLock(false) end end, function ()
+            for i = start, #cards do if cards[i].isSmoothMoving() then return false end end
+            return true
+        end)
+    else Wait.condition(|| Wait.frames(|| giveCard(new_card, nation), 3), function ()
+        for _, card in ipairs(card_zone.getObjects()) do if card.getLock() then return false end end
+        return true
+    end) end
 end

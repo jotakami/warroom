@@ -1,24 +1,25 @@
 function resolveBombing(hotspot)
     local region, bombers = getRegion(hotspot), 0
     local commands = getCommands(region)
-    for _, command in ipairs(commands.axis.air or commands.allies.air) do bombers = bombers + (command.getTable('units').bomber or 0) end
+    for _, command in ipairs(commands.axis.air or commands.allies.air) do
+        bombers = bombers + tonumber(command.getName():match('(%d+) %b[]Bomber') or 0)
+    end
     debug('Resolving strategic bombing in ', region, ' with ', bombers, ' bombers')
-    rollBomber(hotspot, getBombTargets(region), bombers - 1, function ()
+    rollBombers(hotspot, getBombTargets(region), bombers - 1, function ()
         debriefAirCommands(commands)
         returnPiece(hotspot)
         clearHotspot(region)
     end)
 end
 
-function rollBomber(hotspot, targets, remaining, callback)
+function rollBombers(hotspot, targets, remaining, callback)
     local offset = (Map.obj.positionToLocal(hotspot.getPosition()) - Map.data.center):setAt('y', 0):normalized()
-    local region, anchor = getRegion(hotspot), hotspot.getPosition() + vector(0, 1.8, 0)
-    rollDice({
-        anchor + offset, anchor + offset:rotateOver('y', 90),
-        anchor + offset:rotateOver('y', 90), anchor + offset:rotateOver('y', 90)
-    }, function (dice) Wait.time(function ()
+    local shift, positions = (offset * 1.4):rotateOver('y', 90), {}
+    local region, anchor = getRegion(hotspot), hotspot.getPosition() + vector(0, 1.8, 0) + offset - shift * 2.5
+    for i = 1, 4 do table.insert(positions, anchor + shift * i) end
+    rollDice(positions, function (dice) Wait.time(function ()
         table.sort(dice, |a, b| DiceOrder[getDieColor(a)] < DiceOrder[getDieColor(b)])
-        debug('Bombing result: ', getDieColor(dice[1]), ', ', getDieColor(dice[2]), ', ', getDieColor(dice[3]), ', ', getDieColor(dice[4]))
+        for i, die in ipairs(dice) do die.setPositionSmooth(positions[i]) end
         self.setVar('assignBomb' .. region, function (_, val, guid)
             local color, target = val:match('(%a+)%-(%a+)')
             local die = getObjectFromGUID(guid)
@@ -38,7 +39,7 @@ function assignBombDice(dice, targets, hotspot, remaining, callback)
     while not waiting do if #dice == 0 then
         waiting = Wait.time(function ()
             if remaining == 0 then debug('Last bomber complete') callback()
-            else debug('Rolling next bomber') rollBomber(hotspot, targets, remaining - 1, callback) end
+            else debug('Rolling next bomber') rollBombers(hotspot, targets, remaining - 1, callback) end
         end, 1)
     else
         local die = table.remove(dice, 1)

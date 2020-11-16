@@ -3,8 +3,11 @@
 function writeProduction(resume)
     updateTracker('Write unit purchase orders', '7 - Production', 'production')
     resetStatus()
+    if state.scenario == 'global' and not state.pact_broken then
+        state.objects.orders.japan.UI.setAttribute('pact', 'interactable', false)
+        state.objects.orders.ussr.UI.setAttribute('pact', 'interactable', false)
+    end
     enableSave('production')
-    state.save_ok = 'production'
     local ready, trades = {}, eligibleTrades()
     for nation, orders in pairs(state.objects.orders) do
         orders.call('writeProduction', {trades[nation], resume})
@@ -54,12 +57,7 @@ end
 function revealPurchases()
     updateTracker('Reveal purchases and update resources')
     local purchases, new_units, delay = {}, {}, 0
-    UI.setAttribute('production', 'visibility', 'White|Green|Orange|Blue|Brown|Red|Yellow|Pink|Grey|Black')
-    UI.show('production')
-    UI.setAttributes('hud-button', {
-        image = 'production', highlightedSprite = 'production-hover', pressedSprite = 'production-push',
-        visibility = 'Grey', active = true
-    })
+    openHUD('production')
     for i, nation in ipairs(state.turn_order) do Wait.time(function ()
         local orders = state.objects.orders[nation]
         purchases[nation] = {}
@@ -80,9 +78,9 @@ function revealPurchases()
 end
 
 function displayPurchases(nation, purchases, col)
-    UI.setValue('production-cg' .. col, purchases.cg or '')
+    UI.setValue('cg' .. col, purchases.cg or '')
     for unit, _ in pairs(Units) do if unit ~= 'cfighter' then
-        UI.setValue('production-' .. unit .. col, purchases[unit] or '')
+        UI.setValue(unit .. col, purchases[unit] or '')
     end end
 end
 
@@ -113,12 +111,12 @@ function transferUnits(new_units)
                 debug('Placement is invalid, resetting ready button')
                 flashRed(units, colorTable(Colors[nation]))
                 state.objects.orders[nation].call('showReady')
+                all_ready = false
             end
         else all_ready = all_ready and status end end
         if all_ready then
             playerReady = nil
-            UI.hide('production')
-            UI.hide('hud-button')
+            closeHUD('production')
             Wait.time(startNewRound, 3)
     end end
 end
@@ -163,6 +161,7 @@ function flashRed(units, color)
 end
 
 function placeIndustryTokens(units)
+    local new_mobilized = {}
     for region, objs in pairs(units) do if Map.data.regions[region].mobilization then
         local merged = false
         for _, command in pairs(state.objects.commands.china) do
@@ -174,11 +173,21 @@ function placeIndustryTokens(units)
                 merged = true
                 break
         end end
-        if not merged then debug('Creating new command for mobilized units') mergeStack(getNewCommand('china', 'army'), objs) end
+        if not merged then table.insert(new_mobilized, objs) end
     else getObjectFromGUID(GUIDs.Bags.bomb_industry).takeObject({
         position = objs[1].getPosition() + vector(0, 2, 0),
         callback_function = function (obj)
             mergeStack(obj, objs)
             state.objects.construction[region] = obj
     end}) end end
+    deployMobilized(new_mobilized)
+end
+
+function deployMobilized(stacks)
+    local units = table.remove(stacks)
+    if units then
+        local command = getNewCommand('china', 'army')
+        mergeStack(command, units)
+        Wait.condition(|| deployMobilized(stacks), || #command.getAttachments() > 0)
+    end
 end

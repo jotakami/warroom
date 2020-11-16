@@ -9,13 +9,12 @@ Alliance = {
 }
 
 Prefixes = {
-    b = 'uk',
-    c = 'china',
-    g = 'germany',
-    n = 'neutral',
-    t = 'italy',
-    j = 'japan',
-    n = 'neutral',
-    r = 'ussr',
-    u = 'usa'
+    b = 'uk', uk = 'b',
+    c = 'china', china = 'c',
+    g = 'germany', germany = 'g',
+    j = 'japan', japan = 'j',
+    n = 'neutral', neutral = 'n',
+    t = 'italy', italy = 't',
+    r = 'ussr', ussr = 'r',
+    u = 'usa', usa = 'u'
 }

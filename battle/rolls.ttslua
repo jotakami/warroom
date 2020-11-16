@@ -30,8 +30,7 @@ function rollRound(stage, side, switch, targets)
                 assignBomb = nil
                 callback()
             end) else assignHits(side, stage, results.objs, callback) end
-        end)
-    end
+    end) end
 end
 
 function setStatusRolling(side)
@@ -47,19 +46,15 @@ function getRollCounter(side)
     local x_sign = (side == 'axis' and 1 or -1) * y_sign
     local origin = self.positionToWorld({1.5 * x_sign, 0.1 + 0.455 * y_sign, -1.05})
     for _, obj in ipairs(Physics.cast({
-        origin = origin,
-        direction = self.getTransformForward(),
-        max_distance = 15
-    })) do if not counter then counter = obj.hit_object
-        else
-            more = true
-            if obj.hit_object.getPosition():distance(origin) < counter.getPosition():distance(origin) then
-                counter = obj.hit_object
-    end end end
+        origin = origin, direction = self.getTransformForward(), max_distance = 15
+    })) do if counter then
+        more = true
+        if obj.hit_object.getPosition():distance(origin) < counter.getPosition():distance(origin) then
+            counter = obj.hit_object
+    end else counter = obj.hit_object end end
     if not more then for _, _ in ipairs(Physics.cast({
         origin = counter.getPosition() + vector(0, 0.2, 0),
-        direction = {0, 1, 0},
-        max_distance = 5
+        direction = {0, 1, 0}, max_distance = 5
     })) do more = true end end
     local num = math.floor((16.3 - counter.getPosition():distance(origin)) / 1.47 + 0.1)
     counter.destruct()
@@ -68,7 +63,7 @@ end
 
 function rollClick(_, _, id)
     local side, num = id:match('%a+%-roll%-(%a+)%-(%d+)$')
-    broadcastToAll(colorize(proper(side), side) .. '[-] rolling ' .. num .. ' dice')
+    alert(colorize(proper(side), side), '[-] rolling ', num, ' dice')
     rollDice(num + 0)
 end
 
@@ -103,8 +98,7 @@ function rollDie(index, bag, force, results) bag.takeObject({
             obj.addTorque({math.random() * 2, math.random() * 2, math.random() * 2})
             Wait.time(function () results.objs[index] = obj end, 3)
         end, 0.2)
-    end
-}) end
+end}) end
 
 function arrangeResults(roll)
     local left, right = DieBags[1].getPosition() + vector(0, 0.5, 0), DieBags[2].getPosition() + vector(0, 0.5, 0)
@@ -117,7 +111,7 @@ function arrangeResults(roll)
         die.setRotationSmooth(die.getRotationValues()[die.getValue()].rotation)
     end
     for color, num in pairs(roll.result) do msg = msg .. '[' .. Colors[color] .. ']' .. num .. '[-], ' end
-    broadcastToAll('Roll result: ' .. msg:sub(1, -6))
+    alert('Roll result: ' .. msg:sub(1, -6))
 end
 
 --- Assign hits ---

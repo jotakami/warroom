@@ -2,13 +2,12 @@
 #include utils/debug
 
 function onLoad(saved_state)
-    Zones = {}
-    for nation, guid in pairs(Global.getTable('GUIDs').MoraleZones) do Zones[nation] = getObjectFromGUID(guid) end
     local bag_guids = Global.getTable('GUIDs').Bags
-    Bags = {
+    Zones, Bags = {}, {
         Stress = {getObjectFromGUID(bag_guids.Stress[1]), nil, getObjectFromGUID(bag_guids.Stress[3])},
         MedalGoods = getObjectFromGUID(bag_guids.medal_goods)
     }
+    for nation, guid in pairs(Global.getTable('GUIDs').MoraleZones) do Zones[nation] = getObjectFromGUID(guid) end
     state = {pending = {}, stress = {}, medals = {}}
     for nation, _ in pairs(Nations) do state.pending[nation] = {casualties = {}, stress = 0, medals = 0} end
     resetSnaps()
@@ -280,22 +279,20 @@ function updateSpendButton(nation, num)
     local count, done = #state.medals[nation], false
     if count > 0 then
         local top = state.medals[nation][count]
-        if num and count >= num then
-            local cg = top.is_face_down
-            if num > 1 or state.stress[nation].total > 0 then
-                local rotation, z = '0 ' .. (cg and '180' or '0') .. ' 180', cg and '0.1' or '-20.8'
-                top.UI.setXmlTable({
-                    {tag = 'Button', attributes = {id = nation,
-                        height = 60, width = 150, position = '0 -32 ' .. z, rotation = rotation,
-                        text = 'Spend ' .. num, fontSize = 32, fontStyle = "Bold",
-                        colors = (cg and '#609040|#a0c080' or 'orange|yellow') .. '|white|clear',
-                        onClick = self.getGUID() .. '/spendMedal(' .. num .. ')'}},
-                    {tag = 'Button', attributes = {id = 'done',
-                        height = 60, width = 150, position = '0 32 ' .. z, rotation = rotation,
-                        text = 'Done', fontSize = 32, colors = '#ffffff80|white|white|clear',
-                        onClick = self.getGUID() .. '/spendMedal(' .. nation .. ')'}}})
-            else done = true end
-        else top.UI.setXml('') end
+        local cg = top.is_face_down
+        if num then if num > 1 and count >= num or num == 1 and state.stress[nation].total > 0 then
+            local rotation, z = '0 ' .. (cg and '180' or '0') .. ' 180', cg and '0.1' or '-20.8'
+            top.UI.setXmlTable({
+                {tag = 'Button', attributes = {id = nation,
+                    height = 60, width = 150, position = '0 -32 ' .. z, rotation = rotation,
+                    text = 'Spend ' .. num, fontSize = 32, fontStyle = "Bold",
+                    colors = (cg and '#609040|#a0c080' or 'orange|yellow') .. '|white|clear',
+                    onClick = self.getGUID() .. '/spendMedal(' .. num .. ')'}},
+                {tag = 'Button', attributes = {id = 'done',
+                    height = 60, width = 150, position = '0 32 ' .. z, rotation = rotation,
+                    text = 'Done', fontSize = 32, colors = '#ffffff80|white|white|clear',
+                    onClick = self.getGUID() .. '/spendMedal(' .. nation .. ')'}}})
+        else done = true end else top.UI.setXml('') end
     else done = true end
     if done then debug(nation, ' can\'t spend, marking done') doneSpending(nation) end
 end
@@ -347,8 +344,7 @@ function makeChange(obj, remaining)
     local params = {position = obj.getPosition(), rotation = {0, 180, 0}, smooth = false}
     local params2 = {
         position = params.position + obj.getTransformUp() * obj.getCustomObject().thickness * 1.1,
-        rotation = {0, 180, 0},
-        smooth = false
+        rotation = {0, 180, 0}, smooth = false
     }
     obj.destruct()
     local obj1 = Bags.Stress[1].takeObject(params)
@@ -380,7 +376,7 @@ function snapOffset(nation, spot) return 1 + Nations[nation] * 11 + Spots[spot] 
 
 function flipBoard()
     self.setPositionSmooth(self.getPosition() + vector(0, 0.2, 0))
-    self.setRotationSmooth({0, 0, 180})
+    self.setRotationSmooth({180, 0, 0})
     Wait.condition(function ()
         resetUI()
         resetSnaps()

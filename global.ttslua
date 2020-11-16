@@ -6,186 +6,12 @@
 #include utils/debug
 #include config
 
-function onLoad(saved_state)
-    deactivateFurniture()
-    Map = {obj = getObjectFromGUID(GUIDs.Map)}
-    Map.position, Map.rotation, Map.snaps = Map.obj.getPosition(), Map.obj.getRotation(), Map.obj.getSnapPoints()
-    Wait.condition(function () Map.data = Map.obj.getTable('MapData') end, || Map.obj.getVar('loaded') ~= nil)
-    MoraleBoard = getObjectFromGUID(GUIDs.MoraleBoard)
-    BattleBoards = {getObjectFromGUID(GUIDs.BattleBoards[1]), getObjectFromGUID(GUIDs.BattleBoards[2])}
-    UnitQueues, state = {}, {}
-    if saved_state ~= '' then loadSave(saved_state) else UI.show('scenarios') end
-end
+-- Save and Load
+#include saveload
 
-function deactivateFurniture()
-    getObjectFromGUID(GUIDs.Map).interactable = false
-    for _, guid in ipairs(GUIDs.Furniture) do getObjectFromGUID(guid).interactable = false end
-    for _, data in pairs(GUIDs.Nations) do for _, tray in ipairs(data.trays) do
-        getObjectFromGUID(tray).interactable = false
-    end end
-end
-
-function loadSave(saved_state)
-    saved_state = JSON.decode(saved_state)
-    state = {
-        scenario = saved_state.scenario, turn_order = saved_state.turn_order, round = saved_state.round,
-        objects = {
-            orders = {}, resources = {}, homeland_tokens = {}, turn_tokens = {},
-            commands = {}, cfighters = {}, construction = {}, bombs = {}, flags = {}
-    }}
-    for i, nation in ipairs(state.turn_order) do state.turn_order[nation] = i end
-    UI.show('tracker')
-    UI.setAttributes('resources', {active = true, visibility = 'Grey'})
-    UI.show('resources-button')
-    UI.setValue('scenario', Scenarios[state.scenario].label)
-    UI.setValue('round', state.round)
-    for i, nation in ipairs(state.turn_order) do
-        UI.setAttributes('tracker' .. i, {image = nation, active = true})
-        UI.show('status' .. i)
-        for _, label in ipairs{'orders', 'resources'} do
-            state.objects[label][nation] = getObjectFromGUID(GUIDs.Nations[nation][label])
-    end end
-    convertObjects(saved_state, state, false)
-    addCommandMenuItems()
-    resumePhase(saved_state.phase)
-end
-
-function addCommandMenuItems()
-    for _, commands in pairs(state.objects.commands) do for _, command in pairs(commands) do
-        Wait.condition(function ()
-            if #command.getAttachments() > 0 then
-                command.addContextMenuItem('Break stack', || breakStack(command))
-                if not command.getName():match('construction') then
-                    command.addContextMenuItem('Combine stacks', |player| combineStacks(command, player))
-            end else command.addContextMenuItem('Form stack', |player| formStack(command, player)) end
-        end, || not command.spawning)
-    end end
-end
-
-function resumePhase(phase) Wait.condition(function ()
-    for _, orders in pairs(state.objects.orders) do Wait.frames(function ()
-        orders.UI.setValue('round', state.round)
-        if phase ~= 'production' then
-            orders.UI.hide('post_trade')
-            orders.UI.hide('remaining')
-    end end, 1) end
-    if phase == 'planning' then Wait.frames(|| writeOrders(true), 2)
-    elseif phase == 'refit' then Wait.frames(deployUnits, 2)
-    elseif phase == 'production' then Wait.frames(|| writeProduction(true), 2) end
-end, function ()
-    for _, orders in pairs(state.objects.orders) do if orders.spawning then return false end end
-    return true
-end) end
-
-function onSave()
-    if not state.save_ok then return '' end
-    debug('Generating save data')
-    local saved_state = {
-        scenario = state.scenario, phase = state.save_ok, turn_order = {}, round = state.round,
-        guids = {
-            homeland_tokens = {}, turn_tokens = {}, commands = {},
-            cfighters = {}, construction = {}, bombs = {}, flags = {}
-    }}
-    for _, nation in ipairs(state.turn_order) do table.insert(saved_state.turn_order, nation) end
-    convertObjects(state, saved_state, true)
-    return JSON.encode(saved_state)
-end
-
-function convertObjects(data, new_data, toGUID)
-    local label, new_label = toGUID and 'objects' or 'guids', toGUID and 'guids' or 'objects'
-    for _, nation in ipairs(data.turn_order) do
-        new_data[new_label].homeland_tokens[nation] = convertObject(data[label].homeland_tokens[nation], toGUID)
-        new_data[new_label].turn_tokens[nation] = convertObject(data[label].turn_tokens[nation], toGUID)
-        new_data[new_label].commands[nation] = {}
-        for id, command in pairs(data[label].commands[nation]) do
-            new_data[new_label].commands[nation][id] = convertObject(command, toGUID)
-        end
-        if data[label].cfighters[nation] then
-            new_data[new_label].cfighters[nation] = {}
-            for _, cfighter in ipairs(data[label].cfighters[nation]) do
-                table.insert(new_data[new_label].cfighters[nation], convertObject(cfighter, toGUID))
-    end end end
-    for _, key in ipairs{'flags', 'construction'} do for region, item in pairs(data[label][key]) do
-        new_data[new_label][key][region] = convertObject(item, toGUID)
-    end end
-    for region, bombs in pairs(data[label].bombs) do
-        new_data[new_label].bombs[region] = {}
-        for _, bomb in ipairs(bombs) do table.insert(new_data[new_label].bombs[region], convertObject(bomb, toGUID)) end
-    end
-end
-
-function convertObject(object_or_guid, toGUID)
-    if toGUID then return object_or_guid.guid else return getObjectFromGUID(object_or_guid) end
-end
-
-function saveOK() return state.save_ok end
-
-function enableSave(phase)
-    state.save_ok = phase
-    UI.setAttribute('save', 'image', 'save-ok')
-end
-
-function disableSave()
-    state.save_ok = nil
-    UI.setAttribute('save', 'image', 'save-ng')
-end
-
--- -- Status updates and phase control
-
-function updateTracker(step, phase, help)
-    if type(step) == 'table' then step, phase, help = table.unpack(step) end
-    if phase then UI.setValue('phase', phase) end
-    UI.setValue('step', step)
-    if help then UI.setValue('help-text', HelpText[help]) end
-end
-
-function updateStatus(nation, value, color, image)
-    local id, cell_id = 'status' .. state.turn_order[nation], 'status-cell' .. state.turn_order[nation]
-    if image then UI.setAttributes(cell_id, {dontUseTableCellBackground = true, image = image})
-    else UI.setAttribute(cell_id, 'dontUseTableCellBackground', false) end
-    if color then UI.setAttribute(id, 'color', '#' .. color) end
-    if value == true then UI.setValue(id, '✓')
-    elseif value then UI.setValue(id, value)
-    else UI.setValue(id, '') end
-end
-
-function resetStatus() for _, nation in ipairs(state.turn_order) do updateStatus(nation, nil, Colors.white) end end
-
-function updateTurn(nation)
-    if nation then UI.setAttributes('turn', {position = 195 + state.turn_order[nation] * 39 .. ' 19', active = true})
-    else UI.hide('turn') end
-end
-
-function updateResources(params)
-    local id = state.turn_order[params.nation]
-    for resource, value in pairs(params.data) do
-        UI.setValue('resources-' .. resource .. id, value == 0 and '' or value)
-    end
-end
-
-function showHUD(player, hud, id)
-    if hud == 'resources' then hideHUD(player, 'production')
-    else hideHUD(player, 'resources') end
-    showElement(player.color, hud)
-    hideElement(player.color, id)
-end
-
-function hideHUD(player, hud)
-    hideElement(player.color, hud)
-    if hud ~= 'resources' and hud ~= 'help' then hud = 'hud' end
-    showElement(player.color, hud .. '-button')
-end
-
-function showElement(color, id)
-    if id == '-1' then id = UI.getAttribute('hud-button', 'image') end
-    UI.setAttribute(id, 'visibility', color .. '|' .. UI.getAttribute(id, 'visibility'))
-end
-
-function hideElement(color, id)
-    UI.setAttribute(id, 'visibility', UI.getAttribute(id, 'visibility'):gsub('(|?)' .. color .. '(|?)', function (l, r)
-        if l == '|' and r == '|' then return '|' else return '' end
-    end))
-end
+-- -- Global UI
+#include xml/global
+#include hud
 
 -- Scenario selection, game setup and round setup
 #include phases/setup
@@ -195,6 +21,7 @@ end
 function resourceIncome()
     updateTracker('Tallying resource income', '1 - Direct National Economy')
     resetStatus()
+    openHUD('resources')
     local delay = 0
     for i, nation in ipairs(state.turn_order) do
         local totals = {oil = 0, iron = 0, osr = 0}
@@ -220,7 +47,7 @@ function resourceIncome()
                     msg = msg:sub(1, -3)
                 else msg = msg .. 'no resources' end
             else msg = msg .. ' cannot gain resources due to [ff4040]economic collapse[-]' end
-            broadcastToAll(msg)
+            alert(msg)
             updateStatus(nation, true)
         end, (i - 1) * 0.5)
     end
@@ -249,14 +76,9 @@ end
 #include utils/stacks
 #include utils/dice
 #include utils/cards
-#include utils/commands
+#include utils/blinker
 
-function validateCommand(params)
-    local command = state.objects.commands[params[1]][params[2]]
-    return command ~= nil and getRegion(command) ~= nil
-end
-
-function validateRegion(params) return Map.data.regions[params[1]] ~= nil end
+-- -- Map/region helpers
 
 function isCapital(region)
     for _, id in ipairs(Scenarios[state.scenario].capitals) do if id == region then return true end end
@@ -266,6 +88,15 @@ end
 function hasPort(region)
     for _, link in ipairs(Map.data.regions[region].adjacent) do if link:match('$$') then return true end end
     return false
+end
+
+function getOwnership(region)
+    if state.objects.flags[region] ~= nil then
+        local name = state.objects.flags[region].getName()
+        if name:match('^Defense') then return name:match('%b[](%a+)%b[]'):lower()
+        else return name:match('^%a+'):lower() end
+    end
+    return Prefixes[region:sub(1, 1)]
 end
 
 function getRegion(obj)
@@ -329,25 +160,13 @@ function getNewCommand(nation, force)
     end end
 end
 
-function getOwnership(region)
-    if state.objects.flags[region] ~= nil then
-        local name = state.objects.flags[region].getName()
-        if name:match('^Defense') then return name:match('%b[](%a+)%b[]'):lower()
-        else return name:match('^%a+'):lower() end
-    end
-    return Prefixes[region:sub(1, 1)]
-end
-
 function returnPiece(obj)
     local name, callback = obj.getName(), || obj.destruct()
-    local bag = GUIDs.Bags.Units[name] or GUIDs.Bags[name]
     obj.highlightOff()
-    if not bag then
-        if name:find('flag') then bag = GUIDs.Nations[name:match('^%a+'):lower()].flag_bag
-        else
-            local tray = getObjectFromGUID(GUIDs.Nations[commandNation(obj)].trays[3 - math.min(math.floor(name:match('^%b[]%a+%b[]%s(%d+)') / 10), 2)])
-            callback = || obj.setPositionSmooth(tray.getPosition() + vector(math.random() * 3 - 1.5, 1 + math.random() * 2, math.random() * 3 - 1.5))
-    end end
+    if isCommand(name) then
+        local tray = getObjectFromGUID(GUIDs.Nations[commandNation(obj)].trays[3 - math.min(math.floor(name:match('^%b[]%a+%b[]%s(%d+)') / 10), 2)])
+        callback = || obj.setPositionSmooth(tray.getPosition() + vector(math.random() * 3 - 1.5, 1 + math.random() * 2, math.random() * 3 - 1.5))
+    end
     obj.setPositionSmooth(obj.getPosition() + vector(0, 3, 0))
     Wait.condition(callback, || not obj.isSmoothMoving())
 end
@@ -356,24 +175,9 @@ function returnPieceGUID(data) returnPiece(getObjectFromGUID(data[1])) end
 
 function destroyObjects(objs) for _, obj in ipairs(objs) do obj.destruct() end end
 
-function toggleDebug(_, value, id)
-    Debug = value == 'True'
-    UI.setAttribute(id, 'text', 'Debug log ' .. (Debug and 'ON' or 'OFF'))
-end
-
 function checkScenario(nation)
     return state.scenario == 'global' or Scenarios[state.scenario].nations[nation]
 end
-
-function setBlinker(obj, hcolor, on_time, delay)
-    hcolor, on_time, delay = hcolor and colorTable(hcolor) or {1, 1, 1}, on_time or 0.5, delay or 1
-    local id
-    obj.highlightOn(hcolor, on_time)
-    id = Wait.time(|| obj ~= nil and obj.highlightOn(hcolor, on_time) or Wait.stop(id), delay, -1)
-    obj.setVar('blinker', id)
-end
-
-function stopBlinker(obj) if obj.getVar('blinker') then Wait.stop(obj.getVar('blinker')) end end
 
 function isAxis(nation) return Alliance[nation] == 'axis' end
 
@@ -381,9 +185,7 @@ function regionPrefix(nation) return nation:gsub('uk', 'b'):gsub('ussr', 'r'):su
 
 function properName(s)
     if type(s) == 'table' then s = s[1] end
-    if s:match('[bcgjnrtu]%d+') then
-        local name = Map.data.regions[s].name
-        return colorize(s:upper(), Prefixes[s:sub(1, 1)]) .. ' - ' .. name
+    if s:match('[bcgjnrtu]%d+') then return colorize(s:upper(), Prefixes[s:sub(1, 1)]) .. ' - ' .. Map.data.regions[s].name
     elseif s:match('[aimp]%d+') then return colorize(s:sub(1, 1):upper() .. '-' .. s:sub(2, -1), 'sea')
     elseif #s < 5 then return s:upper()
     else return proper(s) end
@@ -412,32 +214,7 @@ function mapBFS(q, path, visit, v)
     return mapBFS(q, path, visit, v)
 end
 
--- function setHomelandSnaps()
---     local map = getObjectFromGUID(GUIDs.Map)
---     local snaps, center = {}, map.getTable('MapData').center
---     for i = 1, 7 do
---         local theta, r = -129.25 - 14.5 * i, 1.47
---         if i > 1 and i < 7 then theta = theta - 0.25 end
---         if i > 2 and i < 6 then theta = theta - 1 end
---         table.insert(snaps, {
---             position = {center.x + r * math.sin(theta * math.pi / 180), center.y, center.z + r * math.cos(theta * math.pi / 180)},
---             rotation = {0, theta, 0},
---             rotation_snap = true
---         })
---     end
---     for i = 1, 6 do for j = 1, 7 do
---         local r = 1.325 + 0.225 * (math.floor(j / 3) - math.floor(j / 5))
---         local theta, tick, delta = 45 * i - 157 - math.max(i - 4, 0) ^ 2 * 2.5, 5.25 - math.floor(i / 5)
---         if j < 3 then delta = 2.4
---         elseif j < 5 then delta = 1
---         elseif j == 5 then delta = 0
---         else delta = 3 end
---         theta = theta + delta * tick * (j % 5 % 2 * 2 - 1)
---         table.insert(snaps, {
---             position = {center.x + r * math.sin(theta * math.pi / 180), center.y, center.z + r * math.cos(theta * math.pi / 180)},
---             rotation = {0, theta, 0},
---             rotation_snap = true
---         })
---     end end
---     map.setSnapPoints(snaps)
--- end
+function test(params)
+    local guid, from, to = table.unpack(params)
+    transferControl(getObjectFromGUID(guid), from, to)
+end

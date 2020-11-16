@@ -1,0 +1,9 @@
+function setBlinker(obj, hcolor, on_time, delay)
+    hcolor, on_time, delay = hcolor and colorTable(hcolor) or {1, 1, 1}, on_time or 0.5, delay or 1
+    local id
+    obj.highlightOn(hcolor, on_time)
+    id = Wait.time(|| obj ~= nil and obj.highlightOn(hcolor, on_time) or Wait.stop(id), delay, -1)
+    obj.setVar('blinker', id)
+end
+
+function stopBlinker(obj) if obj.getVar('blinker') then Wait.stop(obj.getVar('blinker')) end end

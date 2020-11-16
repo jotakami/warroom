@@ -5,6 +5,7 @@ function landAirCommands()
     updateTracker('Land air commands', '5 - Refit & Deploy', 'landing')
     updateTurn()
     resetStatus()
+    closeHUD('combat')
     local ready = {}
     for _, nation in ipairs(state.turn_order) do ready[nation] = true end
     onObjectRandomize, onObjectHover = nil, nil

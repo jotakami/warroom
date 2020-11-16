@@ -1,3 +1,7 @@
 function debug(...)
     if Global.getVar('Debug') then print('[808080](DEBUG) ', ...) end
 end
+
+function alert(...)
+    if AlertID then printToAll(table.concat(table.pack('(', AlertID, ') ', ...))) else printToAll(...) end
+end

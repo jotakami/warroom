@@ -1,4 +1,5 @@
 #include ../constants/colors
+#include commands
 
 StackOrder = {
     'bomber', 'cfighter', 'fighter',
@@ -26,7 +27,7 @@ function stackUnits(types, units, position, rotation, fast, callback)
         table.insert(units, obj)
         if done then callback(units) elseif not fast then next() end
     end})
-    if fast and not done then Wait.frames(next, unit_type == types[1] and 1 or 20) end
+    if fast and not done then Wait.frames(next, unit_type == types[#types] and 1 or 20) end
 end
 
 function getUnit(unit_type, params)
@@ -71,16 +72,9 @@ function checkStack(top, units)
         local rot = unit.getRotation()
         if rot.x > 180 then rot.x = 360 - rot.x end
         if rot.z > 180 then rot.z = 360 - rot.z end
-        if (unit.getPosition() - pos):setAt('y', 0):magnitude() > 0.02 then
-            debug('Bad position, target=', pos, ', actual=', unit.getPosition(), ', delta=', (unit.getPosition() - pos):magnitude())
-            return 'position'
-        elseif (rot - vector(0, rot_y, 0)):magnitude() > 1 then
-            debug('Bad rotation, target=', vector(0, rot_y, 0), ', actual=', rot, ', delta=', (rot - vector(0, rot_y, 0)):magnitude())
-            return 'rotation'
-        elseif i < #units and StackOrder[unit.getName()] > order then
-            debug('Bad order')
-            return 'order'
-        end
+        if (unit.getPosition() - pos):setAt('y', 0):magnitude() > 0.02 then return 'position'
+        elseif (rot - vector(0, rot_y, 0)):magnitude() > 1 then return 'rotation'
+        elseif i < #units and StackOrder[unit.getName()] > order then return 'order' end
         pos.y = unit.getPosition().y + 0.21
         order = StackOrder[unit.getName()]
     end
@@ -178,9 +172,7 @@ function breakStack(stack)
         stack.tooltip = false
     else
         local guid, nation = stack.getGUID(), name:match('%b[](%a+)%b[]')
-        if name:match('Defense') then
-            name, nation, guid = nation .. ' flag', 'neutral-' .. nation, nil
-            stack.tooltip = false
+        if name:match('Defense') then name, nation, stack.tooltip, guid = nation .. ' flag', 'neutral-' .. nation, false, nil
         else name = name:match('^([^\n]+)\n') end
         stack.setName(name)
         for _, unit in ipairs(units) do Wait.condition(function ()
@@ -217,27 +209,29 @@ function addToStack(unit, stack)
 end
 
 function removeFromStack(stack, unit_type, unit_callback, callback)
-    local units = breakStack(stack)
-    local spawning, index = #units
-    for i, unit in ipairs(units) do Wait.condition(function () spawning = spawning - 1 end, || not units[i].spawning) end
     Wait.condition(function ()
-        if #units == 1 and units[1].getName() == unit_type then
-            Global.call('returnPieceGUID', {stack.guid})
-            unit_callback(units[1])
-            callback()
-        else
-            stack.setPositionSmooth(stack.getPosition() - units[#units].getPosition() + units[#units - 1].getPosition())
-            for i = #units, 1, -1 do if units[i].getName() == unit_type or i == 1 then
-                unit_callback(units[i])
-                index = i
-                break
-            else units[i].setPositionSmooth(units[i - 1].getPosition()) end end
-            table.remove(units, index)
-            Wait.condition(function ()
-                mergeStack(stack, units)
+        local units = breakStack(stack)
+        local spawning, index = #units
+        for i, unit in ipairs(units) do Wait.condition(function () spawning = spawning - 1 end, || not units[i].spawning) end
+        Wait.condition(function ()
+            if #units == 1 and units[1].getName() == unit_type then
+                Global.call('returnPieceGUID', {stack.guid})
+                unit_callback(units[1])
                 callback()
-            end, || not stack.isSmoothMoving())
-    end end, || spawning == 0)
+            else
+                stack.setPositionSmooth(stack.getPosition() - units[#units].getPosition() + units[#units - 1].getPosition())
+                for i = #units, 1, -1 do if units[i].getName() == unit_type or i == 1 then
+                    unit_callback(units[i])
+                    index = i
+                    break
+                else units[i].setPositionSmooth(units[i - 1].getPosition()) end end
+                table.remove(units, index)
+                Wait.condition(function ()
+                    mergeStack(stack, units)
+                    callback()
+                end, || not stack.isSmoothMoving())
+        end end, || spawning == 0)
+    end, || #stack.getAttachments() > 0)
 end
 
 function combineStacks(command, player)

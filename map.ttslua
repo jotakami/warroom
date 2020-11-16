@@ -8,45 +8,47 @@ function onLoad()
 end
 
 function prepareRegionData()
-    local lines = {}
+    local Z = 0.585
+    Lines, Quadrants = {}, {{{}, {}}, {{}, {}}}
     for region, data in pairs(MapData.regions) do
         data.is_sea = region:match('^[aimp]') ~= nil
         if data.points then
-            data.box = {
+            data.centroid, data.box = {0, 0}, {
                 xmax = data.points[1][1], xmin = data.points[1][1],
                 zmax = data.points[1][2], zmin = data.points[1][2]
             }
-            data.centroid = {0, 0}
-            local prev_point, sum, cross = data.points[#data.points], 0
+            local prev_point, points, sum, cross = data.points[#data.points], {}, 0
             for _, point in ipairs(data.points) do
-                --table.insert(lines, {points = {{point[1], 0.6, point[2]}, {prev_point[1], 0.6, prev_point[2]}}, thickness = 0.02})
-                if data.box.xmax < point[1] then data.box.xmax = point[1]
-                elseif data.box.xmin > point[1] then data.box.xmin = point[1] end
-                if data.box.zmax < point[2] then data.box.xmax = point[2]
-                elseif data.box.zmin > point[2] then data.box.zmin = point[2] end
+                table.insert(points, {point[1], Z, point[2]})
+                for i, dim in ipairs{'x', 'z'} do if data.box[dim .. 'max'] < point[i] then data.box[dim .. 'max'] = point[i]
+                elseif data.box[dim .. 'min'] > point[i] then data.box[dim .. 'min'] = point[i] end end
                 cross = prev_point[1] * point[2] - point[1] * prev_point[2]
-                data.centroid[1] = data.centroid[1] + (prev_point[1] + point[1]) * cross / 3
-                data.centroid[2] = data.centroid[2] + (prev_point[2] + point[2]) * cross / 3
-                sum = sum + cross
-                prev_point = point
+                for i = 1, 2 do data.centroid[i] = data.centroid[i] + (prev_point[i] + point[i]) * cross / 3 end
+                sum, prev_point = sum + cross, point
             end
-            data.centroid[1] = data.centroid[1] / sum
-            data.centroid[2] = data.centroid[2] / sum
+            table.insert(points, {data.points[1][1], Z, data.points[1][2]})
+            table.insert(Lines, {points = points, thickness = 0.02})
+            data.centroid[1], data.centroid[2] = data.centroid[1] / sum, data.centroid[2] / sum
         elseif data.circle then
-            -- table.insert(lines, {thickness = 0.02, color = {0, 0.8, 0.3}, points = {
-            --     {data.circle.c[1] + data.circle.r, 0.6, data.circle.c[2]}, {data.circle.c[1], 0.6, data.circle.c[2] + data.circle.r},
-            --     {data.circle.c[1] - data.circle.r, 0.6, data.circle.c[2]}, {data.circle.c[1], 0.6, data.circle.c[2] - data.circle.r},
-            --     {data.circle.c[1] + data.circle.r, 0.6, data.circle.c[2]}
-            -- }})
+            local points = {{data.circle.c[1] + data.circle.r, Z, data.circle.c[2]}}
+            for i = 1, 12 do table.insert(points, {data.circle.c[1] + data.circle.r * math.cos(math.pi * i / 6), Z, data.circle.c[2] + data.circle.r * math.sin(math.pi * i / 6)}) end
+            table.insert(Lines, {points = points, thickness = 0.02, color = {0, 1, 1}})
             data.box = {
-                xmax = data.circle.c[1] + data.circle.r,
-                xmin = data.circle.c[1] - data.circle.r,
-                zmax = data.circle.c[2] + data.circle.r,
-                zmin = data.circle.c[2] - data.circle.r
+                xmax = data.circle.c[1] + data.circle.r, xmin = data.circle.c[1] - data.circle.r,
+                zmax = data.circle.c[2] + data.circle.r, zmin = data.circle.c[2] - data.circle.r
         } end
-    end
-    --self.setVectorLines(lines)
+        if data.box.xmin < 0 then
+            if data.box.zmin < 0 then table.insert(Quadrants[1][1], region) end
+            if data.box.zmax > 0 then table.insert(Quadrants[1][2], region) end
+        end
+        if data.box.xmax > 0 then
+            if data.box.zmin < 0 then table.insert(Quadrants[2][1], region) end
+            if data.box.zmax > 0 then table.insert(Quadrants[2][2], region) end
+    end end
 end
+
+function showVectorLines() self.setVectorLines(Lines) end
+function hideVectorLines() self.setVectorLines({}) end
 
 -- Collision Checks
 
@@ -61,7 +63,7 @@ function onCollisionEnter(collision_info)
     end
     local region = findRegion({pos.x, pos.z})
     if region then
-        debug('coords: ', string.format('X=%.4f Y=%.4f', pos.x, pos.z), ', region: ', region)
+        debug('coords: ', string.format('X=%.4f Y=%.4f', pos.x, pos.z), ', angle: ', string.format('%.1f', rotationToCenter(pos)), ', region: ', region)
         setRegion(obj, region, pos)
     else debug('coords: ', string.format('X=%.4f Y=%.4f', pos.x, pos.z)) end
 end
@@ -105,7 +107,8 @@ end
 
 function findRegion(point)
     local regions = {}
-    for region, data in pairs(MapData.regions) do
+    for _, region in ipairs(Quadrants[point[1] < 0 and 1 or 2][point[2] < 0 and 1 or 2]) do
+        local data = MapData.regions[region]
         if data.box.xmax > point[1] and data.box.xmin < point[1] and data.box.zmax > point[2] and data.box.zmin < point[2] then
             if data.islands then table.insert(regions, region) else table.insert(regions, 1, region) end
     end end

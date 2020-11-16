@@ -1,0 +1,89 @@
+Vis = {
+    all = 'White|Green|Orange|Blue|Brown|Red|Yellow|Grey|Black|Pink',
+    allies = 'Blue|Brown|Red|Yellow|Black',
+    axis = 'White|Green|Orange|Black',
+    none = 'Pink'
+}
+
+function reloadUI()
+    UI.setXmlTable(UI.getXmlTable())
+end
+
+function updateTracker(step, phase, help)
+    if type(step) == 'table' then step, phase, help = table.unpack(step) end
+    if phase then
+        UI.setValue('phase', phase)
+        if phase:match('%d') then broadcastToAll('Phase ' .. phase) end
+    end
+    UI.setValue('step', step)
+    if help then UI.setValue('help-text', HelpText[help]) end
+end
+
+function updateStatus(nation, value, color, image)
+    local id, cell_id = 'status' .. state.turn_order[nation], 'status-cell' .. state.turn_order[nation]
+    if image then UI.setAttributes(cell_id, {dontUseTableCellBackground = true, image = image})
+    else UI.setAttribute(cell_id, 'dontUseTableCellBackground', false) end
+    if color then UI.setAttribute(id, 'color', '#' .. color) end
+    UI.setValue(id, value and (value == true and '✓' or value) or '')
+end
+
+function resetStatus() for _, nation in ipairs(state.turn_order) do updateStatus(nation, nil, Colors.white) end end
+
+function updateTurn(nation)
+    if nation then UI.setAttributes('turn', {offsetXY = state.turn_order[nation] * 39 .. ' 0', active = true})
+    else UI.hide('turn') end
+end
+
+function toggleDebug()
+    Debug = not Debug
+    UI.setAttributes('debug', {image = Debug and 'log-push' or 'log', tooltip = (Debug and 'Disable' or 'Enable') ..  ' debug logging'})
+end
+
+function updateResources(params)
+    local id = state.turn_order[params.nation]
+    for _, resource in pairs{'oil', 'iron', 'osr'} do UI.setValue(resource .. id, params.data[resource] == 0 and '' or params.data[resource] or '') end
+end
+
+function openHUD(hud)
+    local tooltip = {orders = 'movement orders', combat = 'hotspot details', production = 'production orders'}
+    UI.setAttributes(hud, {visibility = Vis.all, active = true})
+    if hud ~= 'resources' then
+        UI.setAttribute('resources', 'visibility', Vis.none)
+        UI.setAttribute('resources-button', 'visibility', Vis.all)
+        UI.setAttributes('hud-button', {
+            image = hud, highlightedSprite = hud .. '-hover', pressedSprite = hud .. '-push',
+            visibility = Vis.none, tooltip = 'Show ' .. tooltip[hud], active = true
+        })
+    else UI.setAttribute('resources-button', 'visibility', Vis.none) end
+end
+
+function closeHUD(hud)
+    UI.hide(hud)
+    UI.hide('hud-button')
+end
+
+function showHUD(player, hud, id)
+    if hud == 'resources' then
+        local hud_type = UI.getAttribute('hud-button', 'image')
+        if hud_type then hideHUD(player, hud_type) end
+    elseif hud ~= 'help' then hideHUD(player, 'resources') end
+    showElement(player.color, hud)
+    hideElement(player.color, id)
+end
+
+function hideHUD(player, hud)
+    hideElement(player.color, hud)
+    if hud ~= 'resources' and hud ~= 'help' then hud = 'hud' end
+    showElement(player.color, hud .. '-button')
+end
+
+function showElement(color, id)
+    if id == '-1' then id = UI.getAttribute('hud-button', 'image') end
+    UI.setAttribute(id, 'visibility', color .. '|' .. UI.getAttribute(id, 'visibility'))
+end
+
+function hideElement(color, id)
+    UI.setAttribute(id, 'visibility', UI.getAttribute(id, 'visibility'):gsub('(|?)' .. color .. '(|?)', function (l, r)
+        if l == '|' and r == '|' then return '|' else return '' end
+    end))
+end

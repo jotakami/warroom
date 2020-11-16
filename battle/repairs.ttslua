@@ -22,9 +22,9 @@ end
 function _repairUnit(obj, units, resource, stack)
     local nation, j = obj.getVar('nation'):match('%a+$')
     local Resources = getObjectFromGUID(Global.getTable('GUIDs').Nations[nation].resources)
-    local resources = Resources.call('totals')
+    local totals = Resources.call('totals')
     for i, unit in ipairs(units[nation]) do if unit.getGUID() == obj.getGUID() then j = i
-    elseif resources[resource] == 1 then unit.UI.hide(resource) end end
+    elseif totals[resource] == 1 then unit.UI.hide(resource) end end
     clearRepair(obj, j, units[nation])
     if stack ~= nil then stackOn(obj, stack)
     else obj.setPositionSmooth(obj.getPosition():setAt('x',
@@ -41,75 +41,78 @@ end
 
 function clearRepair(obj, index, t)
     table.remove(t, index)
+    obj.UI.setCustomAssets()
     obj.UI.setXml('')
     stopBlinker(obj)
 end
 
 function getDamagedUnits()
     local mode, count, units = combatMode(), 0, {}
-    for side, unit_zones in pairs(Zones.units[mode]) do
-        for unit, stances in pairs(unit_zones) do for stance, zone in pairs(stances) do
-            local stacks, damaged, sustained, align = {}
-            for _, obj in ipairs(zone.getObjects()) do
-                align = getColumn(obj)
-                if align == 'damaged' then damaged = obj
-                elseif align == 'sustained' then sustained = obj
-                elseif not stacks[align] or isAbove(obj, stacks[align]) then stacks[align] = obj end
-            end
-            if sustained then
-                local nation = sustained.getVar('nation')
-                if stacks[nation] then stackOn(sustained, stacks[nation])
-                else sustained.setPositionSmooth(sustained.getPosition():setAt('x', self.positionToWorld({ZoneParams[mode].sides[side].nations[nation], 0, 0}).x)) end
-                stacks[nation] = sustained
-            end
-            if damaged then
-                local nation = damaged.getVar('nation'):match('%a+$')
-                if checkPortAdvantage(side) and unit ~= 'fighter' and unit ~= 'bomber' then
-                    if stacks[nation] then stackOn(damaged, stacks[nation])
-                    else damaged.setPositionSmooth(damaged.getPosition():setAt('x', self.positionToWorld({ZoneParams[mode].sides[side].nations[nation], 0, 0}).x)) end
-                else
-                    count = count + 1
-                    if not units[nation] then units[nation] = {} end
-                    table.insert(units[nation], damaged)
-                    createRepairButtons(damaged, side, stacks[nation])
+    for side, unit_zones in pairs(Zones.units[mode]) do for unit, stances in pairs(unit_zones) do for stance, zone in pairs(stances) do
+        local stacks, damaged, sustained, align = {}
+        for _, obj in ipairs(zone.getObjects()) do
+            align = getColumn(obj)
+            if align == 'damaged' then damaged = obj
+            elseif align == 'sustained' then sustained = obj
+            elseif not stacks[align] or isAbove(obj, stacks[align]) then stacks[align] = obj end
+        end
+        if sustained then
+            local nation = sustained.getVar('nation')
+            if stacks[nation] then stackOn(sustained, stacks[nation])
+            else sustained.setPositionSmooth(sustained.getPosition():setAt('x', self.positionToWorld({ZoneParams[mode].sides[side].nations[nation], 0, 0}).x)) end
+            stacks[nation] = sustained
+        end
+        if damaged then
+            local nation = damaged.getVar('nation'):match('%a+$')
+            if checkPortAdvantage(side) and unit ~= 'fighter' and unit ~= 'bomber' then
+                if stacks[nation] then stackOn(damaged, stacks[nation])
+                else damaged.setPositionSmooth(damaged.getPosition():setAt('x', self.positionToWorld({ZoneParams[mode].sides[side].nations[nation], 0, 0}).x)) end
+            else
+                count = count + 1
+                if not units[nation] then units[nation] = {} end
+                table.insert(units[nation], damaged)
+                createRepairButtons(damaged, side, stacks[nation])
     end end end end end
     return count, units
 end
 
 function createRepairButtons(obj, side, stackObj)
-    local nation, sign = obj.getVar('nation'):match('%a+$'), (side == 'axis' and -1 or 1) * (obj.is_face_down and -1 or 1)
-    local scale_factor = obj.getName() == 'cfighter' and 2 or 1
-    local x, z = sign * 80 * scale_factor, obj.is_face_down and ' 2' or ' -29'
-    local rotation, scale = '0 ' .. (obj.is_face_down and '180' or '0') .. ' 180', scale_factor .. ' ' .. scale_factor
+    local nation, resources = obj.getVar('nation'):match('%a+$'), {}
+    local align, onClick = side ~= 'axis' and 'Left' or 'Right', self.getGUID() .. '/FUNC('.. obj.getGUID() .. ')'
     debug('Creating repair buttons for ', nation, ' ', obj.getName())
-    local resources = getObjectFromGUID(Global.getTable('GUIDs').Nations[nation].resources).call('totals')
-    local buttons = {
-        {tag = 'Image', attributes = {
-            position = '0 0' .. z, rotation = rotation, scale = scale,
-            height = 50, width = 50,
-            image = nation
-        }},
+    obj.UI.setCustomAssets(RepairAssets)
+    local panel = {tag = 'Panel', attributes = {
+        position = '0 0 ' .. (obj.is_face_down and 2 or -29),
+        rotation = '0 ' .. obj.getRotation().z .. ' ' .. obj.getRotation().y,
+        width = '188', height = '112'
+    }, children = {
+        {tag = 'Image', attributes = {image = nation, height = 40, width = 40}},
         {tag = 'Button', attributes = {
-            position = -x .. ' 0' .. z, rotation = rotation, scale = scale,
-            height = 40, width = 40,
-            text = 'X', fontSize = 32, textColor = 'white',
-            colors = 'black|black|black|clear',
-            onClick = self.getGUID() .. '/destroyUnit('.. obj.getGUID() .. ')'
-        }}
-    }
-    local y = {oil = 50 * scale_factor, iron = 0, osr = -50 * scale_factor}
-    for resource, value in pairs(resources) do
-        if value > 0 then
-            local onClick = self.getGUID() .. '/repairUnit('.. obj.getGUID() .. '-' .. resource
-            if stackObj then onClick = onClick .. '-' .. stackObj.getGUID() end
-            table.insert(buttons, {tag = 'Button', attributes = {
-                id = resource,
-                position = x .. ' ' .. y[resource] .. z, rotation = rotation,
-                scale = scale, height = 50, width = 50,
-                icon = resource, colors = 'clear|clear|clear|clear',
-                onClick = onClick  .. ')'
-            }})
-    end end
-    obj.UI.setXmlTable(buttons)
+            rectAlignment = 'Middle' .. (align == 'Left' and 'Right' or 'Left'), height = 50, width = 50,
+            text = 'X', fontSize = 36, textColor = 'white', colors = 'black|#606060|#c00000|clear',
+            onClick = onClick:gsub('FUNC', 'destroyUnit')
+    }}}}
+    if obj.getName() == 'cfighter' then panel.attributes.scale = '2 2' end
+    local totals = getObjectFromGUID(Global.getTable('GUIDs').Nations[nation].resources).call('totals')
+    for _, resource in ipairs{'oil', 'iron', 'osr'} do if (totals[resource] or 0) > 0 then table.insert(resources, resource) end end
+    onClick = onClick:gsub('FUNC', 'repairUnit'):gsub('%)', '-RES)')
+    if stackObj then onClick = onClick:gsub('%)', '-' .. stackObj.getGUID() .. ')') end
+    if #resources > 1 then
+        table.insert(panel.children, repairButtonXML(resources[1], onClick, 'Lower' .. align))
+        table.insert(panel.children, repairButtonXML(resources[2], onClick, 'Upper' .. align))
+        if #resources > 2 then
+            table.insert(panel.children, repairButtonXML(resources[3], onClick, 'Middle' .. align, (align == 'Left' and -56 or 56) .. ' 0'))
+    end else table.insert(panel.children, repairButtonXML(resources[1], onClick, 'Middle' .. align)) end
+    obj.UI.setXmlTable({panel})
     setBlinker(obj)
+end
+
+function repairButtonXML(resource, onClick, align, offset)
+    local xml = {tag = 'Button', attributes = {
+        id = resource, height = 56, width = 56, rectAlignment = align,
+        image = resource, highlightedSprite = resource .. '-hover', transition = 'SpriteSwap',
+        onClick = onClick:gsub('RES', resource)
+    }}
+    if offset then xml.attributes.offsetXY = offset end
+    return xml
 end
