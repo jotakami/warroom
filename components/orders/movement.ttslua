@@ -1,0 +1,79 @@
+function OrdersChart:resolveMovement(n)
+    local i = turnOrder[self.nation]
+    self.UI.setAttribute('moves', 'visibility', '')
+    if n < 9 then
+        self.UI.show('resolve')
+        UI.setAttribute('movement-nation', 'image', self.nation)
+        UI.setAttributes('orders-highlight', {offsetXY = i * 39 .. ' -39', color = Color[self.nation]:setAt('a', 0.2):toXml(true)})
+        UI.setAttribute('confirm-panel', 'visibility', Vis[Nations[self.nation].side])
+        UI.setAttribute('cancel-panel', 'visibility', Vis[Nations[self.nation].side])
+    end
+    for j, move in ipairs(self.moves) do if move.command and move.target then
+        UI.setValue('command' .. i .. j, move.command.id)
+        UI.setValue('target' .. i .. j, move.target:displayID())
+        if move.canceled then
+            UI.show('slash' .. i .. j)
+            self.UI.show('slash' .. j)
+        else UI.hide('slash' .. i .. j) end
+        UI.show('order' .. i .. j)
+        if j > n and self.moves[j].command and self.moves[j].target then
+            self.moves[j].command.obj.memo = self.moves[j].command:region()
+    end end end
+    for j = n + 1, #self.moves do
+        local move = self.moves[j]
+        if move.command and move.target then
+            setGlow(move.command)
+            self:resolveMove(j)
+            coroutine.yield()
+            stopGlow(move.command)
+            if move.command.memo ~= 'landing' then move.command.obj.memo = nil end
+        else self.UI.show('slash' .. j) end
+        state.step = state.step + 1
+    end
+    self.UI.hide('resolve')
+end
+
+function OrdersChart:resolveMove(n)
+    local command, target = self.moves[n].command, self.moves[n].target
+    debug('Resolving ', self.nation, ' move #', n, ': ', command.id, ' --> ', target.id)
+    local msg = command:displayName() .. ' moves to ' .. target:colorizedName()
+    UI.setValue('movement-order', msg:gsub('%b[]', ''))
+    local flag = Movement:evaluateMove(self.nation, command, target)
+    if flag == 'invalid' then msg = msg .. ' (' .. string.colorize('Invalid', '_red') .. ')'
+    elseif flag == 'pinned' then msg = msg .. ' (' .. string.colorize('Pinned', '_yellow') .. ')'
+    elseif flag == 'pact' then msg = msg .. ' (' .. string.colorize('Breaks pact', 'neutral') .. ')' end
+    alert(msg)
+    local confirm, cancel = {text = 'Confirm', icon = 'confirm', active = true}, {text = 'Cancel', icon = 'cancel'}
+    if flag == 'pact' then confirm.text, confirm.icon, confirmOrder = 'Break pact', 'pact', function ()
+        Movement.breakPact(self.nation)
+        self:resolveMove(n)
+    end elseif flag == 'neutral' then confirm.text, confirm.icon, confirmOrder = 'Invasion', 'neutral', function ()
+        Movement.invadeNeutral(self.nation, target):next(Movement.resume)
+    end else
+        confirmOrder = function ()
+            if command.id > 9 and command.id < 20 then command.obj.memo = 'landing' end
+            Movement.resume()
+        end
+        if flag == 'invalid' then confirm.active, cancel.text, cancel.icon = false, 'Invalid', 'invalid'
+        elseif flag == 'pinned' then confirm.active, cancel.text, cancel.icon = false, 'Pinned', 'pin'
+        elseif flag == 'partial' then confirm.icon = 'pin'
+    end end
+    local turn = turnOrder[self.nation]
+    cancelOrder = function ()
+        self:setState(true, 'moves', n, 'canceled')
+        self.UI.show('slash' .. n)
+        UI.show('slash' .. turn .. n)
+        Movement.resume()
+    end
+    self.UI.setAttribute('resolve', 'offsetXY', (n - 1) % 3 * -260 .. ' ' .. math.floor((n - 1) / 3) * 356)
+    self.UI.setAttributes('confirm', confirm)
+    self.UI.setAttributes('cancel', cancel)
+    local i, y, x1, x2 = turn, -4 - n * 39
+    if i == 1 then x1, x2 = (i + 1) * 39, (i + 3) * 39
+    elseif i > 5 then x1, x2 = (i - 4) * 39 + 4, (i - 2) * 39 + 4
+    else x1, x2 = (i - 2) * 39 + 4, (i + 1) * 39 end
+    UI.setAttribute('confirm-panel', 'offsetXY', x1 .. ' ' .. y)
+    UI.setAttributes('confirm', confirm)
+    UI.setAttribute('cancel-panel', 'offsetXY', x2 .. ' ' .. y)
+    UI.setAttributes('cancel', cancel)
+end

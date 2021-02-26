@@ -1,0 +1,54 @@
+function Morale:loadUI(scenario)
+    local sign = (scenario == 'europe' or scenario == 'pacific') and -1 or 1
+    local assets, children = {}, {}
+    for _, asset in ipairs(UI.getCustomAssets()) do if asset.name:match('stress') then table.insert(assets, asset) end end
+    local pos = |x, y| table.concat({x, sign * y, -10.1 * sign - 10}, ' ')
+    for nation, _ in pairs(Nations) do if not Scenarios[state.scenario].nations[nation] then
+        table.insert(children, {tag = 'Panel'})
+    else table.insert(children, {tag = 'Panel', attributes = {padding = '9 9 10 10'}, children = {
+        {tag = 'VerticalLayout', attributes = {id = nation .. '-casualties'}, children = {
+            {tag = 'Image', attributes = {id = nation .. '-level'}},
+            {tag = 'Text', value = 0, attributes = {id = nation .. '-count',
+                verticalOverflow = 'Overflow', outline = '#600000', color = '#d06040', fontSize = 36
+        }}}},
+        {tag = 'Text', value = '/', attributes = {id = nation .. '-stress',
+            ignoreLayout = true, alignment = 'MiddleRight', offsetXY = '10 -3', horizontalOverflow = 'Overflow',
+            color = '#ffe0d0', fontSize = 60, fontStyle = 'Bold', outline = 'black'
+    }}}}) end end
+    self.UI.setCustomAssets(assets)
+    self.UI.setXmlTable({
+        {tag = 'Defaults', children = {
+            {tag = 'Image', attributes = {image = 'stress-level0', color = '#ffffffc0'}},
+            {tag = 'Text', attributes = {shadow = '#00000080', shadowDistance = '-2 -2'}},
+            {tag = 'Button', attributes = {rotation = '0 0 180', scale = '0.2 0.2', color = '#ffffff33', onClick = 'click', active = false}}
+        }},
+        {tag = 'Button', attributes = {id = 'convert',
+            height = 118, width = 178, position = pos(11.4, -86.3), colors = 'white|red|black|clear'
+        }},
+        {tag = 'Button', attributes = {id = 'spend',
+            height = 96, width = 115, position = pos(140.5, -65), colors = 'white|green|black|clear'
+        }},
+        {tag = 'VerticalLayout', attributes = {id = 'casualties',
+            height = 770, width = 80, scale = '0.2 0.2', position = pos(120, 20.5), rotation = '180 180 0', active = false
+        }, children = children}
+    })
+end
+
+function Morale:medalButtons(nation, obj, n)
+    n = n or 1
+    local xml = {}
+    for id, attr in pairs{
+        medal = {z = -10.6, rot = '0 180', clr = Color.medal},
+        cg = {z = 10.6, rot = '180 180', clr = Color._green}
+    } do table.insert(xml, {tag = 'VerticalLayout', attributes = {id = id,
+        position = '0 0 ' .. attr.z, rotation = '0 ' .. attr.rot, height = 100, width = 120
+    }, children = {
+        {tag = 'Button', attributes = {id = nation,
+            colors = table.concat({attr.clr:toXml(), attr.clr:lerp(Color.white, 0.3):toXml(), 'white', 'clear'}, '|'),
+            text = 'Spend ' .. n, fontSize = 28, fontStyle = 'Bold', onClick = 'Global/Morale'}},
+        {tag = 'Button', attributes = {id = 'done',
+            text = 'Done', fontSize = 28, colors = '#ffffff80|white|white|clear',
+            onClick = 'Global/Morale(' .. nation .. ')'}}
+    }}) end
+    obj.UI.setXmlTable(xml)
+end

@@ -1,0 +1,150 @@
+function OrdersChart:loadUI(scenario)
+    local gassets, assets = UI.getCustomAssets(), {}
+    for _, asset in ipairs(UI.getCustomAssets()) do for _, name in ipairs(OrdersChart.Assets) do
+        if asset.name == name then table.insert(assets, gassets[id]) end end
+        if asset.name == 'pact' and scenario == 'global'
+            and (self.nation == 'japan' or self.nation == 'ussr') then table.insert(assets, asset) end
+    end
+    local pos = |x, y| table.concat({x, y, -59}, ' ')
+    local Z, rows, cols = ' -59', {}, {}
+    local moves, pre_trade, production = {}, {}, {}
+    for i = 1, #self.moves / 3 do
+        local col, r = {}, (i - 1) * 3
+        for j = 1, 3 do table.insert(col, {tag = 'Cell', children = {
+            {tag = 'VerticalLayout', attributes = {}, children = {
+                {tag = 'Panel', attributes = {padding = '60 60 40 40'}, children = {
+                    {tag = 'InputField', attributes = {class = 'command', id = 'command' .. r + j}}
+                }}, {tag = 'Panel', attributes = {padding = '40 40 30 50'}, children = {
+                    {tag = 'InputField', attributes = {class = 'target', id = 'target' .. r + j}}
+            }}}},
+            {tag = 'Text', attributes = {id = 'slash' .. r + j,
+                scale = '3 1.5', fontSize = 240, text = '\\', ignoreLayout = true, active = false
+            }}
+        }}) end
+        table.insert(moves, {tag = 'Row', children = col})
+    end
+    local total_xml, trade_xml = {}, {}
+    for resource, value in pairs{oil = 2, iron = 3, osr = 5} do
+        table.insert(total_xml, {tag = 'Cell',
+            attributes = self.not_china and {columnSpan = 2} or nil,
+            children = {{tag = 'Panel', attributes = {class = 'resources'},
+                children = (resource ~= 'oil' or self.not_china) and {{tag = 'Text', attributes = {id = 'resources-' .. resource}}} or nil
+        }}})
+        table.insert(trade_xml, {tag = 'Cell', children = {
+            {tag = 'Panel', attributes = {class = 'plus_minus'}, children = {
+                {tag = 'VerticalLayout', children = {
+                    {tag = 'Panel', children = {{tag = 'ToggleButton', attributes = {class = 'trade', id = 'minus-' .. resource}}}},
+                    {tag = 'Panel', children = {{tag = 'ToggleButton', attributes = {class = 'trade', id = 'plus-' .. resource}}}}
+        }}}}}})
+        table.insert(trade_xml, {tag = 'Cell', children = {
+            {tag = 'Panel', attributes = {class = 'trade'}, children = {
+                {tag = 'Text', value = value, attributes = {id = 'trade-' .. resource,
+                    scale = '1 1', fontStyle = 'Bold', verticalOverflow = 'Overflow', active = false
+        }}}}}})
+    end
+    pre_trade = {{tag = 'Row', children = total_xml}}
+    if self.not_china then table.insert(pre_trade, {tag = 'Row', children = trade_xml}) end
+    for i, unit in ipairs{'infantry', 'artillery', 'armor', 'fighter', 'bomber', 'submarine', 'cruiser', 'carrier', 'battleship'} do
+        cols = {{tag = 'Cell', attributes = {class = 'input'}, children = {
+            {tag = 'InputField', attributes = {class = 'purchase', id = unit .. '-quantity'}}
+        }}}
+        for j, resource in ipairs{'oil', 'iron', 'osr'} do table.insert(cols, {tag = 'Cell', attributes = {class = 'cost'},
+            children = i + j > 3 and {{tag = 'Text', attributes = {id = unit .. '-' .. resource}}} or {}
+        }) end
+        if i < 3 or self.not_china then table.insert(production, {tag = 'Row', attributes = {class = 'purchase'}, children = cols}) end
+    end
+    if not self.not_china then table.insert(production, {tag = 'Row', attributes = {preferredHeight = 749}, children = {
+        {tag = 'Cell', attributes = {columnSpan = 4}}
+    }}) end
+    cols = {
+        {{tag = 'Cell'}}, {{tag = 'Cell'}}, {{tag = 'Cell'}},
+        {{tag = 'Cell', attributes = {class = 'input'}, children = {{tag = 'Text', attributes = {id = 'cg-quantity'}}}}}
+    }
+    for i, id in ipairs{'post_trade', 'cost', 'remaining', 'cg'} do for _, resource in ipairs{'oil', 'iron', 'osr'} do
+        if self.not_china or resource ~= 'oil' then table.insert(cols[i], {tag = 'Cell', attributes = {class = 'cost'},
+            children = {{tag = id == 'cg' and 'InputField' or 'Text', attributes = {class = 'cg' and 'purchase' or nil, id = id .. '-' .. resource}}}
+        }) else table.insert(cols[i], {tag = 'Cell'}) end
+    end end
+    table.insert(production, 1, {tag = 'Row', attributes = {class = 'resource'}, children = cols[1]})
+    table.insert(production, 2, {tag = 'Row', attributes = {class = 'purchase'}, children = cols[4]})
+    table.insert(production, {tag = 'Row', attributes = {class = 'resource'}, children = cols[2]})
+    table.insert(production, {tag = 'Row', attributes = {preferredHeight = 150}, children = cols[3]})
+
+    local xml = {
+        {tag = 'Defaults', children = {
+            {tag = 'TableLayout', attributes = {rotation = '0 0 180', cellBackgroundColor = 'clear'}},
+            {tag = 'Row', attributes = {class = 'resource', preferredHeight = 127}},
+            {tag = 'Row', attributes = {class = 'purchase', preferredHeight = 107}},
+            {tag = 'Cell', attributes = {class = 'input', padding = '70 0 6 6'}},
+            {tag = 'Cell', attributes = {class = 'cost', padding = '60 0 6 6'}},
+            {tag = 'Panel', attributes = {class = 'resources', padding = '80 50 0 20'}},
+            {tag = 'Panel', attributes = {class = 'plus_minus', padding = '95 0 42 12'}},
+            {tag = 'Panel', attributes = {class = 'trade', padding = '0 80 42 12'}},
+            {tag = 'InputField', attributes = {
+                colors = '#ffffff3f|#ffffff7f|#ffffff00|#00000000', scale = '0.8 1',
+                fontSize = 72, placeholder = ' ', interactable = false
+            }},
+            {tag = 'InputField', attributes = {class = 'command',
+                characterValidation = 'Integer', characterLimit = 3, onEndEdit = 'moveInput'
+            }},
+            {tag = 'InputField', attributes = {class = 'target',
+                characterLimit = 4, onEndEdit = 'moveInput'
+            }},
+            {tag = 'InputField', attributes = {class = 'purchase',
+                characterValidation = 'Integer', characterLimit = 2, onValueChanged = 'purchaseInput'
+            }},
+            {tag = 'Button', attributes = {class = 'resolve',
+                height = 75, width = 240, fontSize = 30, ignoreLayout = true
+            }},
+            {tag = 'ToggleButton', attributes = {class = 'trade',
+                height = 30, width = 30, fontSize = 20, color = Color.white:setAt('a', 0.3):toXml(true),
+                onValueChanged = 'tradeClick', transition = 'None', active = false
+            }},
+            {tag = 'Text', attributes = {scale = '0.8 1', fontSize = 72}}
+        }},
+        {tag = 'Button', attributes = {id = 'maximize',
+            height = 85, width = 85, position = '775 -775' .. Z, rotation = '0 0 180', scale = '0.8 1',
+            transition = 'SpriteSwap', image = 'maximize', highlightedSprite = 'maximize-hover',
+            onClick = 'maximize', active = false
+        }},
+        {tag = 'Text', attributes = {id = 'round',
+            height = 97, width = 105, position = '560 -586' .. Z, rotation = '0 0 180'
+        }},
+        {tag = 'ToggleButton', attributes = {id = 'ready',
+            height = 32, width = 64, position = '415 -588' .. Z, rotation = '0 0 180', scale = '2.4 3',
+            text = 'Ready', fontSize = 18, colors = '#ffffff|#00ff00|#ffff00|#404040ff',
+            isOn = true, onValueChanged = 'readyClick', active = false
+        }},
+        {tag = 'TableLayout', attributes = {id = 'moves',
+            height = 350 * #self.moves / 3, width = 780, position = pos(410, #self.moves / 3 == 3 and -34 or -209)
+        }, children = moves},
+        {tag = 'Panel', attributes = {id = 'resolve',
+            height = 320, width = 260, position = pos(670, -390),
+            rotation = '0 0 180', scale = '0.8 1', active = false
+        }, children = {
+            {tag = 'Button', attributes = {class = 'resolve', id = 'confirm',
+                position = '-130 0 0', rotation = '0 0 90', text = 'Confirm', icon = 'confirm',
+                colors = '#ffffffff|#00cc00ff|#00cc00ff|#000000b2', onClick = 'Global/confirmOrder'
+            }}, {tag = 'Button', attributes = {class = 'resolve', id = 'cancel',
+                position = '130 0 0', rotation = '0 0 -90', text = 'Cancel', icon = 'cancel',
+                colors = '#ffffffff|#ff0000ff|#ff0000ff|#000000b2', onClick = 'Global/cancelOrder'
+        }}}},
+        {tag = 'TableLayout', attributes = {
+            height = self.not_china and 250 or 125, width = 770, position = pos(405, self.not_china and 655 or 592)
+        }, children = pre_trade},
+        {tag = 'TableLayout', attributes = {id = 'production',
+            height = 1474, width = 700, position = pos(-452, 60), useGlobalCellPadding = false, active = false
+        }, children = production}
+    }
+    if self.not_china then table.insert(xml, 4, {tag = 'InputField', attributes = {id = 'bid',
+        height = 97, width = 105, position = pos(71, -586), rotation = '0 0 180',
+        characterValidation = 'Integer', characterLimit = 2, onValueChanged = 'bidInput'
+    }}) end
+    if self.nation == 'japan' or self.nation == 'ussr' then table.insert(xml, 3, {tag = 'Button', attributes = {id = 'pact',
+        height = 90, width = 200, position = pos(0, -775), rotation = '0 0 180', scale = '0.8 1',
+        text = 'Break pact', fontSize = 28, icon = 'pact', colors = '#c0c0c0ff|white|red|#a0a0a080',
+        onClick = 'breakPact', interactable = false, active = false
+    }}) end
+    self.UI.setCustomAssets(assets)
+    self.UI.setXmlTable(xml)
+end

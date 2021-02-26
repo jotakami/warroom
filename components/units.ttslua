@@ -1,0 +1,112 @@
+Units = {
+    infantry = {order = 6, force = 'army', color = 'yellow', cost = {osr = 2}, casualties = 2, stances = {
+        offensive = {hp = 1, dice = {air = 0, bomb = 0, ground = 2}, z = -0.005},
+        defensive = {hp = 2, dice = {air = 0, bomb = 0, ground = 1}, z = -0.005}
+    }, stance = || 'defensive', casualties = 2},
+    artillery = {order = 5, force = 'army', color = 'blue', cost = {iron = 2, osr = 1}, casualties = 2, stances = {
+        ground = {hp = 2, dice = {air = 0, bomb = 0, ground = 2}, z = -0.005},
+        antiair = {hp = 2, dice = {air = 2, bomb = 0, ground = 1}, z = 0}
+    }, stance = |_, antiair| antiair and 'antiair' or 'ground'},
+    armor = {order = 4, force = 'army', color = 'green', cost = {oil = 1, iron = 2, osr = 1}, casualties = 4, stances = {
+        offensive = {hp = 2, dice = {air = 0, bomb = 0, ground = 4}, z = 0},
+        defensive = {hp = 3, dice = {air = 1, bomb = 0, ground = 2}, z = 0}
+    }, stance = || 'defensive'},
+    fighter = {order = 3, force = 'air', color = 'green', cost = {oil = 2, iron = 1, osr = 1}, casualties = 4, stances = {
+        ground = {hp = 2, dice = {air = 0, bomb = 0, ground = 3}, z = 0.18},
+        air = {hp = 2, dice = {air = 3, bomb = 0, ground = 0}, z = -0.005},
+        surface = {hp = 2, dice = {air = 0, surface = 3}, z = 0.005},
+        guard = {hp = 2, dice = {air = 3, surface = 0}, z = 0.005}
+    }, stance = |mode, antiair| mode == 'land' and (antiair and 'air' or 'ground') or antiair and 'guard' or 'surface'},
+    cfighter = {order = 2, force = 'air', color = 'green', casualties = 4},
+    bomber = {order = 1, force = 'air', color = 'red', cost = {oil = 2, iron = 2, osr = 1}, casualties = 6, stances = {
+        ground = {hp = 2, dice = {air = 1, bomb = 0, ground = 4}, z = -0.005},
+        strategic = {hp = 2, dice = {air = 1, bomb = 4, ground = 0}, z = -0.01},
+        surface = {hp = 2, dice = {air = 1, surface = 3}, z = 0.01}
+    }, stance = |mode, antiair, bomb| mode == 'sea' and 'surface' or bomb and 'strategic' or 'ground'},
+    submarine = {order = 10, force = 'fleet', color = 'yellow', cost = {oil = 1, iron = 2, osr = 1}, casualties = 6, stances = {
+        dive = {hp = 2, dice = {air = 0, surface = 2}, z = 0.005, default = true}
+    }, stance = || 'dive'},
+    cruiser = {order = 9, force = 'fleet', color = 'blue', cost = {oil = 2, iron = 3, osr = 2}, casualties = 10, stances = {
+        offensive = {hp = 2, dice = {air = 1, surface = 3}, z = 0.005},
+        escort = {hp = 2, dice = {air = 2, surface = 2}, z = 0.005}
+    }, stance = |_, antiair, escort| (antiair or escort) and 'escort' or 'offensive'},
+    carrier = {order = 8, force = 'fleet', color = 'green', cost = {oil = 4, iron = 3, osr = 3}, casualties = 20, stances = {
+        offensive = {hp = 3, dice = {air = 1, surface = 2}, z = 0},
+        antiair = {hp = 3, dice = {air = 2, surface = 1}, z = 0}
+    }, stance = |_, antiair| antiair and 'antiair' or 'offensive'},
+    battleship = {order = 7, force = 'fleet', color = 'red', cost = {oil = 3, iron = 4, osr = 3}, casualties = 20, stances = {
+        offensive = {hp = 3, dice = {air = 1, surface = 4}, z = 0},
+        antiair = {hp = 3, dice = {air = 2, surface = 3}, z = -0.18}
+    }, stance = |_, antiair| antiair and 'antiair' or 'offensive'}
+}
+setmetatable(Units, {
+    __call = |t, unit| t[unit.getName()],
+    __pairs = function (T, k) return function (t, k)
+        local v
+        repeat k, v = next(t, k)
+        until v == nil or type(v) == 'table'
+        if v ~= nil then return k, v end
+    end, T, nil end
+})
+
+function Units:buildStack(units, pos, rot, delay)
+    delay = delay or 5
+    local queue, stack, ps = {}, {}, {}
+    for unit, count in pairs(units) do for i = 1, count do table.insert(queue, unit) end end
+    table.sort(queue, |a, b| self[a].order > self[b].order)
+    for i, unit in ipairs(queue) do
+        local p = Promise()
+        table.insert(ps, p)
+        Wait.frames(function () Bags[unit].takeObject({
+            position = pos + (i - 1) * vector(0, 0.21, 0), rotation = rot,
+            callback_function = |obj| p:resolve(obj)
+    }) end, delay * (i - 1)) end
+    return Promise.all(ps)
+end
+
+function Units:sort(units)
+    table.sort(units, |a, b| self[a.getName()].order > self[b.getName()].order)
+    return units
+end
+
+function Units.stack(units, position, rotation, step)
+    step = vector(0, step or 0.21, 0)
+    for _, unit in ipairs(units) do
+        unit.setLock(true)
+        unit.setPositionSmooth(position + vector(0, unit.is_face_down and 0.21 or 0, 0))
+        unit.setRotationSmooth(rotation + vector(0, 0, unit.is_face_down and 180 or 0))
+        position = position + step
+    end
+    return Promise.condition(function ()
+        for _, unit in ipairs(units) do if unit.isSmoothMoving() then return false end end
+        return true
+    end):next(function ()
+        for _, unit in ipairs(units) do unit.setLock(false) end
+        return units
+    end)
+end
+
+function Units.pairs(force)
+    return function (t, k)
+        local v
+        repeat k, v = next(t, k)
+        until v == nil or (type(v) == 'table' and v.force == force)
+        if nil ~= v then return k, v end
+    end, Units, nil
+end
+
+Unit = {}
+Unit.__meta = {__index = |t, k| Unit[k] or t.data[k] or t.obj[k]}
+setmetatable(Unit, {__call = function (T, obj, stack)
+    local u = {obj = obj, name = obj.getName(), stack = stack}
+    u.nation, u.data = stack and stack.nation, Units[u.name] or {}
+    setmetatable(u, T.__meta)
+    return u
+end})
+
+function Unit:notMoving() return Promise.condition(|| not self.isSmoothMoving(), self) end
+
+function Unit:clearUI()
+    self.UI.setCustomAssets()
+    self.UI.setXml('')
+end

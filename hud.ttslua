@@ -5,11 +5,21 @@ Vis = {
     none = 'Pink'
 }
 
-function reloadUI()
-    UI.setXmlTable(UI.getXmlTable())
+function reloadUI() UI.setXmlTable(UI.getXmlTable()) end
+
+function toggleDebug()
+    Debug = not Debug
+    UI.setAttributes('debug', {
+        image = Debug and 'log-push' or 'log',
+        tooltip = (Debug and 'Disable' or 'Enable') ..  ' debug logging'
+    })
 end
 
-function updateTracker(step, phase, help)
+HUD = {Tooltips = {orders = 'movement orders', combat = 'hotspot details', production = 'production orders'}}
+
+#include ui/hud
+
+function HUD.updateTracker(step, phase, help)
     if type(step) == 'table' then step, phase, help = table.unpack(step) end
     if phase then
         UI.setValue('phase', phase)
@@ -19,71 +29,85 @@ function updateTracker(step, phase, help)
     if help then UI.setValue('help-text', HelpText[help]) end
 end
 
-function updateStatus(nation, value, color, image)
-    local id, cell_id = 'status' .. state.turn_order[nation], 'status-cell' .. state.turn_order[nation]
+function HUD.updateStatus(nation, value, tint, image, turn)
+    if tint then if type(tint) == 'table' then tint = tint:toXml(false) else tint = '#' .. tint end end
+    turn = turn or turnOrder[nation]
+    local id, cell_id = 'status' .. turn, 'status-cell' .. turn
     if image then UI.setAttributes(cell_id, {dontUseTableCellBackground = true, image = image})
     else UI.setAttribute(cell_id, 'dontUseTableCellBackground', false) end
-    if color then UI.setAttribute(id, 'color', '#' .. color) end
+    if tint then UI.setAttribute(id, 'color', tint) end
     UI.setValue(id, value and (value == true and '✓' or value) or '')
 end
 
-function resetStatus() for _, nation in ipairs(state.turn_order) do updateStatus(nation, nil, Colors.white) end end
-
-function updateTurn(nation)
-    if nation then UI.setAttributes('turn', {offsetXY = state.turn_order[nation] * 39 .. ' 0', active = true})
-    else UI.hide('turn') end
+function HUD.resetStatus()
+    for _, nation in turnOrder() do HUD.updateStatus(nation, nil, Color.white) end
 end
 
-function toggleDebug()
-    Debug = not Debug
-    UI.setAttributes('debug', {image = Debug and 'log-push' or 'log', tooltip = (Debug and 'Disable' or 'Enable') ..  ' debug logging'})
+function HUD.updateTurn(nation, order)
+    if nation then UI.setAttributes('turn', {
+        offsetXY = (order or turnOrder[nation]) * 39 .. ' 0',
+        color = Color[nation]:toXml(false), active = true
+    }) else UI.hide('turn') end
 end
 
-function updateResources(params)
-    local id = state.turn_order[params.nation]
-    for _, resource in pairs{'oil', 'iron', 'osr'} do UI.setValue(resource .. id, params.data[resource] == 0 and '' or params.data[resource] or '') end
+function HUD.setResources(nation, data)
+    local id = turnOrder[nation]
+    for _, resource in pairs{'oil', 'iron', 'osr'} do UI.setValue(resource .. id, data[resource] or '') end
 end
 
-function openHUD(hud)
-    local tooltip = {orders = 'movement orders', combat = 'hotspot details', production = 'production orders'}
-    UI.setAttributes(hud, {visibility = Vis.all, active = true})
-    if hud ~= 'resources' then
+function HUD.open(id)
+    UI.setAttributes(id, {visibility = Vis.all, active = true})
+    if id ~= 'resources' then
         UI.setAttribute('resources', 'visibility', Vis.none)
         UI.setAttribute('resources-button', 'visibility', Vis.all)
         UI.setAttributes('hud-button', {
-            image = hud, highlightedSprite = hud .. '-hover', pressedSprite = hud .. '-push',
-            visibility = Vis.none, tooltip = 'Show ' .. tooltip[hud], active = true
+            image = id, highlightedSprite = id .. '-hover', pressedSprite = id .. '-push',
+            visibility = Vis.none, tooltip = 'Show ' .. HUD.Tooltips[id], active = true
         })
     else UI.setAttribute('resources-button', 'visibility', Vis.none) end
 end
 
-function closeHUD(hud)
-    UI.hide(hud)
+function HUD.close(id)
+    UI.hide(id)
     UI.hide('hud-button')
 end
 
-function showHUD(player, hud, id)
-    if hud == 'resources' then
+function HUD.show(player, id, button)
+    if id == 'resources' then
         local hud_type = UI.getAttribute('hud-button', 'image')
-        if hud_type then hideHUD(player, hud_type) end
-    elseif hud ~= 'help' then hideHUD(player, 'resources') end
-    showElement(player.color, hud)
-    hideElement(player.color, id)
+        if hud_type then HUD.hide(player, hud_type) end
+    elseif id ~= 'help' then HUD.hide(player, 'resources') end
+    HUD.showElement(player, id)
+    HUD.hideElement(player, button)
 end
 
-function hideHUD(player, hud)
-    hideElement(player.color, hud)
-    if hud ~= 'resources' and hud ~= 'help' then hud = 'hud' end
-    showElement(player.color, hud .. '-button')
+function HUD.hide(player, id)
+    HUD.hideElement(player, id)
+    if id ~= 'resources' and id ~= 'help' then id = 'hud' end
+    HUD.showElement(player, id .. '-button')
 end
 
-function showElement(color, id)
+function HUD.openPopout(nation, player)
+    UI.setAttributes(nation .. '-popout', {visibility = player, active = true})
+end
+
+function HUD.closePopout(nation)
+    Orders[nation]:minimize()
+    UI.hide(nation .. '-popout')
+end
+
+function HUD.showElement(player, id)
     if id == '-1' then id = UI.getAttribute('hud-button', 'image') end
-    UI.setAttribute(id, 'visibility', color .. '|' .. UI.getAttribute(id, 'visibility'))
+    UI.setAttribute(id, 'visibility', player .. '|' .. UI.getAttribute(id, 'visibility'))
 end
 
-function hideElement(color, id)
-    UI.setAttribute(id, 'visibility', UI.getAttribute(id, 'visibility'):gsub('(|?)' .. color .. '(|?)', function (l, r)
+function HUD.hideElement(player, id)
+    UI.setAttribute(id, 'visibility', UI.getAttribute(id, 'visibility'):gsub('(|?)' .. player .. '(|?)', function (l, r)
         if l == '|' and r == '|' then return '|' else return '' end
     end))
 end
+
+-- Button receiver functions
+function showHUD(player, value, id) HUD.show(player.color, value, id) end
+function hideHUD(player, value) HUD.hide(player.color, value) end
+function closePopout(_, _, id) HUD.closePopout(id:match('^%a+')) end

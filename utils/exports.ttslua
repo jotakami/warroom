@@ -1,0 +1,65 @@
+function wrapper(T) return {__index = |t, k| T[k] or t.obj[k]} end
+
+function wrap(T, obj)
+    local w = {obj = obj}
+    setmetatable(w, T.__meta)
+    return w
+end
+
+function constructor(fn) return function (T, obj, ...)
+    local t = wrap(T, obj)
+    return fn and fn(t, ...) or t
+end end
+
+function Wrapper(fn)
+    local W = {}
+    W.__meta = wrapper(W)
+    setmetatable(W, {__call = constructor(fn)})
+    return W
+end
+
+function bind(obj, T)
+    T = T or {}
+    setmetatable(T, {__index = function (t, k)
+        local ok, v = pcall(|| obj[k])
+        if ok then return v
+        else return rpc(t, obj, k) end
+    end})
+    return T
+end
+
+function import(lib)
+    local T = {path = lib}
+    setmetatable(T, {__index = |t, k| rpc(t, Global, k)})
+    return T
+end
+
+function rpc(parent, obj, path)
+    local T = {obj = obj, path = path}
+    if rawget(parent, 'path') then T.path = parent.path .. '.' .. T.path end
+    setmetatable(T, {
+        __call = function (t, ...)
+            local args = table.pack(...)
+            if args[1] == parent then args[1] = t.path:gsub('%.([^%.]+)$', ':%1')
+            else table.insert(args, 1, t.path) end
+            local ok, result = t.obj.call('resolve', args)
+            if ok then return table.unpack(result, 1, result.n) else error(result) end
+        end,
+        __index = |t, k| rpc(t, t.obj, k)
+    })
+    return T
+end
+
+function resolve(args)
+    local path = table.remove(args, 1)
+    local f, ok, result = _G
+    for step, delimiter in path:gmatch('([^%.:]+)([%.:]?)') do
+        ok, f = pcall(|| f[step] or self[step])
+        if not ok then return false, string.format('Couldn\'t resolve path %s on %s', path, tostring(self)) end
+        if delimiter == ':' then table.insert(args, 1, f) end
+    end
+    ok, result = pcall(|| table.pack(f(table.unpack(args, 1, args.n))))
+    if not ok then
+        return false, string.format('Error while executing %s on %s: %s', path, tostring(self), result)
+    else return ok, result end
+end

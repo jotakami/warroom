@@ -1,0 +1,26 @@
+Battle = {}
+setmetatable(Battle, {__call = function (T, ...)
+    if select('#', ...) == 3 then
+        local player, value, id = ...
+        if id == 'hit' then
+            local hand, color, stance, stack = value:match('(%w+)%-(%w+)%-(%w+)%-(%w+)')
+            T[hand].combat.resume(player, {color = color, stance = stance, stack = stack})
+        elseif value ~= 'left' and value ~= 'right' then
+            local hand, key = value:match('(%w+)%-([%w%-]+)')
+            T[hand].combat.resume(player, id, key)
+        else T[value].combat.resume(id:match('^(%a+)%-%a+(%d?)$')) end
+    else
+        local board, hand = ...
+        local b = {board = board, hand = hand, zones_active = false}
+        setmetatable(b, {__index = |t, k| T[k] or t.board[k]})
+        return b
+end end})
+
+function Battle:mode() return self.is_face_down and 'sea' or 'land' end
+
+#include ../ui/battle
+#include battle/config
+#include battle/setup
+#include battle/stage
+#include battle/hits
+#include battle/cleanup

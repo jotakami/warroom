@@ -1,0 +1,136 @@
+function Battle:stage(stage, turn)
+    self.UI.setValue('status', stage:proper() .. ' stage')
+    self.UI.hide('allies-confirm-panel')
+    self.UI.hide('allies-' .. stage)
+    self.UI.hide('axis-confirm-panel')
+    self.UI.hide('axis-' .. stage)
+    local targets = {}
+    local counters, force = self:setupStage(stage)
+    while #counters.axis + #counters.allies > 0 do
+        if #counters[turn] > 0 then
+            if not targets[turn] then targets[turn] = self:getTargets(Nations.other[turn], force) end
+            local counter, remaining = table.remove(counters[turn]), 0
+            debug(turn:proper(), ' rolling ', counter.value, ' dice')
+            if stage == 'bomb' then
+                self.UI.show(Nations.other[turn] .. '-bomb-targets')
+                for color, targets in pairs(targets[turn]) do for _, count in pairs(targets) do
+                    remaining = remaining + count
+                end end
+            else remaining = self:countUnits({side = Nations.other[turn], force = force}) end
+            fadeOut(counter.obj, 2)
+            if remaining > 0 then
+                debug(remaining, ' targets remaining, rolling round')
+                local id = table.concat({turn, 'confirm', 'panel'}, '-')
+                self.UI.show(id)
+                self.UI.setAttributes(id:sub(1, -7), {text = 'Rolling', textColor = 'white', interactable = false})
+                self.bags[turn]:toss(counter.value, 10, vector(turn == 'axis' and 5 or -5, 7, 0), 0.1):next(function (roll)
+                    local left = self.bags.axis.getPosition() + vector(0, 0.6, 0)
+                    local right = self.bags.allies.getPosition() + vector(0, 0.6, 0)
+                    return roll:arrange(left:lerp(right, 0.53 - #roll * 0.03), right:lerp(left, 0.53 - #roll * 0.03))
+                end):next(|roll| self.combat.resume(roll))
+                self:assignHits(stage, turn, coroutine.yield(), targets[turn], self.advantage[Nations.other[turn]].force)
+                self.UI.hide(id)
+        end end
+        turn = Nations.other[turn]
+    end
+    self.UI.hide('allies-confirm-panel')
+    self.UI.hide('axis-confirm-panel')
+    if stage == 'bomb' then self.UI.hide(turn .. '-bomb-targets') end
+end
+
+function Battle:setupStage(stage)
+    debug('Setting up ', stage, ' stage')
+    local force = stage
+    if force == 'ground' then force = 'army' elseif force == 'surface' then force = 'fleet' end
+    local mode, counters = self:mode(), {}
+    self.UI.setValue(mode .. '-status', stage:gsub('^%l', string.upper) .. ' stage')
+    for side, dice in pairs(self.dice[stage]) do
+        self.UI.hide(table.concat({mode, side, stage}, '-'))
+        if dice > 0 and (stage == 'bomb' or self:countUnits({side = Nations.other[side], force = force}) > 0) then
+            counters[side] = self:setHotspotCounters(side, math.min(dice, 30), stage == 'bomb')
+        else counters[side] = Promise():resolve() end
+    end
+    self.dice[stage] = nil
+    debug('Waiting for counters to spawn')
+    counters.axis:next(function (...)
+        counters.axis = {...}
+        return counters.allies
+    end):next(function (...)
+        counters.allies = {...}
+        self.combat.resume(counters)
+    end)
+    return coroutine.yield(), force
+end
+
+function Battle:setHotspotCounters(side, dice, bomb)
+    debug('Setting up ', side, ' hotspot counters for ', dice, ' dice')
+    local naval, counters = self:mode() == 'sea', {}
+    local y_sign = naval and -1 or 1
+    local y_inc, x_sign = 0.71 * y_sign, (side == 'axis' and 1 or -1) * y_sign
+    local x, y, z_min = 1.5 * x_sign, 0.1 * (1 + y_sign) + y_inc / 2
+    local z_min = self.positionToLocal(self.stances.land[side].bomber.strategic.getPosition()).z
+    local start = self.commands.snaps[side == 'axis' and 'italy' or 'uk'].position + vector(0.5 * x_sign, 0.1, 0)
+    while dice > 0 do if bomb then
+        table.insert(counters, {value = 4, obj = self:setHotspotCounter(start, vector(x, y, self.stances.land[side].armor.offensive.getPosition().z))})
+        dice, y = dice - 4, y + y_inc
+    else
+        local value = (dice - 1) % 10 + 1
+        table.insert(counters, self:setHotspotCounter(start, vector(x, y, (30 - dice) % 10 * 0.173 + z_min)):next(|obj| {value = value, obj = obj}))
+        if dice % 10 == 0 then dice, y = dice - 10, y + y_inc else dice = dice - dice % 10 end
+    end end
+    return Promise.all(counters)
+end
+
+function Battle:setHotspotCounter(start, position)
+    local p = Promise()
+    Bags.hotspot.takeObject({
+        position = self.positionToWorld(start), smooth = false,
+        callback_function = function (obj)
+            obj.setPositionSmooth(self.positionToWorld(position), false, true)
+            Wait.condition(|| p:resolve(obj), || not obj.isSmoothMoving())
+    end})
+    return p
+end
+
+function Battle:getTargets(side, force)
+    local targets, fun = {}, 'Global/Battle(' .. self.hand
+    if force ~= 'bomb' then for unit, stances in pairs(self.stances[self:mode()][side]) do if Units[unit].force == force then
+        local die_color, clr = Units[unit].color, Color[unit]
+        for label, stance in pairs(stances) do if rawget(stance, 'stacks') ~= nil then
+            targets[die_color] = targets[die_color] or {hp = 0}
+            targets[die_color][label] = stance
+            targets[die_color].hp = targets[die_color].hp + stance.hp * #stance.units
+            local repair_fun = table.concat({fun, side, unit, label}, '-') .. ')'
+            for stack, obj in pairs(stance.stacks) do
+                local pos, rot = '0 0 ' .. (obj.is_face_down and 2 or -29)
+                local rot = '0 ' .. math.round(obj.getRotation().z) .. ' ' .. math.round(obj.getRotation().y)
+                local scale = obj.getName() == 'cfighter' and '2 2' or '1 1'
+                obj.UI.setCustomAssets(self.RepairAssets)
+                obj.UI.setXmlTable({{tag = 'Button', attributes = {id = 'hit',
+                    position = pos, rotation = rot, scale = scale, height = 48, width = 72, active = false,
+                    colors = table.concat({clr:lerp(Color.white, 0.3):toXml(), 'white', clr:toXml(), 'clear'}, '|'),
+                    fontSize = 36, text = 'Hit', onClick = table.concat({fun, die_color, label, stack}, '-') .. ')'
+                }}, {tag = 'Panel', attributes = {id = 'repair',
+                    position = pos, rotation = rot, scale = scale, height = 112, width = 188, active = false
+                }, children = {
+                    {tag = 'Image', attributes = {image = obj.nation, height = 40, width = 40}},
+                    {tag = 'Button', attributes = {id = 'casualty',
+                        height = 50, width = 50, rectAlignment = 'Middle' .. (side == 'axis' and 'Left' or 'Right'),
+                        text = 'X', fontSize = 36, textColor = 'white', colors = 'black|#606060|#c00000|clear',
+                        onClick = repair_fun
+                    }},
+                    self.XML:repairs(side == 'axis' and 'Right' or 'Left', repair_fun)
+                }}})
+    end end end end end else
+        targets = self.combat:getBombTargets()
+        local id, i = side .. '-bomb-targets', 0
+        for _, t in ipairs(Combat.BombOrder) do if targets[t.color][t.target] then
+            i = i + 1
+            self.UI.setAttributes(side .. '-target' .. i, {
+                text = targets[t.color][t.target], textColor = t.color == 'white' and 'red' or 'white',
+                image = t.target, active = true, interactable = false
+        }) end end
+        for j = i + 1, 8 do self.UI.hide(side .. '-target' .. j) end
+    end
+    return targets
+end

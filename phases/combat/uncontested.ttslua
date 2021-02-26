@@ -1,0 +1,79 @@
+Combat.Uncontested = Combat.Action()
+
+function Combat.Uncontested:main(commands)
+    local region, combatants = Map.regions[self.hotspot.region]
+    if not region.is_sea then
+        self.hotspot.resume = self.resume
+        local side = Nations[region:owner()].other
+        if commands[side].air then
+            local bombers = 0
+            for _, command in ipairs(commands[side].air) do bombers = bombers + command.units.bomber end
+            if bombers > 0 then
+                local targets = region:bombTargets()
+                if next(targets) then self:bombing(bombers, targets) end
+        end end
+        if commands[side].army then
+            combatants = {}
+            log(commands[side])
+            for _, force in pairs(commands[side]) do for _, command in ipairs(force) do
+                local nation = command.nation
+                if not combatants[nation] then table.insert(combatants, nation) end
+                combatants[nation] = true
+            end end
+            self:garrison(commands[side].army)
+    end end
+    self:debrief(commands, combatants)
+end
+
+function Combat.Uncontested:bombing(bombers, targets)
+    self.hotspot:bombButtons(bombers, targets)
+    bombers = tonumber(coroutine.yield())
+    self.hotspot.UI.hide('bombers')
+    if bombers > 0 then
+        debug('Resolving strategic bombing in ', self.hotspot.region, ' with ', bombers, ' bombers')
+        self.hotspot.UI.show('targets')
+        local offset = Map:radialVector(self.hotspot.getPosition()) * math.sqrt(2)
+        local shift, positions = offset:copy():rotateOver('y', -90), {}
+        local anchor = self.hotspot.getPosition() + vector(0, 1.8, 0) + offset  - shift * 2.5
+        for i = 1, 4 do table.insert(positions, anchor + shift * i) end
+        for _ = 1, bombers do
+            debug('Rolling next bomber')
+            Bags.dice:roll(positions):delay(1):next(|dice| dice:arrange(positions[1], positions[4])):next(|dice| self.resume(dice))
+            self:assignBombs(coroutine.yield(), targets, self.hotspot.UI)
+        end
+        self.hotspot.UI.hide('targets')
+    end
+end
+
+function Combat.Uncontested:garrison(army)
+    local pos, max_y = self.hotspot.getPosition(), 0
+    for _, hit_object in ipairs(Physics.cast({
+        origin = pos + vector(0, 5, 0), direction = {0, -1, 0}, max_distance = 5, type = 3,
+        size = {2, 1, 1}, orientation = {0, Map:rotationToCenter(pos) + 180, 0}
+    })) do max_y = math.max(max_y, hit_object.point.y) end
+    local anchor = pos:setAt('y', max_y + math.sqrt(2) / 2)
+    Bags.dice:roll(Dice.positions(2, anchor, Map:radialVector(anchor))):delay(1):next(|dice| self.resume(dice))
+    local dice, pair = coroutine.yield()
+    for i, die in ipairs(dice) do if dice[i]:getColor() == 'black' then pair = dice[3 - i]:getColor() end end
+    if dice[1]:getColor() == dice[2]:getColor() then pair = dice[1]:getColor() end
+    for _, die in ipairs(dice) do fadeOut(die) end
+    if pair then
+        local p, targets, unique = Promise(), {}
+        for _, command in ipairs(army) do for unit, t in pairs(Units) do
+            if t.force == 'army' and command.units(unit) > 0 and (pair == 'black' or pair == t.color) then
+                targets[unit] = targets[unit] or {}
+                targets[unit][command.nation] = command
+                if unique == nil then unique = {command = command, unit = unit}
+                else unique = false end
+        end end end
+        if unique ~= nil then if unique == false then
+            self.hotspot:hitButtons(targets)
+            local nation, unit = coroutine.yield():match('(%a+)%-(%a+)')
+            self.hotspot.UI.hide('hits')
+            targets[nation][unit]:destroyUnit(unit):next(|c| self.resume(c))
+        else unique.command:destroyUnit(unique.unit):next(|c| self.resume(c)) end
+        local command = coroutine.yield()
+        if command.units() == 0 then for i = #army, 1, -1 do
+            if army[i].guid == command.guid then table.remove(army, i) break end
+    end end end end
+end

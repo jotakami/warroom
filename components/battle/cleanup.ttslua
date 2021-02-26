@@ -1,0 +1,128 @@
+function Battle:repairs()
+    debug('Setting up unit repairs')
+    local moves, repairs = {}, {}
+    for side, units in pairs(self.stances[self:mode()]) do
+        local count = 0
+        for unit, stances in pairs(units) do for label, stance in pairs(stances) do if rawget(stance, 'stacks') then
+            for stack, target in pairs(stance.stacks) do if stack:match('[ng]ed2?$') then
+                if stack == 'sustained' or target.force == 'fleet' and self.advantage[side].port then
+                    debug('Repairing ', target.nation, ' ', unit, ' automatically')
+                    table.insert(moves, self:repairUnit(stance, stack))
+                else
+                    debug('Showing repair buttons for ', target.nation, ' ', unit)
+                    count = count + 1
+                    local p = Promise()
+                    repairs[table.concat({side, unit, label}, '-')] = {unit = target, promise = p}
+                    table.insert(moves, p:finally(function (casualty)
+                        if count == 1 then self.UI.hide(side .. '-confirm-panel')
+                        else count = count - 1 end
+                        stopPulse(target)
+                        return self:repairUnit(stance, stack, casualty)
+                    end))
+                    setPulse(target)
+                    if target.nation == 'china' then target.UI.hide('oil') end
+                    target.UI.show('repair')
+                    for resource, value in pairs(Orders[target.nation].resources.current) do
+                        if value == 0 then target.UI.setAttribute(resource, 'interactable', false) end
+        end end end end end end end
+        if count > 0 then
+            self.UI.setAttributes(side .. '-confirm', {text = 'Repair units', textColor = 'white'})
+            self.UI.show(side .. '-confirm-panel')
+    end end
+    while next(repairs) do
+        local player, resource, key = coroutine.yield()
+        debug(resource, ' button clicked for ', key)
+        if repairs[key] then if resource == 'casualty' then
+            repairs[key].promise:reject()
+            repairs[key] = nil
+        else
+            local nation = repairs[key].unit.nation
+            local supply = Orders[nation].resources.current[resource]
+            if supply < 2 then for _, t in pairs(repairs) do if t.unit.nation == nation then
+                t.unit.UI.setAttribute(resource, 'interactable', false)
+            end end end
+            if supply > 0 then
+                Resources[repairs[key].unit.nation].addResources({[resource] = -1})
+                repairs[key].promise:resolve()
+                repairs[key] = nil
+    end end end end
+    Promise.all(moves):next(|| self.combat.resume())
+    coroutine.yield()
+end
+
+function Battle:repairUnit(stance, stack, casualty)
+    local unit, pos = stance.stacks[stack]
+    local target, offset = casualty and 'casualty' or unit.nation, unit.is_face_down and 0.21 or 0
+    unit:clearUI()
+    if stance.stacks[target] then
+        unit.next = stance.stacks[target]
+        offset = offset + (unit.next.is_face_down and 0 or 0.21)
+        pos = unit.next.getPosition()
+    else pos = self.positionToWorld(stance.snaps[target].position) end
+    stance.stacks[target] = unit
+    unit.setLock(false)
+    unit.setPositionSmooth(pos + vector(0, offset, 0))
+    return unit:notMoving():skip(5):next(function ()
+        stance.stacks[stack] = nil
+        unit.setLock(true)
+    end)
+end
+
+function Battle:losses()
+    local ps = {}
+    for side, zone in pairs(self.casualties) do
+        local units = zone.getObjects()
+        for i = #units, 1, -1 do
+            local unit = self.guids[units[i].guid]
+            if not unit or unit.memo == 'escaped' then table.remove(units, i)
+            else units[i] = unit end
+        end
+        if #units > 0 then table.insert(ps, Morale:casualties(units)) end
+    end
+    return #ps > 0 and Promise.all(ps) or Promise():resolve()
+end
+
+function Battle:replaceCommands()
+    local commands, ps = {}, {}
+    for _, obj in ipairs(self.commands.getObjects()) do
+        table.insert(commands, {command = self.guids[obj.guid], units = {}})
+        self.guids[obj.guid] = #commands
+    end
+    for _, units in pairs(self.stances[self:mode()]) do for _, stances in pairs(units) do for label, stance in pairs(stances) do
+        local units = stance:getUnits()
+        if label == 'dive' and rawget(stance, 'stacks') then while stance.stacks.dive ~= nil do
+            table.insert(units, stance.stacks.dive)
+            stance.stacks.dive = stance.stacks.dive.next
+        end end
+        for _, obj in ipairs(units) do
+            local unit = self.guids[obj.guid]
+            if unit then if unit.getName() == 'cfighter' then
+                unit.setPositionSmooth(unit.origin.pos)
+                unit.setRotationSmooth(unit.origin.rot)
+                unit.origin = nil
+                table.insert(ps, unit:notMoving():skip(5):next(|| unit.setLock(false)))
+                table.insert(commands, {cfighter = unit})
+            else table.insert(commands[self.guids[unit.stack.guid]].units, unit) end end
+    end end end end
+    for i = #commands, 1, -1 do if commands[i].command then
+        if #commands[i].units > 0 then
+            local stack, units = commands[i].command, Units:sort(commands[i].units)
+            table.insert(units, stack)
+            table.insert(ps, Units.stack(units, stack.origin.pos, stack.origin.rot)
+                :next(|| table.remove(units):attach(units)))
+            commands[i], stack.origin = stack, nil
+        else table.insert(ps, table.remove(commands, i).command:stash()) end
+    else commands[i] = commands[i].cfighter end end
+    return Promise.all(ps):next(|| Commands.Forces(commands))
+end
+
+function Battle:reset()
+    self.UI.hide('status-panel')
+    for side, t in pairs(self.advantage) do
+        self.UI.show(side .. '-roller')
+        for _, arrow in pairs(t) do stash(arrow) end
+        for unit, stances in pairs(self.stances[self:mode()][side]) do for _, stance in pairs(stances) do
+            stance.stacks, stance.units = nil
+    end end end
+    self.advantage, self.dice, self.combat = nil
+end

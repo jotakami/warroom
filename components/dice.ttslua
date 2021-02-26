@@ -1,0 +1,128 @@
+Die = Wrapper()
+
+function Die:getColor() return self.getRotationValue():sub(9):lower() end
+
+function Die:setColor(clr)
+    for _, face in ipairs(self.getRotationValues()) do
+        if face.value:sub(9):lower() == clr then
+            self.setRotationSmooth(face.rotation)
+            break
+    end end
+end
+
+function Die:faceUp() self.setRotationSmooth(self.getRotationValues()[self.getValue()].rotation) end
+
+Dice = Wrapper()
+Dice.Order = {yellow = 1, blue = 2, green = 3, red = 4, black = 5, white = 6}
+
+function Dice:destruct() for _, die in ipairs(self) do die.destruct() end end
+
+-- Helper for calculating dice roll positions
+function Dice.positions(n, center, norm)
+    debug('Calculating dice positions')
+    if n > 1 then
+        local radius = norm * (1 / (math.sqrt(2) * math.sin(math.pi / n)))
+        if n % 2 == 0 then radius:rotateOver('y', 90) end
+        local positions = {center + radius}
+        for i = 2, n do positions[i] = center + radius:rotateOver('y', 360 / n) end
+        return positions
+    else return {center} end
+end
+
+-- Spawn and roll a set of dice at the specified positions
+function Dice:roll(positions)
+    debug('Rolling dice at fixed positions')
+    local delay, ps = 0.25, {}
+    for i, pos in ipairs(positions) do
+        local p = Promise()
+        table.insert(ps, p)
+        Wait.time(function () self.takeObject({
+            position = pos,
+            rotation = {math.random(360), math.random(360), math.random(360)},
+            smooth = false,
+            callback_function = function (die)
+                die.setVelocity({0, 0, 0})
+                die.use_gravity, die.angular_drag = false, 1.6
+                p:resolve(Die(die))
+    end}) end, (i - 1) * delay) end
+    return Promise.all(ps):delay(delay):next(function (...)
+        local dice = Dice.Roll({...})
+        for _, die in ipairs(dice) do
+            local x, z = math.random() - 0.5, math.random() - 0.5
+            local scale = (math.abs(x) + math.abs(z)) / 8
+            die.addTorque({x / scale, 0, z / scale})
+        end
+        return dice
+    end):delay(2):next(function (roll)
+        for _, die in ipairs(roll) do die:faceUp() end
+        return roll:notMoving()
+    end)
+end
+
+-- Roll dice from the bag by tossing in a specified direction
+function Dice:toss(n, f, v, d)
+    local ps = {}
+    local b, nx, ny = v:orthoNormalize()
+    for i = 1, n do
+        local p, angle = Promise(), math.random() * 2 * math.pi
+        local force = b + (math.sin(angle) * nx + math.cos(angle) * ny) * d
+        table.insert(ps, p)
+        Wait.frames(function () self.takeObject({
+            position = self.getPosition() + vector(0, 3, 0),
+            rotation = vector(math.random(360), 0, math.random(360)),
+            smooth = false, callback_function = function (obj)
+                obj.use_gravity = false
+                Wait.frames(function ()
+                    obj.use_gravity = true
+                    obj.addForce(force * f * (1 + math.random()))
+                    obj.addTorque(vector(math.random(), math.random(), math.random()):normalized() * 2)
+                end, 3)
+                p:resolve(Die(obj))
+        end}) end, (i - 1) * 8)
+    end
+    return Promise.all(ps):delay(2):next(|...| Dice.Roll({...}))
+end
+
+Dice.Roll = {}
+Dice.Roll.__meta = {__index = Dice.Roll, __tostring = function (t)
+    local s, count, prev = 'Dice roll: '
+    for _, die in ipairs(t) do
+        local clr = die:getColor()
+        if clr ~= prev then
+            if prev then s = string.format('%s%s %s, ', s, count, prev) end
+            count, prev = 1, clr
+        else count = count + 1 end
+    end
+    return s .. count .. ' ' .. prev
+end}
+setmetatable(Dice.Roll, {__call = function (t, roll)
+    setmetatable(roll, t.__meta)
+    return roll
+end})
+
+function Dice.Roll:values()
+    local values = {}
+    for _, die in ipairs(self) do table.insert(values, die:getColor()) end
+    return values
+end
+
+function Dice.Roll:sort()
+    table.sort(self, |a, b| Dice.Order[a:getColor()] < Dice.Order[b:getColor()])
+end
+
+function Dice.Roll:arrange(head, tail)
+    self:sort()
+    for i, die in ipairs(self) do
+        die.setLock(true)
+        die.setPositionSmooth(head:lerp(tail, (i - 1) / (#self - 1)))
+        die:faceUp()
+    end
+    return self:notMoving()
+end
+
+function Dice.Roll:notMoving()
+    return Promise.condition(function ()
+        for _, die in ipairs(self) do if die.isSmoothMoving() then return false end end
+        return true
+    end, self)
+end

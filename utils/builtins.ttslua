@@ -1,0 +1,13 @@
+function string:proper() return self:sub(1, 1):upper() .. self:sub(2) end
+
+function string:colorize(clr) return string.format('[%s]%s[-]', (type(clr) == 'string' and Color[clr] or clr):toHex(false), self) end
+
+function math.round(value)
+    if value - math.floor(value) > 0.5 then
+        return math.ceil(value)
+    else return math.floor(value) end
+end
+
+function table.each(t, fun)
+    for _, i in ipairs(t) do fun(i) end
+end

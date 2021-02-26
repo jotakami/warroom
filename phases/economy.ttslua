@@ -1,0 +1,37 @@
+Economy = Phase()
+
+function Economy:main()
+    state.phase, state.step = 1, 0
+    HUD.updateTracker('Tallying resource income', '1 - Direct National Economy')
+    HUD.resetStatus()
+    HUD.open('resources')
+    -- TODO: verify that all territory cards are placed correctly
+    for i, nation in turnOrder() do if i > state.step then
+        state.step = i
+        self:resourceIncome(nation)
+        HUD.updateStatus(nation, true)
+        Wait.time(|| self.resume(), 0.5)
+        coroutine.yield()
+    end end
+end
+
+function Economy:resourceIncome(nation)
+    local totals = {oil = 0, iron = 0, osr = 0}
+    for _, card in Cards[nation]:cards() do
+        for resource, value in pairs(Map.regions[card.id]:income()) do
+            totals[resource] = totals[resource] + value
+    end end
+    if nation == 'china' then totals.oil = nil end
+    local msg = Nations[nation]:colorized()
+    if Morale.stressZone(nation) < 5 then
+        msg = msg .. ' gained '
+        if (totals.oil or 0) + totals.iron + totals.osr > 0 then
+            Resources[nation].addResources(totals)
+            for resource, value in pairs(totals) do if value > 0 then
+                msg = string.format('%s%s %s, ', msg, string.colorize(value, resource), resource)
+            end end
+            msg = msg:sub(1, -3)
+        else msg = msg .. 'no resources' end
+    else msg = msg .. ' cannot gain resources due to [ff4040]economic collapse[-]' end
+    alert(msg)
+end

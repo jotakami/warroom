@@ -1,0 +1,136 @@
+function OrdersChart:writeProduction(ready_callback, trades, resume)
+    local attr = {active = true, visibility = self:visibility()}
+    self.UI.setAttributes('production', attr)
+    self:setProduction(false, not resume)
+    if next(trades) ~= nil then for resource, _ in pairs(self.resources.current) do
+        self.UI.show('minus-' .. resource)
+        if trades[resource] then self.UI.show('plus-' .. resource) end
+    end end
+    self:enableReady(function (nation, ready)
+        self:setProduction(ready)
+        HUD.updateStatus(nation, ready)
+        ready_callback(nation, ready)
+    end)
+end
+
+function OrdersChart:restoreProduction()
+    if self.not_china then for sign, resource in pairs(self.trade) do self.UI.setAttributes(sign .. '-' .. resource, {
+        color = (sign == 'plus' and Color._green or Color._red):setAt('a', 0.5):toXml(true), isOn = true
+    }) end end
+    for unit, data in pairs(self.purchases) do if data.quantity > 0 then
+        if unit == 'cg' then self.UI.setValue('cg-quantity', data.quantity)
+        else self.UI.setAttribute(unit .. '-quantity', 'text', data.quantity) end
+        for resource, value in pairs(data) do if resource ~= 'quantity' then if unit == 'cg' then
+            self.UI.setAttribute('cg-' .. resource, 'text', value)
+        else self.UI.setValue(unit .. '-' .. resource, value) end end end
+    end end
+end
+
+function OrdersChart:setProduction(lock, clear)
+    for resource, _ in pairs(self.resources.current) do
+        self.UI.setAttribute('cg-' .. resource, 'interactable', not lock)
+        if clear then
+            self.UI.setAttribute('cg-' .. resource, 'text', '')
+            self:updatePurchase(0, 'cg', resource)
+    end end
+    for unit, data in pairs(Units) do if type(data) == 'table' and data.cost and (self.not_china or not data.cost.oil) then
+        self.UI.setAttribute(unit .. '-quantity', 'interactable', not lock)
+        if clear then
+            self.UI.setAttribute(unit .. '-quantity', 'text', '')
+            self:updatePurchase(0, unit)
+    end end end
+    if self.not_china then for resource, _ in pairs(self.resources.current) do for _, sign in ipairs{'plus', 'minus'} do
+        self.UI.setAttribute(sign .. '-' .. resource, 'interactable', not lock)
+        if clear then
+            self.UI.setAttribute(sign .. '-' .. resource, 'isOn', false)
+            if self.trade[sign] == resource then self:toggleTrade(false, sign, resource) end
+    end end end end
+end
+
+function OrdersChart:toggleTrade(on, sign, trade)
+    local other = sign == 'plus' and 'minus' or 'plus'
+    local reset = {color = Color.white:setAt('a', 0.3):toXml(true), isOn = false}
+    self.trade[sign] = on and trade or nil
+    if not on then self.UI.setAttributes(sign .. '-' .. trade, reset) else
+        if self.trade[other] == trade then self.trade[other] = nil end
+        self.UI.setAttribute(sign .. '-' .. trade, 'color', (sign == 'plus' and Color._green or Color._red):setAt('a', 0.5):toXml(true))
+        for res, _ in pairs(self.resources.current) do
+            self.UI.setAttributes((res == trade and other or sign) .. '-' .. res, reset)
+    end end
+    self:updateTrade()
+end
+
+function OrdersChart:resetTrade(sign, resource) self.UI.setAttributes(sign .. '-' .. resource, {
+    color = Color.white:setAt('a', 0.3):toXml(true), isOn = false
+}) end
+
+function OrdersChart:updateTrade()
+    local hidden = state.phase == 7 and state.step == 2
+    self.resources.post_trade = {}
+    for resource, value in pairs(self.resources.current) do
+        local tid, rid = 'trade-' .. resource, 'post_trade-' .. resource
+        self.resources.post_trade[resource] = value
+        if self.not_china then if resource == self.trade.plus then
+            self.UI.setAttributes(tid, {color = Color._green:setAt('a', 0.5):toXml(), active = true})
+            if self.trade.minus then self.resources.post_trade[resource] = value + tonumber(self.UI.getValue(tid)) end
+        elseif resource == self.trade.minus then
+            self.UI.setAttributes(tid, {color = Color.red:setAt('a', 0.5):toXml(), active = true})
+            if self.trade.plus then self.resources.post_trade[resource] = value - tonumber(self.UI.getValue(tid)) end
+        else self.UI.hide(tid) end end
+        self.UI.setValue(rid, hidden and '' or self.resources.post_trade[resource])
+    end
+    self:updateResources(hidden)
+end
+
+function OrdersChart:updatePurchase(value, unit, res)
+    self.purchases[unit] = self.purchases[unit] or {}
+    if unit == 'cg' then
+        local total = 0
+        self.purchases.cg[res] = value > 0 and value or nil
+        for k, cost in pairs(self.purchases.cg) do if k ~= 'quantity' then total = total + cost end end
+        self.purchases.cg.quantity = math.floor(total / 5)
+        if total == 0 then
+            self.purchases.cg = nil
+            self.UI.setValue('cg-quantity', '')
+        else self.UI.setValue('cg-quantity', self.purchases.cg.quantity) end
+    else
+        self.purchases[unit].quantity = value
+        for resource, cost in pairs(Units[unit].cost) do
+            self.purchases[unit][resource] = cost * value
+            self:setIntValue(unit .. '-' .. resource, self.purchases[unit][resource])
+        end
+        if value == 0 then self.purchases[unit] = nil end
+    end
+    self:updateResources(state.phase == 7 and state.step == 2)
+end
+
+function OrdersChart:updateResources(hidden)
+    self.resources.cost = {oil = self.not_china and 0 or nil, iron = 0, osr = 0}
+    local cg_spent, enable_ready = 0, true
+    for unit, data in pairs(self.purchases) do for resource, cost in pairs(data) do if resource ~= 'quantity' then
+        self.resources.cost[resource] = self.resources.cost[resource] + cost
+        if unit == 'cg' then cg_spent = cg_spent + cost end
+    end end end
+    if cg_spent % 5 > 0 then
+        for res, _ in pairs(self.resources.current) do self:inputError('cg-' .. res) end
+        enable_ready = false
+    else for res, _ in pairs(self.resources.current) do self:inputOK('cg-' .. res) end end
+    self.resources.remaining = {}
+    for resource, cost in pairs(self.resources.cost) do
+        self.resources.remaining[resource] = (self.resources.post_trade or self.resources.current)[resource] - cost
+        self:setIntValue('cost-' .. resource, hidden and 0 or cost)
+        self.UI.setValue('remaining-' .. resource, hidden and '' or self.resources.remaining[resource])
+        if self.resources.remaining[resource] < 0 then
+            self:inputError('remaining-' .. resource)
+            enable_ready = false
+        else self:inputOK('remaining-' .. resource) end
+    end
+    self.UI.setAttribute('ready', 'interactable', enable_ready)
+end
+
+function OrdersChart:revealPurchases()
+    self.UI.setAttributes('production', {active = true, visibility = ''})
+    local purchases = {}
+    for unit, t in pairs(self.purchases) do purchases[unit] = t.quantity end
+    return purchases
+end

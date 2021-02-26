@@ -1,0 +1,108 @@
+Promise = {}
+setmetatable(Promise, {__call = function (t, arg)
+    local p = {}
+    local s = tostring(p):gsub('table', 'promise')
+    setmetatable(p, {__index = t, __tostring = || s})
+    if type(arg) ~= 'nil' then return p:resolve(arg) else return p end
+end})
+
+function Promise.time(t, ...)
+    local p, args = Promise(), table.pack(...)
+    Wait.time(|| p:resolve(table.unpack(args, 1, args.n)), t)
+    return p
+end
+
+function Promise.frames(f, ...)
+    local p, args = Promise(), table.pack(...)
+    Wait.frames(|| p:resolve(table.unpack(args, 1, args.n)), f)
+    return p
+end
+
+function Promise.condition(fun, ...)
+    local p, args, pid = Promise(), table.pack(...)
+    pid = Wait.condition(|| p:resolve(table.unpack(args, 1, args.n)), function ()
+        local ok, result = pcall(fun)
+        if not ok then
+            if pid then Wait.stop(pid) end
+            p:reject(result)
+        else return result end
+    end)
+    return p
+end
+
+function Promise.all(...)
+    local p, t, pid = Promise(), {...}
+    if #t == 1 and type(t[1]) == 'table' then t = t[1] end
+    pid = Wait.condition(function ()
+        local results = {}
+        for _, q in ipairs(t) do
+            if q.resolved then for _, result in ipairs(q.result) do table.insert(results, result) end
+            elseif q.rejected then p:reject(q.error) break end
+        end
+        if not p.rejected then p:resolve(table.unpack(results)) end
+    end, function () if p.resolved or p.rejected then
+        Wait.stop(pid)
+        return false
+    else
+        local resolved, rejected = true, false
+        for _, q in ipairs(t) do resolved, rejected = q.resolved and resolved, q.rejected or rejected end
+        return resolved or rejected
+    end end)
+    return p
+end
+
+function Promise.isPromise(p)
+    if type(p) == 'table' then
+        local mt = getmetatable(p)
+        return mt ~= nil and mt.__index == Promise
+    else return false end
+end
+
+function Promise:resolve(...)
+    if not (self.resolved or self.rejected) then self.resolved, self.result = true, table.pack(...) end
+    return self
+end
+
+function Promise:reject(error)
+    warn('Rejected ', tostring(self), ': ', error)
+    if not (self.resolved or self.rejected) then self.rejected, self.error = true, error end
+    return self
+end
+
+function Promise:delay(time) return self:next(|...| Promise.time(time, ...)) end
+function Promise:skip(frames) return self:next(|...| Promise.frames(frames, ...)) end
+function Promise:when(fun) return self:next(|...| Promise.condition(fun, ...)) end
+
+function Promise:next(resolve_fun, reject_fun)
+    local p = Promise()
+    Wait.condition(function ()
+        local ok, result
+        if self.resolved then
+            if type(resolve_fun) == 'function' then
+                ok, result = pcall(|| table.pack(resolve_fun(self:unpack())))
+            elseif Promise.isPromise(resolve_fun) then
+                resolve_fun:resolve(self:unpack())
+                ok, result = true, self.result
+            end
+        elseif reject_fun then
+            if type(reject_fun) == 'function' then
+                ok, result = pcall(|| table.pack(reject_fun(self.error)))
+            elseif Promise.isPromise(reject_fun) then
+                reject_fun:reject(self.error)
+                ok, result = false, self.error
+            end
+        else result = self.error end
+        if ok then if result.n == 1 and Promise.isPromise(result[1]) then Wait.condition(
+            || result[1].resolved and p:resolve(result[1]:unpack()) or p:reject(result[1].error),
+            || result[1].resolved == true or result[1].rejected == true
+        ) else p:resolve(table.unpack(result, 1, result.n)) end
+        else p:reject(result) end
+    end, || self.resolved == true or self.rejected == true)
+    return p
+end
+
+function Promise:catch(reject_fun) return self:next(|| nil, reject_fun) end
+
+function Promise:finally(fun) return self:next(|...| fun(false, ...), |...| fun(true, ...)) end
+
+function Promise:unpack() return table.unpack(self.result, 1, self.result.n) end

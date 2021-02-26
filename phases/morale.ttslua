@@ -1,87 +1,223 @@
--- -- Step 1: Convert casualties into stress
+Morale = Phase({__index = Morale})
+Morale.Levels = {[20] = 1, [36] = 2, [52] = 3, [70] = 4, [90] = 5}
 
-function morale()
-    updateTracker('Convert casualties into stress', '6 - Morale', 'casualties')
-    resetStatus()
+function Morale:main()
+    HUD.updateTracker('Convert casualties into stress', '6 - Morale', 'casualties')
+    HUD.resetStatus()
     if state.scenario == 'global' and not state.pact_broken then
-        state.objects.orders.japan.UI.setAttribute('pact', 'interactable', false)
-        state.objects.orders.ussr.UI.setAttribute('pact', 'interactable', false)
+        Orders.japan.UI.setAttribute('pact', 'interactable', false)
+        Orders.ussr.UI.setAttribute('pact', 'interactable', false)
     end
-    MoraleBoard.UI.show('convert-button')
     state.pact_broken = state.pact_broken and true
+    if state.phase < 6 or state.step < 2 then self:convert() end
+    if state.step < 4 then self:cancel() end
+    if state.step < 5 then self:homeland() end
+    self:penalties()
 end
 
--- -- Step 2: Resolve medals and stress tokens
-
-function updateStressZone(nation, delta)
-    if type(nation) == 'table' then nation, delta = table.unpack(nation) end
-    debug('Updating stress zone for ', nation)
-    local token = state.objects.homeland_tokens[nation]
-    local pos, snap_index = Map.obj.positionToLocal(token.getPosition())
-    for i, snap in ipairs(Map.snaps) do if pos == snap.position then snap_index = i + 7 * delta break end end
-    token.setPositionSmooth(Map.obj.positionToWorld(Map.snaps[snap_index].position))
-    token.setRotationSmooth(Map.snaps[snap_index].rotation + Map.rotation)
-    local zone_index = math.floor((snap_index - 1) / 7)
-    local zone_msg = '[' .. StressZones[zone_index].color .. ']' .. StressZones[zone_index].name .. ' Zone[-]'
-    broadcastToAll(colorize(properName(nation), nation) .. ' has ' .. (delta > 0 and 'advanced' or 'recovered') .. ' to the ' .. zone_msg)
-end
-
--- -- Step 3: Apply stress zone penalties
-
-function getStressZone(nation)
-    if type(nation) == 'table' then nation = nation[1] end
-    local angle = Map.obj.call('rotationToCenter', Map.obj.positionToLocal(state.objects.homeland_tokens[nation].getPosition()))
-    if angle > 276.25 then return 6 else return math.floor((angle - 0.5) / 45) end
-end
-
-function applyStressPenalties()
-    updateTracker('Apply stress zone penalties', nil, 'stress')
-    resetStatus()
-    local ready, waiting = {}, false
-    for _, nation in ipairs(state.turn_order) do
-        local zone = getStressZone(nation)
-        if zone > 1 then
-            debug(nation, ' is in zone ', zone, ' and incurs a stress penalty')
-            state.objects.orders[nation].call('showReady')
-            ready[nation], waiting = false, true
-            --civilUnrest(nation, waiting)
-            --if zone == 6 then massDesertions(nation, waiting) end
-        else updateStatus(nation, true)
+function Morale:convert()
+    state.phase, state.step = 6, 1
+    self.UI.show('convert')
+    coroutine.yield()
+    self.UI.hide('convert')
+    self.UI.show('casualties')
+    local casualties = {}
+    for _, nation in turnOrder() do
+        casualties[nation] = {units = {}, utimer = 1, total = 0, count= 0, ctimer = 1, level = 0}
+        self.UI.show(nation .. '-casualties')
+        self.UI.setValue(nation .. '-count', 0)
+        self.UI.setAttribute(nation .. '-stress', 'image', 'stress-level0')
+        self.UI.hide(nation .. '-stress')
+    end
+    local rows, right = Nations:inOrder(), self.getTransformRight() * (self.is_face_down and -1 or 1)
+    for _, obj in ipairs(Physics.cast({
+        origin = self.getPosition() + self.getTransformForward():scale(1.8):setAt('y', self.is_face_down and 2.5 or 2.7),
+        type = 3, size = vector(25.5, 5, 13.2), orientation = vector(0, self.getRotation().y, 0),
+        direction = {0, 1, 0}, max_distance = 0
+    })) do
+        local name, pos = obj.hit_object.getName(), self.positionToLocal(obj.hit_object.getPosition())
+        local nation = rows[math.floor((pos.z + 0.5) / 0.225) + 1]
+        if name == 'convoy_dive' or Units[name] then
+            table.insert(casualties[nation].units, obj.hit_object)
     end end
-    if not waiting then writeProduction() else playerReady = function (data)
-        local all_ready = true
-        for nation, status in pairs(ready) do if data[nation] ~= nil then
-            debug(nation, ' toggled ready state')
-            updateStatus(nation, data[nation])
-            ready[nation] = data[nation]
-            all_ready = all_ready and data[nation]
-        else all_ready = all_ready and status end end
-        if all_ready then
-            for nation, orders in pairs(state.objects.orders) do orders.call('hideReady') end
-            writeProduction()
-    end end end
-    --[[function tookPenalty(_, nation) waiting[nation] = waiting[nation] - 1 end
-    Wait.condition(function ()
-        tookPenalty = nil
-        production()
-    end, function ()
-        for _, count in pairs(waiting) do if count > 0 then return false end end
-        return true
-    end)]]
+    for _, t in pairs(casualties) do table.sort(t.units, function (a, b)
+        local v = b.getPosition() - a.getPosition()
+        if v:copy():setAt('y', 0):magnitude() < 0.5 then return v.y > 0
+        else return v:copy():setAt('y', 0):dot(right) > 0 end
+    end) end
+    onUpdate = function () if self:countCasualties(casualties) then
+        onUpdate = nil
+        local ps = {}
+        for _, p in pairs(self.stress) do table.insert(ps, p) end
+        Promise.all(ps):next(|| self.resume())
+    end end
+    coroutine.yield()
+    state.step = 2
 end
 
-function civilUnrest(nation, waiting)
-    local resources, total = state.objects.resources[nation], 0
-    for _, value in pairs(resources.call('totals')) do total = total + value end
-    if total > 0 then
-        waiting[nation] = waiting[nation] + math.max(total, 3)
+function Morale:cancel()
+    if state.step < 3 then
+        self.UI.show('spend')
+        coroutine.yield()
+        self.UI.hide('spend')
+        state.step = 3
+    end
+    HUD.updateTracker('Spend medals to cancel stress', nil, 'medals')
+    HUD.resetStatus()
+    local done = {}
+    for _, nation in turnOrder() do
+        self.UI.hide(nation .. '-casualties')
+        self.UI.show(nation .. '-stress')
+        self.medals[nation], self.stress[nation] = self:getStack(nation, 'medal_goods'), self:getStack(nation, 'stress')
+        local total = 0
+        for _, obj in ipairs(self.stress[nation]) do total = total + tonumber(obj.getName():match('%d')) end
+        self:updateStress(nation, total)
+        done[nation] = Promise()
+        table.insert(done, done[nation])
+        if #self.medals[nation] > 0 and #self.stress[nation] > 0 then
+            self:medalButtons(nation, self.medals[nation][#self.medals[nation]])
+        else done[nation]:resolve() end
+    end
+    Promise.all(done):next(|| self.resume('done'))
+    while true do
+        local nation, id = coroutine.yield()
+        if nation == 'done' then break
+        elseif id ~= 'done' then nation = id end
+        local medals, stress = self.medals[nation], self.stress[nation]
+        if id == 'done' then
+            medals[#medals].UI.setXml('')
+            done[nation]:resolve()
+        else
+            debug(nation, ' spent a medal')
+            local medal = table.remove(medals)
+            local xml = medal.UI.getXml()
+            medal.UI.setXml('')
+            self:updateStress(nation, -1)
+            Promise.all(fadeOut(medal), self:removeStress(stress, 1)):next(function ()
+                if #medals > 0 and #stress > 0 then
+                    medals[#medals].UI.setXml(xml)
+                else done[nation]:resolve() end
+            end)
+    end end
+    state.step = 4
+    self.UI.hide('casualties')
+end
+
+function Morale:homeland()
+    HUD.updateTracker('Evaluate homeland stress levels')
+    local thresholds, ps = {}, {}
+    for _, nation in turnOrder() do
+        self.medals[nation] = self.medals[nation] or self:getStack(nation, 'medal_goods')
+        self.stress[nation] = self.stress[nation] or self:getStack(nation, 'stress')
+        thresholds[nation] = Nations[nation].morale[self.is_face_down and 2 or 1]
+        local total = 0
+        for _, obj in ipairs(self.stress[nation]) do total = total + tonumber(obj.getName():match('%d')) end
+        debug(nation, ' has ', total, ' total stress')
+        total = total - total % thresholds[nation]
+        if total > 0 then table.insert(ps, self:removeStress(self.stress[nation], total):next(function ()
+            self.stress[nation] = nil
+            return self.updateZone(nation, total / thresholds[nation])
+        end)) else self.stress[nation] = nil end
+    end
+    if #ps > 0 then
+        Promise.all(ps):next(|| self.resume())
+        coroutine.yield()
+    end
+    HUD.updateTracker('Relieve homeland stress')
+    for _, nation in turnOrder() do if self.stressZone(nation) > 1 and #self.medals[nation] >= thresholds[nation] then
+        self:medalButtons(nation, self.medals[nation][#self.medals[nation]], thresholds[nation])
+    else self.medals[nation] = nil end end
+    ps = {}
+    if next(self.medals) then repeat
+        local nation, spent = coroutine.yield()
+        if spent ~= 'done' then nation = spent end
+        local medals = self.medals[nation]
+        if spent ~= 'done' then
+            for i = 1, thresholds[nation] do fadeOut(medals[#medals - i + 1]) end
+            table.insert(ps, self.updateZone(nation, -1))
+        else medals[#medals].UI.setXml('') end
+        self.medals[nation] = nil
+    until next(self.medals) == nil end
+    if #ps > 0 then
+        Promise.all(ps):next(|| self.resume())
+        coroutine.yield()
+    end
+    state.step = 5
+end
+
+function Morale:penalties()
+    if state.step < 6 then
+        HUD.updateTracker('Apply penalties: Lose 3 resources', nil, 'unrest')
+        HUD.resetStatus()
+        local ps = {}
+        for _, nation in turnOrder() do if self.stressZone(nation) > 1 then
+            debug(nation, ' loses 3 resources')
+            local total = 0
+            for _, value in pairs(Orders[nation].resources.current) do total = total + value end
+            table.insert(ps, Promise.condition(function ()
+                local current = 0
+                for _, value in pairs(Orders[nation].resources.current) do current = current + value end
+                return total - current == 3
+            end):next(|| HUD.updateStatus(nation, true)))
+        else HUD.updateStatus(nation, true) end end
+        if #ps > 0 then
+            Promise.all(ps):next(|| self.resume())
+            coroutine.yield()
+        end
+        state.step = 6
+    end
+    HUD.updateTracker('Apply penalties: Mass desertions', nil, 'desertions')
+    HUD.resetStatus()
+    local ps = {}
+    for _, nation in turnOrder() do if self.stressZone(nation) == 6 then
+        debug(nation, ' suffers mass desertions')
+        -- to be implemented
+        -- use ready buttons
+    else HUD.updateStatus(nation, true) end end
+    if #ps > 0 then
+        Promise.all(ps):next(|| self.resume())
+        coroutine.yield()
     end
 end
 
-function massDesertions(nation, waiting)
-    local stress = MoraleBoard.call('getStress', {nation = nation})
-    waiting[nation] = waiting[nation] + stress
-    if stress > 0 then
-        debug('Not implemented')
-    end
+function Morale:countCasualties(casualties)
+    local all_done = true
+    for nation, data in pairs(casualties) do
+        if (data.ltimer or 0) > 0 then
+            data.ltimer = data.ltimer - 1
+            self.UI.setAttribute(nation .. '-level', 'color', Color.oil:lerp(Color.white, 1 - data.ltimer / 10):setAt('a', 0.75):toXml())
+        elseif data.ltimer == 0 then data.ltimer = nil end
+        if not data.ready then
+            all_done, data.utimer, data.ctimer = false, data.utimer - 1, data.ctimer - 1
+            for _, timer in ipairs{'unit', 'count', 'shade'} do if data[timer .. '_timer'] then
+                data[timer .. '_timer'] = data[timer .. '_timer'] - 1
+            end end
+            if #data.units > 0 and data.utimer < 1 then
+                local unit = table.remove(data.units)
+                local value = Units[unit.getName():gsub('convoy_dive', 'submarine')].casualties
+                data.total, data.utimer = data.total + value, 2 + value
+                unit.destruct()
+            end
+            if data.total > data.count and data.ctimer < 1 then
+                data.count = data.count + 1
+                self.UI.setValue(nation .. '-count', data.count)
+                data.ctimer = math.ceil(8 / (data.total - data.count))
+                if self.Levels[data.count] then
+                    data.level, data.ltimer = self.Levels[data.count], 10
+                    self:addStress(nation, 1)
+                    self.UI.setAttributes(nation .. '-level', {color = Color.oil:setAt('a', 0.75):toXml(), image = 'stress-level' .. data.level})
+            end end
+            if #data.units == 0 and data.total == data.count then
+                data.ready = true
+                local shade = Color.white:lerp(Color.medal, math.min(data.level / 4, 1)):lerp(Color.oil, math.max((data.level - 2) / 3, 0))
+                alert(string.format('%s received %s stress from casualties', Nations[nation]:colorized(), string.colorize(data.level, shade)))
+    end elseif data.ltimer then all_done = false end end
+    return all_done
+end
+
+function Morale:updateStress(nation, value)
+    local id = nation .. '-stress'
+    if value < 0 then value = tonumber(self.UI.getValue(id):match('%d+')) + value end
+    self.UI.setValue(id, value == 0 and '' or value .. '/')
+    self.UI.setAttribute(id, 'color', '#ff' .. (value >= Nations[nation].morale[self.is_face_down and 2 or 1] and '8040' or 'ffff'))
 end

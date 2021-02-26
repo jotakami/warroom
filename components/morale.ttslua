@@ -1,0 +1,188 @@
+Morale = {Zones = {
+    {name = 'White', label = 'Acceptable Stress', color = 'fbfcfc'},
+    {name = 'Blue', label = 'Labor and Civil Unrest', color = 'aed6f1'},
+    {name = 'Yellow', label = 'Dysfunctional Infrastructure', color = 'f7dc6f'},
+    {name = 'Orange', label = 'Supply Lines Disrupted', color = 'e59866'},
+    {name = 'Red', label = 'Economic Collapse', color = 'f1948a'},
+    {name = 'Grey', label = 'Mass Desertions', color = 'abb2b9'}
+}}
+
+function Morale:initialize(obj, scenario)
+    setmetatable(getmetatable(self).__index, {__index = obj})
+    self.stacks, self.stress, self.medals, self.snaps = {}, {}, {}, {}
+    local origin, flip = self.getPosition(), (scenario == 'europe' or scenario == 'pacific') and not self.is_face_down
+    local snaps, nations, nation, unit = self.getSnapPoints(), Nations:inOrder()
+    for i, snap in ipairs(snaps) do
+        if (i - 1) % 11 == 0 then
+            nation = table.remove(nations)
+            self.snaps[nation], unit = {}, 'medal_goods'
+        elseif unit ~= 'medal_goods' then
+            unit = next(Units, unit ~= 'stress' and unit:gsub('fighter', 'c%0') or nil)
+        else unit = 'stress' end
+        if flip then snap.position, snap.rotation.x = snap.position:rotateOver('x', 180) + vector(0, 0.2, 0), (snap.rotation.x + 180) % 360 end
+        self.snaps[nation][unit] = snap.position
+    end
+    if flip then
+        self.setLock(false)
+        self.flip()
+        self.setSnapPoints(snaps)
+        Wait.condition(|| self.setLock(true), || self.resting)
+    end
+    self:loadUI(scenario)
+end
+
+#include ../ui/morale
+
+function Morale:casualties(units)
+    debug('Stacking casualties on the morale board')
+    if not rawget(units, 1) then units = {units} end
+    local ps, casualties = {}, {}
+    while #units > 0 do
+        local unit = table.remove(units)
+        local name = unit.getName():gsub('cfighter', 'fighter')
+        casualties[unit.nation] = casualties[unit.nation] or {}
+        casualties[unit.nation][name] = casualties[unit.nation][name] or {}
+        table.insert(casualties[unit.nation][name], unit)
+        self.stacks[unit.nation] = self.stacks[unit.nation] or {}
+    end
+    for nation, names in pairs(casualties) do for name, units in pairs(names) do
+        debug('Stacking ', #units, ' ', nation, ' ', name, ' casualties')
+        self.stacks[nation][name] = self:stackUnits(nation, name, units)
+        table.insert(ps, self.stacks[nation][name])
+    end end
+    return Promise.all(ps)
+end
+
+function Morale:sunkConvoys(nation, value)
+    debug('Stacking ', value, ' convoy tokens on the morale board')
+    local units = {}
+    for _ = 1, value do table.insert(units, 'convoy_dive') end
+    self.stacks[nation] = self.stacks[nation] or {}
+    self.stacks[nation].submarine = self:stackUnits(nation, 'submarine', units)
+    return self.stacks[nation].submarine
+end
+
+function Morale:stackUnits(nation, name, units)
+    local p = self.stacks[nation][name] or Promise():resolve(self.positionToWorld(self.snaps[nation][name]) + vector(0, 0.05, 0))
+    return p:next(function (pos)
+        local q = Promise()
+        for i, unit in ipairs(units) do Wait.frames(function ()
+            if type(unit) ~= 'string' then
+                unit.setPositionSmooth(pos + vector(0, unit.is_face_down and 0.21 or 0, 0))
+                unit.setRotationSmooth(unit.getRotation():setAt('x', 0):setAt('y', self.getRotation().y))
+                if i == #units then Wait.condition(|| q:resolve(pos), || not unit.isSmoothMoving()) end
+            else debug('Stacking casualty from bag') Bags[unit].takeObject({
+                position = pos, rotation = vector(0, self.getRotation().y, 0),
+                callback_function = i == #units and (|| q:resolve(pos)) or nil
+            }) end
+            pos = pos + vector(0, 0.21, 0)
+        end, i * 5 - 4) end
+        return q
+    end)
+end
+
+function Morale:getStack(nation, name)
+    local objs = {}
+    for _, obj in ipairs(Physics.cast({
+        origin = self.positionToWorld(self.snaps[nation][name]) - vector(0, 0.1, 0), direction = {0, 1, 0}, max_distance = 5
+    })) do if obj.hit_object.getName():match(name) then table.insert(objs, obj.hit_object) end end
+    table.sort(objs, function (a, b)
+        local ay, by = a.getPosition().y, b.getPosition().y
+        if name ~= 'medal_goods' then
+            if a.is_face_down then ay = ay - 0.21 end
+            if b.is_face_down then by = by - 0.21 end
+        end
+        return ay < by
+    end)
+    debug('Found ', #objs, ' ', nation, ' ', name)
+    return objs
+end
+
+function Morale:addGoods(nation, value) self:addMedals(nation, value, true) end
+function Morale:addMedals(nation, value, is_goods)
+    debug('Giving ', value, ' ', is_goods and 'consumer goods' or 'medals', ' to ', nation)
+    alert(string.format('%s was awarded %s medal', Nations[nation]:colorized(), string.colorize(value, 'medal')) .. (value > 1 and 's' or ''))
+    self.medals[nation] = self.medals[nation] or Promise():resolve(self.positionToWorld(self.snaps[nation].medal_goods))
+    for i = 1, value do self.medals[nation] = self.medals[nation]:next(function (target)
+        local p = Promise()
+        Bags.medal_goods.takeObject({
+            position = self.positionToWorld(self.snaps[nation].medal_goods + vector(0, 2.5, 0)),
+            rotation = vector(0, self.getRotation().y, is_goods and 180 or 0),
+            callback_function = function (obj) Wait.condition(
+                || p:resolve(obj.getPosition() + vector(0, 0.105, 0)),
+                || target:between(obj.getPosition()).y < 0.2 and obj.getVelocity():magnitude() == 0
+        ) end})
+        return p
+    end) end
+end
+
+function Morale:addStress(nation, value)
+    debug('Giving ', value, ' stress to ', nation)
+    if not Promise.isPromise(self.stress[nation]) then
+        local stress, pos, singles = self:getStack(nation, 'stress'), self.positionToWorld(self.snaps[nation].stress), {}
+        if #stress > 0 then pos = stress[#stress].getPosition() + vector(0, stress[#stress].is_face_down and 0 or 0.21, 0) end
+        for i = #stress, 1, -1 do if stress[i]:getName():match('1') then table.insert(singles, 1, stress[i]) else break end end
+        self.stress[nation] = self:stackStress(value, nation, pos, singles)
+    else
+        local resolved = self.stress[nation].resolved ~= nil
+        self.stress[nation] = self.stress[nation]:next(function (count, ...) return count + value, ... end)
+        if resolved then self:moreStress(nation) end
+    end
+end
+
+function Morale:stackStress(count, nation, target, singles)
+    if count == 0 then return Promise():resolve(0, target, singles) end
+    local p, size, value = Promise(), 1, 1
+    if #singles == 2 then
+        for _, single in ipairs(singles) do single.destruct() end
+        size, singles = 3, {}
+    elseif #singles == 0 and count > 2 then size, value = 3, 3 end
+    debug('Stacking ', value, ' stress on ', nation)
+    Bags.stress[size].takeObject({
+        position = self.positionToWorld(self.snaps[nation].stress + vector(0, 2.5, 0)),
+        rotation = vector(0, self.getRotation().y, 0),
+        callback_function = function (obj) Wait.condition(function ()
+            if size == 1 then table.insert(singles, obj) end
+            debug('Stacked stress on ', nation, ', resolving promise with ', count - value, ' remaining')
+            p:resolve(count - value, obj.getPosition() + vector(0, 0.21, 0), singles)
+            self:moreStress(nation)
+        end, || target:between(obj.getPosition()).y < 0.1 and obj.getVelocity():magnitude() < 0.1) end
+    })
+    return p
+end
+
+function Morale:moreStress(nation) self.stress[nation] = self.stress[nation]:next(
+    |count, pos, singles| self:stackStress(count, nation, pos, singles)
+) end
+
+function Morale:removeStress(stress, total)
+    local ps = {}
+    while total > 0 do
+        local obj = table.remove(stress)
+        local value, p, pos = tonumber(obj.getName():match('%d')), fadeOut(obj), obj.getPosition()
+        for i = 1, value - total do p = p:next(function () table.insert(stress, Bags.stress[1].takeObject({
+            position = pos + vector(0, 0.21 * (i - 1), 0), rotation = {0, 180, 0}, smooth = false
+        })) end) end
+        table.insert(ps, p)
+        total = total - value
+    end
+    return Promise.all(ps)
+end
+
+function Morale.stressZone(nation)
+    local angle = Map:rotationToCenter(Map.positionToLocal(Tokens.homeland[nation].getPosition()))
+    if angle > 276.25 then return 6 else return math.floor((angle - 0.5) / 45) end
+end
+
+function Morale.updateZone(nation, delta)
+    debug('Updating stress zone for ', nation)
+    local token = Tokens.homeland[nation]
+    local pos, snap_index = Map.positionToLocal(token.getPosition())
+    for i, snap in ipairs(Map.snaps) do if pos == snap.position then snap_index = i + 7 * delta break end end
+    token.setPositionSmooth(Map.positionToWorld(Map.snaps[snap_index].position))
+    token.setRotationSmooth(Map.snaps[snap_index].rotation + Map.rotation)
+    local zone = Morale.Zones[math.floor((snap_index - 1) / 7)]
+    alert(string.format('%s has %s to the %s', Nations[nation]:colorized(),
+        delta > 0 and 'advanced' or 'recovered', string.colorize(zone.name .. ' Zone', Color.fromHex(zone.color))))
+    return Promise.condition(|| not token.isSmoothMoving())
+end

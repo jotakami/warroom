@@ -1,67 +1,63 @@
--- -- -- Convoy raids
+Combat.Raid = Combat.Action()
 
-function resolveRaid(hotspot)
-    local region = getRegion(hotspot)
-    local commands, raiders, clusters, targets = getCommands(region), {}, {}, {}
+function Combat.Raid:main(commands)
+    local region = Map.regions[self.hotspot.region]
+    local raiders, clusters, targets = {}, {}, {}
     local axis = commands.axis.fleet or commands.axis.air
-    debug('Resolving ', axis and 'axis' or 'allies', ' convoy raid in region ', region)
+    debug('Resolving ', axis and 'axis' or 'allies', ' convoy raid in region ', region.id)
     for force, objs in pairs(commands[axis and 'axis' or 'allies']) do if force ~= 'army' then
         for _, obj in ipairs(objs) do table.insert(raiders, obj) end
     end end
     debug('Raid involves ', #raiders, ' commands')
-    for _, cluster in ipairs(activeConvoys(region)[axis and 'allies' or 'axis']) do
+    for _, cluster in ipairs(region:activeConvoys()[axis and 'allies' or 'axis']) do
         local resources = {}
         for origin, values in pairs(cluster) do
-            local owner = getOwnership(origin:match('^%w%d+'))
+            local owner = Map.regions[origin:match('^%w%d+')]:owner()
             if origin:find('-') then for _, resource in ipairs{'oil', 'iron', 'osr'} do
                 if values[resource] then resources[resource] = {[owner] = values[resource]} end
             end else for _, resource in ipairs{'oil', 'iron', 'osr'} do if values[resource] then
-                local loss = math.min(lossLimit(origin)[resource] or 0, values[resource])
+                local loss = math.min(Map.regions[origin]:income()[resource] or 0, values[resource])
                 if loss > 0 then
                     resources[resource] = resources[resource] or {}
                     resources[resource][owner] = (resources[resource][owner] or 0) + loss
             end end end end
-            table.insert(targets, {position = Map.obj.positionToWorld({values.x, 0.6, values.z}), cluster = #clusters + 1})
+            table.insert(targets, {position = Map.positionToWorld({values.x, 0.6, values.z}), cluster = #clusters + 1})
         end
         table.insert(clusters, {resources = resources, raiders = {}})
     end
     debug('Raid involves ', #clusters, ' convoy clusters')
     if #clusters > 1 then
         local pids = {}
-        for _, raider in ipairs(raiders) do updateRaidTarget(raider, pids, function (command)
-            setRaidTarget(command, targets, clusters)
-            debug('Updated raid target for ', command.getGUID())
-        end, function (command)
-            command.setVectorLines()
-            debug('Command ', command.getGUID(), ' was moved, clearing target line')
-        end) end
-        state.combat.hotspots[region].status = 'raid'
-        self.setVar('raid' .. region, function ()
-            debug('Confirming convoy raid in ', region)
-            self.setVar('raid' .. region, nil)
-            for _, pid in pairs(pids) do Wait.stop(pid) end
-            rollRaid(hotspot, commands, clusters)
-        end)
-    else
-        clusters[1].raiders = raiders
-        rollRaid(hotspot, commands, clusters)
-    end
+        for _, raider in ipairs(raiders) do self:updateTarget(raider, pids, function (command)
+            self.setTarget(command, targets, clusters)
+            debug('Updated raid target for ', command.guid)
+        end, |command| command.setVectorLines()) end
+        self.hotspot.obj.memo, self.hotspot.resume = 'raid', self.resume
+        coroutine.yield()
+        self.hotspot.obj.memo = 'busy'
+        UI.setValue('combat-status' .. self.hotspot.hud, '♦')
+        debug('Confirming convoy raid in ', region.id)
+        for _, pid in pairs(pids) do Wait.stop(pid) end
+    else clusters[1].raiders = raiders end
+    for _, cluster in ipairs(clusters) do for _, command in ipairs(cluster.raiders) do command.setVectorLines() end end
+    for _, cluster in ipairs(clusters) do if #cluster.raiders > 0 then self:rollConvoyCluster(cluster) end end
+    self:debrief()
 end
 
-function updateRaidTarget(command, pids, set_fun, clear_fun)
-    local condition, callback
-    if command.getVectorLines() then func, condition = clear_fun, || not command.resting
-    else func, condition = set_fun, || command.resting end
-    pids[command.getGUID()] = Wait.condition(function ()
-        func(command)
-        updateRaidTarget(command, pids, set_fun, clear_fun)
+function Combat.Raid:updateTarget(command, pids, set_fun, clear_fun)
+    local fun, condition
+    if command.getVectorLines() then fun, condition = clear_fun, || not command.resting
+    else fun, condition = set_fun, || command.resting end
+    pids[command.guid] = Wait.condition(function ()
+        fun(command)
+        self:updateTarget(command, pids, set_fun, clear_fun)
     end, condition)
 end
 
-function setRaidTarget(command, targets, clusters)
-    debug('Updating raid target for ', command.getGUID())
+function Combat.Raid.setTarget(command, targets, clusters)
+    debug('Updating raid target for ', command.guid)
     local pos, distance, target = command.getPosition(), 1000
-    for _, t in ipairs(targets) do debug('Checking target at ', t.position) if pos:distance(t.position) < distance then
+    for _, t in ipairs(targets) do if pos:distance(t.position) < distance then
         distance, target = pos:distance(t.position), t
     end end
     command.setVectorLines({{
@@ -71,7 +67,7 @@ function setRaidTarget(command, targets, clusters)
     local moved = true
     debug('Checking if command changed targets')
     for i, cluster in ipairs(clusters) do
-        for j, raider in ipairs(cluster.raiders) do if raider.getGUID() == command.getGUID() then
+        for j, raider in ipairs(cluster.raiders) do if raider.guid == command.guid then
             moved = i ~= target.cluster
             if moved then table.remove(cluster.raiders, j) break end
         end end
@@ -79,114 +75,85 @@ function setRaidTarget(command, targets, clusters)
     end
 end
 
-function rollRaid(hotspot, commands, clusters)
-    local region = getRegion(hotspot)
-    for _, cluster in ipairs(clusters) do for _, command in ipairs(cluster.raiders) do command.setVectorLines() end end
-    rollConvoyCluster(hotspot, clusters, function ()
-        checkTransports(region, commands)
-        debriefAirCommands(commands)
-        returnPiece(hotspot)
-        clearHotspot(region)
-    end)
-end
-
-function rollConvoyCluster(hotspot, clusters, callback)
-    local region = getRegion(hotspot)
-    if #clusters > 0 then
-        local cluster, count = table.remove(clusters), 0
-        if #cluster.raiders > 0 then
-            debug('Rolling convoy cluster in region ', region)
-            local anchor = vector(0, 0, 0)
-            for _, command in ipairs(cluster.raiders) do
-                debug('Inspecting command ', command.getGUID())
-                anchor = anchor + command.getPosition()
-                if command.getName() == 'cfighter' then count = count + 1
-                else count = count + #command.getAttachments() end
-            end
-            debug('Found ', count, ' units raiding this cluster')
-            anchor = (anchor * (1 / #cluster.raiders)):setAt('y', 8.5)
-            local hits, pos = {wild = {}}, (Map.obj.positionToLocal(hotspot.getPosition()) - Map.data.center):setAt('y', 0):normalized()
-            local roll_callback = || convoyHits(region, anchor, hits, cluster, || rollConvoyCluster(hotspot, clusters, callback))
-            debug('Rolling dice')
-            rollDice(dicePositions(count, anchor, pos), function (dice) Wait.time(function ()
-                debug('Processing convoy roll results')
-                for _, die in ipairs(dice) do
-                    local color = getDieColor(die)
-                    if color == 'red' and cluster.resources.oil and not hits.oil then hits.oil = die
-                    elseif color == 'blue' and cluster.resources.iron and not hits.iron then hits.iron = die
-                    elseif color == 'yellow' and cluster.resources.osr and not hits.osr then hits.osr = die
-                    elseif color == 'black' then table.insert(hits.wild, die)
-                    else die.destruct() end
-                end
-                if #hits.wild > 0 then
-                    local missed = {}
-                    for _, res in ipairs{'oil', 'iron', 'osr'} do if cluster.resources[res] and not hits[res] then table.insert(missed, res) end end
-                    if #hits.wild < #missed then
-                        local hit_types = {resources = {}}
-                        for _, res in ipairs(missed) do hit_types.resources[res] = true end
-                        chooseWildHits(hits, hit_types, anchor, cluster.raiders[1], 'assignHit' .. region, roll_callback)
-                    else
-                        debug('Black dice assigned automatically')
-                        for i, die in ipairs(hits.wild) do if i > #missed then die.destruct()
-                        else
-                            hits[missed[i]] = die
-                            setDieColor(die, missed[i] == 'oil' and 'red' or missed[i] == 'iron' and 'blue' or 'yellow')
-                        end end
-                        roll_callback()
-            end else roll_callback() end end, 1) end)
-        else rollConvoyCluster(hotspot, clusters, callback) end
-    else callback() end
-end
-
-function chooseWildHits(hits, hit_types, anchor, obj, fun_name, callback)
-    debug('Setting up raid hit buttons')
-    createHitButtons(obj, hit_types, nil, anchor - obj.getPosition())
-    hits.wild[1].highlightOn({1, 1, 1})
-    self.setVar(fun_name, function (_, value, _)
-        local res, die = value:match('%-(%a+)'), table.remove(hits.wild, 1)
-        die.highlightOff()
-        hits[res] = die
-        setDieColor(die, res == 'oil' and 'red' or res == 'iron' and 'blue' or 'yellow')
-        if #hits.wild > 0 then
-            obj.UI.hide(res)
-            hits.wild[1].highlightOn({1, 1, 1})
-        else
-            obj.UI.setXml('')
-            self.setVar(fun_name, nil)
-            callback()
-    end end)
-end
-
-function convoyHits(region, pos, hits, cluster, callback)
-    local num = 0
-    hits.wild = nil
-    for _, _ in pairs(hits) do num = num + 1 end
-    if num > 0 then
-        debug('Assessing convoy hits')
-        local offset = (Map.obj.positionToLocal(pos) - Map.data.center):setAt('y', 0):normalized():rotateOver('y', 90) * (1 / 0.71)
-        pos = pos + offset * 0.5 * (num - 1)
-        for _, res in ipairs{'oil', 'iron', 'osr'} do if hits[res] then
-            hits[res].setPositionSmooth(pos)
-            pos = pos - offset
+function Combat.Raid:rollConvoyCluster(cluster)
+    debug('Rolling convoy cluster in region ', self.hotspot.region)
+    local count, height, anchor = 0, 1, vector(0, 0, 0)
+    for _, command in ipairs(cluster.raiders) do
+        debug('Inspecting command ', command.guid)
+        anchor = anchor + command.getPosition()
+        if command.getName() == 'cfighter' then count = count + 1
+        else count, height = count + command.units(), math.max(height, command.units()) end
+    end
+    debug('Found ', count, ' units raiding this cluster')
+    anchor = (anchor * (1 / #cluster.raiders)):setAt('y', 7.75 + 0.21 * height)
+    local hits, offset = {wild = {}}, Map:radialVector(anchor)
+    Bags.dice:roll(Dice.positions(count, anchor, offset)):delay(1):next(|dice| self.resume(dice))
+    for _, die in ipairs(coroutine.yield()) do
+        local color = die:getColor()
+        if color == 'red' and cluster.resources.oil and not hits.oil then hits.oil = die
+        elseif color == 'blue' and cluster.resources.iron and not hits.iron then hits.iron = die
+        elseif color == 'yellow' and cluster.resources.osr and not hits.osr then hits.osr = die
+        elseif color == 'black' then table.insert(hits.wild, die)
+        else die.destruct() end
+    end
+    if #hits.wild > 0 then
+        local missed = {}
+        for _, res in ipairs{'oil', 'iron', 'osr'} do if cluster.resources[res] and not hits[res] then
+            table.insert(missed, res)
         end end
-        Wait.condition(function () Wait.frames(function ()
-            for _, die in pairs(hits) do die.destruct() end
-            local losses = {}
-            for res, _ in pairs(hits) do for nation, value in pairs(cluster.resources[res]) do
-                losses[nation] = losses[nation] or {}
-                losses[nation][res] = -value
-            end end
-            for nation, loss in pairs(losses) do
-                state.objects.resources[nation].call('addResources', loss)
-                local msg = colorize(properName(nation), nation) .. ' lost'
-                for res, value in pairs(loss) do msg = string.format('%s %s %s,', msg, colorize(-value, res), res) end
-                msg = string.format('%s from convoy raid in %s', msg:sub(1, -2), properName(region))
-                printToAll(msg)
+        if #hits.wild < #missed then
+            debug('Need to assign black dice')
+            local obj, buttons = cluster.raiders[1], {}
+            for _, res in ipairs(missed) do table.insert(buttons, {{id = res, image = res}}) end
+            local offset = anchor - obj.getPosition() + vector(0, 0.75, 0)
+            self:createHitButtons(buttons, obj, offset)
+            for _, die in ipairs(hits.wild) do
+                setGlow(die)
+                local res = coroutine.yield()
+                stopGlow(die)
+                hits[res] = die
+                die:setColor(res == 'oil' and 'red' or res == 'iron' and 'blue' or 'yellow')
+                obj.UI.hide(res)
             end
-            callback()
-        end, 5) end, function ()
-            for _, die in pairs(hits) do if die.isSmoothMoving() then return false end end
-            return true
-        end)
-    else callback() end
+            obj.UI.setXml('')
+        else
+            debug('Black dice assigned automatically')
+            for i, die in ipairs(hits.wild) do if i <= #missed then
+                hits[missed[i]] = die
+                die:setColor(missed[i] == 'oil' and 'red' or missed[i] == 'iron' and 'blue' or 'yellow')
+            else die.destruct() end end
+    end end
+    hits.wild, count = nil, 0
+    for _, _ in pairs(hits) do count = count + 1 end
+    if count > 0 then self:assessHits(count, hits, cluster, anchor) end
+end
+
+function Combat.Raid:assessHits(count, hits, cluster, pos)
+    debug('Assessing convoy hits')
+    local offset = Map:radialVector(pos):rotateOver('y', 90) * math.sqrt(2)
+    pos = pos + offset * 0.5 * (count - 1)
+    for _, res in ipairs{'oil', 'iron', 'osr'} do if hits[res] then
+        hits[res].setPositionSmooth(pos)
+        pos = pos - offset
+    end end
+    Promise.condition(function ()
+        for _, die in pairs(hits) do if die.isSmoothMoving() then return false end end
+        return true
+    end):skip(5):next(|| self.resume())
+    coroutine.yield()
+    local losses = {}
+    for res, die in pairs(hits) do
+        die.destruct()
+        for nation, value in pairs(cluster.resources[res]) do
+            losses[nation] = losses[nation] or {resources = {}, total = 0}
+            losses[nation].resources[res], losses[nation].total = -value, losses[nation].total + value
+    end end
+    for nation, loss in pairs(losses) do
+        Resources[nation]:addResources(loss.resources)
+        if state.options and state.options.take_her_down then Morale:sunkConvoys(nation, loss.total) end
+        local msg = Nations[nation]:colorized() .. ' lost'
+        for res, value in pairs(loss.resources) do msg = string.format('%s %s %s,', msg, string.colorize(-value, res), res) end
+        msg = string.format('%s from convoy raid in %s', msg:sub(1, -2), Map.regions[self.hotspot.region]:colorizedName())
+        alert(msg)
+    end
 end

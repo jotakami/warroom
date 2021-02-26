@@ -1,0 +1,334 @@
+HUD.XML = {Defaults = {
+    Image = {
+        default = {height = 35, width = 35},
+        slash = {image = 'order-slash', ignoreLayout = true},
+        disabled = {active = false}
+    },
+    Text = {
+        default = {color = '#ffffff'},
+        outline = {outline = 'black', outlineSize = '1 1'},
+        status = {fontSize = 30, outline = 'black', outlineSize = '1.5 1.5', active = false},
+        tracker = {alignment = 'middleLeft'},
+        label = {fontSize = 12},
+        region_id = {fontStyle = 'Bold'},
+        region_name = {fontSize = 10, horizontalOverflow = 'Wrap', verticalOverflow = 'Overflow'},
+        purchase = {fontSize = 28},
+        oil = {color = '#9a2829'},
+        iron = {color = '#4276bb'},
+        osr = {color = '#ddb426'}
+    },
+    InputField = {
+        default = {colors = '#ffffff20|#ffffff40|#ffffff20|clear', placeholder = ' '},
+        order = {fontSize = 24},
+        bid = {fontSize = 20},
+        command = {characterValidation = 'Integer', characterLimit = 3},
+        target = {characterLimit = 4}
+    },
+    Button = {
+        disabled = {interactable = false},
+        hide = {image = 'minimize', highlightedSprite = 'minimize-hover', transition = 'SpriteSwap'},
+        display = {transition = 'SpriteSwap', visibility = 'White|Green|Orange|Blue|Brown|Red|Yellow|Grey|Black|Pink'},
+        resolve = {fontSize = 8, position = '-156 0'},
+        scenario = {fontSize = 28, onClick = 'chooseScenario'},
+        combat = {icon = 'cancel', onClick = 'forceResolve'}
+    },
+    Panel = {
+        shade = {color = '#000000b0'},
+        draggable = {allowDragging = true, returnToOriginalPositionWhenReleased = false},
+        tracker = {padding = '4 0 0 0'},
+        hud = {width = 316, padding = '2 2 2 0', ignoreLayout = true, active = false},
+        resolve = {height = 35, width = 78, padding = '2 2 2 2', rectAlignment = 'UpperLeft', ignoreLayout = true},
+        order = {padding = '5 5 0 0', color = '#fdf2e960'}
+    },
+    VerticalLayout = {order = {image = 'order-arrow'}},
+    TableLayout = {
+        hud = {cellPadding = '2 2 2 2', cellBackgroundColor = 'clear'},
+        orders = {cellPadding = '2 2 2 2', cellBackgroundColor = '#000000b0'}
+    }
+}}
+
+function HUD.XML:default(tag, class)
+    local attr = self.Defaults[tag][class]
+    if class ~= 'default' then attr.class = class end
+    return {tag = tag, attributes = attr}
+end
+
+function HUD.XML:defaults()
+    local children = {}
+    for tag, classes in pairs(self.Defaults) do for class, _ in pairs(classes) do table.insert(children, self:default(tag, class)) end end
+    return children
+end
+
+function HUD.XML.upperTracker()
+    local cells = {
+        {tag = 'Cell', children = {{tag = 'Button', attributes = {class = 'display', id = 'help-button',
+            image = 'question', highlightedSprite = 'question-hover', pressedSprite = 'question-push',
+            onClick = 'showHUD(help)', tooltip = 'Show help text', tooltipPosition = 'Above'
+        }}}},
+        {tag = 'Cell'},
+        {tag = 'Cell', attributes = {columnSpan = 6}, children = {
+            {tag = 'Text', attributes = {class = 'outline', id = 'scenario', fontSize = 26}}
+        }},
+        {tag = 'Cell', attributes = {columnSpan = 2}, children = {{tag = 'Panel', attributes = {class = 'shade'}, children = {
+            {tag = 'Text', value = 'CURRENT PHASE', attributes = {class = 'label'}}
+        }}}},
+        {tag = 'Cell', attributes = {columnSpan = 8}, children = {{tag = 'Panel', attributes = {class = 'tracker'}, children = {
+            {tag = 'Text', attributes = {class = 'tracker outline', id = 'phase', fontSize = 22}}
+        }}}},
+        {tag = 'Cell', children = {{tag = 'Button', attributes = {class = 'display', id = 'resources-button',
+            image = 'resources', highlightedSprite = 'resources-hover', pressedSprite = 'resources-push',
+            onClick = 'showHUD(resources)', tooltip = 'Show resource totals', tooltipPosition = 'Above', active = false
+        }}}}
+    }
+    for i = 1, 7 do table.insert(cells, {tag = 'Cell', children = {
+        {tag = 'Image', attributes = {class = 'disabled', id = 'tracker' .. i}}
+    }}) end
+    return cells
+end
+
+function HUD.XML.lowerTracker()
+    local cells = {
+        {tag = 'Cell', children = {{tag = 'Button', attributes = {id = 'debug',
+            image = 'log', highlightedSprite = 'log-hover', pressedSprite = 'log-push', transition = 'SpriteSwap',
+            tooltip = 'Enable debug logging', tooltipPosition = 'Below', onClick = 'toggleDebug', visibility = 'Host'
+        }}}},
+        {tag = 'Cell', children = {{tag = 'Button', attributes = {id = 'reload',
+            image = 'reload', highlightedSprite = 'reload-hover', pressedSprite = 'reload-push', transition = 'SpriteSwap',
+            tooltip = 'Reload UI', tooltipPosition = 'Below', visibility = 'Host', onClick = 'reloadUI'
+        }}}},
+        {tag = 'Cell', attributes = {columnSpan = 3}, children = {{tag = 'Text', value = 'ROUND', attributes = {alignment = 'MiddleRight', class = 'label'}}}},
+        {tag = 'Cell', attributes = {columnSpan = 2}, children = {{tag = 'Text', attributes = {id = 'round', fontSize = 28}}}},
+        {tag = 'Cell'},
+        {tag = 'Cell', attributes = {columnSpan = 2}, children = {{tag = 'Panel', attributes = {class = 'shade'}, children = {
+            {tag = 'Text', value = 'CURRENT STEP', attributes = {class = 'label'}}
+        }}}},
+        {tag = 'Cell', attributes = {columnSpan = 8}, children = {{tag = 'Panel', attributes = {class = 'tracker'}, children = {
+            {tag = 'Text', attributes = {class = 'tracker', id = 'step', fontSize = 18}}
+        }}}},
+        {tag = 'Cell', children = {{tag = 'Button', attributes = {class = 'display', id = 'hud-button',
+            onClick = 'showHUD', tooltipPosition = 'Below', active = false
+        }}}}
+    }
+    for i = 1, 7 do table.insert(cells, {tag = 'Cell', attributes = {id = 'status-cell' .. i}, children = {
+        {tag = 'Text', attributes = {class = 'status', id = 'status' .. i}}
+    }}) end
+    return cells
+end
+
+function HUD.XML.resources()
+    local rows = {{tag = 'Row', children = {
+        {tag = 'Cell'},
+        {tag = 'Cell', attributes = {columnSpan = 3}, children = {{tag = 'Panel', attributes = {class = 'shade'}, children = {
+            {tag = 'Text', value = 'RESOURCE SUMMARY', attributes = {class = 'label'}}
+        }}}},
+        {tag = 'Cell', attributes = {columnSpan = 3}},
+        {tag = 'Cell', children = {{tag = 'Button', attributes = {class = 'hide', onClick = 'hideHUD(resources)'}}}}
+    }}}
+    for _, resource in ipairs{'oil', 'iron', 'osr'} do
+        local cells = {{tag = 'Cell', children = {{tag = 'Image', attributes = {image = resource}}}}}
+        for i = 1, 7 do table.insert(cells, {tag = 'Cell', children = {
+            {tag = 'Panel', attributes = {class = 'shade', id = 'frame-' .. resource .. i, active = false}, children = {
+                {tag = 'Text', attributes = {class = 'purchase outline ' .. resource, id = resource .. i}}
+        }}}}) end
+        table.insert(rows, {tag = 'Row', children = cells})
+    end
+    return rows
+end
+
+function HUD.XML.orders()
+    local rows = {{tag = 'Row', children = {
+        {tag = 'Cell'},
+        {tag = 'Cell', attributes = {columnSpan = 3}, children = {{tag = 'Panel', attributes = {class = 'shade'}, children = {
+            {tag = 'Text', value = 'MOVEMENT SUMMARY', attributes = {class = 'label'}}
+        }}}},
+        {tag = 'Cell', attributes = {columnSpan = 3}},
+        {tag = 'Cell', children = {{tag = 'Button', attributes = {class = 'hide', onClick = 'hideHUD(orders)'}}}}
+    }}}
+    for j = 1, 9 do
+        local cells = {{tag = 'Cell'}}
+        for i = 1, 7 do table.insert(cells, {tag = 'Cell', children = {{tag = 'Panel', attributes = {class = 'shade', id = 'order' .. i .. j}, children = {
+            {tag = 'VerticalLayout', attributes = {class = 'order'}, children = {
+                {tag = 'Text', attributes = {id = 'command' .. i .. j}},
+                {tag = 'Text', attributes = {id = 'target' .. i .. j}}
+            }},
+            {tag = 'Image', attributes = {class = 'slash disabled', id = 'slash' .. i .. j}}
+        }}}}) end
+        table.insert(rows, {tag = 'Row', children = cells})
+    end
+    return rows
+end
+
+function HUD.XML.combat()
+    local rows = {{tag = 'Row', children = {
+        {tag = 'Cell', children = {{tag = 'Image', attributes = {image = 'hotspot'}}}},
+        {tag = 'Cell', attributes = {columnSpan = 6}, children = {{tag = 'Panel', attributes = {class = 'shade'}, children = {
+            {tag = 'Text', value = 'COMBAT SUMMARY', attributes = {class = 'label'}}
+        }}}},
+        {tag = 'Cell', attributes = {columnSpan = 5}},
+        {tag = 'Cell', children = {{tag = 'Button', attributes = {class = 'hide', onClick = 'hideHUD(combat)'}}}}
+    }}}
+    for i = 1, 24 do table.insert(rows, {tag = 'Row', attributes = {id = 'hotspot' .. i}, children = {
+        {tag = 'Cell', attributes = {columnSpan = 6}, children = {
+            {tag = 'Panel', attributes = {class = 'shade', minWidth = 36}, children = {
+                {tag = 'Text', attributes = {class = 'region_id', id = 'combat-id' .. i}}
+            }},
+            {tag = 'Panel', attributes = {id = 'name-panel' .. i, minWidth = 104}, children = {
+                {tag = 'Text', attributes = {class = 'region_name', id = 'combat-name' .. i}}
+            }}
+        }},
+        {tag = 'Cell', attributes = {columnSpan = 5}, children = {
+            {tag = 'Panel', attributes = {id = 'combatants' .. i .. '-axis', color = '#600000b0'}, children = {{tag = 'HorizontalLayout', children = {
+                {tag = 'image', attributes = {id = 'combatants' .. i .. '-axis1'}},
+                {tag = 'image', attributes = {id = 'combatants' .. i .. '-axis2'}},
+                {tag = 'image', attributes = {id = 'combatants' .. i .. '-axis3'}}
+            }}}},
+            {tag = 'Panel', attributes = {id = 'combatants' .. i .. '-allies', color = '#000060b0'}, children = {{tag = 'HorizontalLayout', children = {
+                {tag = 'image', attributes = {id = 'combatants' .. i .. '-allies1'}},
+                {tag = 'image', attributes = {id = 'combatants' .. i .. '-allies2'}},
+                {tag = 'image', attributes = {id = 'combatants' .. i .. '-allies3'}}
+            }}}}
+        }},
+        {tag = 'Cell', children = {{tag = 'Text', attributes = {id = 'combat-status' .. i, fontSize = 15}}}},
+        {tag = 'Cell', children = {{tag = 'Button', attributes = {class = 'combat', id = 'combat-clear' .. i}}}}
+    }}) end
+    return rows
+end
+
+function HUD.XML.production()
+    local rows = {{tag = 'Row', children = {
+        {tag = 'Cell', children = {{tag = 'Image', attributes = {image = 'production'}}}},
+        {tag = 'Cell', attributes = {columnSpan = 3}, children = {{tag = 'Panel', attributes = {class = 'shade'}, children = {
+            {tag = 'Text', value = 'PRODUCTION SUMMARY', attributes = {class = 'label'}}
+        }}}},
+        {tag = 'Cell', attributes = {columnSpan = 3}},
+        {tag = 'Cell', children = {{tag = 'Button', attributes = {class = 'hide', onClick = 'hideHUD(production)'}}}}
+    }}}
+    for _, unit in ipairs{'cg', 'infantry', 'artillery', 'armor', 'fighter', 'bomber', 'submarine', 'cruiser', 'carrier', 'battleship'} do
+        local cells = {{tag = 'Cell', children = {{tag = 'Image', attributes = {image = unit}}}}}
+        for i = 1, 7 do table.insert(cells, {tag = 'Cell', children = {{tag = 'Panel', attributes = {class = 'shade'}, children = {
+            {tag = 'Text', attributes = {class = 'purchase', id = unit .. i}}
+        }}}}) end
+        table.insert(rows, {tag = 'Row', children = cells})
+    end
+    return rows
+end
+
+function HUD.XML.popouts(scenario)
+    local popouts = {}
+    for nation, _ in pairs(Scenarios[scenario].nations or CommandSetup) do
+        local row_count, guid = 3, GUIDs.Nations[nation].orders
+        if nation == 'china' or nation == 'italy' or scenario ~= 'global' and (nation == 'usa' or nation == 'uk') then row_count = 2 end
+        local rows = {{tag = 'HorizontalLayout', attributes = {minHeight = 40}, children = {
+            {tag = 'TableLayout', attributes = {class = 'orders', minWidth = 170}, children = {{tag = 'Row', children = {{tag = 'Cell', children = {
+                {tag = 'Panel', attributes = {padding = '0 0 0 0', color = Color[nation]:setAt('a', 0.4):toXml()}, children = {
+                    {tag = 'Image', attributes = {image = nation, minWidth = 36}},
+                    {tag = 'Text', value = Nations[nation].name:upper(), attributes = {minWidth = 130, fontSize = 16, fontStyle = 'Bold'}}
+            }}}}}}}},
+            {tag = 'Panel', attributes = {minWidth = 40, padding = '4 4 4 4', color = '#000000b0'}, children = {
+                {tag = 'Button', attributes = {class = 'hide', id = nation .. '-hide', onClick = 'closePopout'}}
+            }}
+        }}}
+        if nation ~= 'china' then
+            table.insert(rows[1].children, {tag = 'Panel', attributes = {minWidth = 90, padding = '0 16 0 0', color = '#000000b0'}, children = {
+                {tag = 'Text', value = 'OIL BID', attributes = {fontSize = 16, fontStyle = 'Bold'}}
+            }})
+            table.insert(rows[1].children, {tag = 'TableLayout', attributes = {class = 'orders', minWidth = 60}, children = {{tag = 'Row', children = {
+                {tag = 'Cell', children = {{tag = 'Panel', attributes = {padding = '12 0 0 0', color = '#fdf2e960'}, children = {
+                    {tag = 'InputField', attributes = {class = 'bid', id = nation .. '-bid', onEndEdit = guid .. '/bidInput'}}
+            }}}}}}}})
+        else table.insert(rows[1].children, {tag = 'Panel', attributes = {minWidth = 150, color = '#000000b0'}}) end
+        for row = 1, row_count do
+            local cells = {}
+            for col = 1, 3 do table.insert(cells, {tag = 'Cell', children = {{tag = 'Panel', attributes = {class = 'order'}, children = {
+                {tag = 'VerticalLayout', attributes = {image = 'order-arrow'}, children = {
+                    {tag = 'Panel', attributes = {padding = '20 20 4 9'}, children = {
+                        {tag = 'InputField', attributes = {class = 'order command', id = nation .. '-command' .. (row - 1) * 3 + col, onEndEdit = guid .. '/moveInput'}}
+                    }},
+                    {tag = 'Panel', attributes = {padding = '15 15 9 4'}, children = {
+                        {tag = 'InputField', attributes = {class = 'order target', id = nation .. '-target' .. (row - 1) * 3 + col, onEndEdit = guid .. '/moveInput'}}
+            }}}}}}}}) end
+            table.insert(rows, {tag = 'TableLayout', attributes = {class = 'orders', minHeight = 110}, children = {{tag = 'Row', children = cells}}})
+            if row < row_count then table.insert(rows, {tag = 'Panel', attributes = {minHeight = 20, color = '#000000b0'}}) end
+        end
+        local elements = {{tag = 'VerticalLayout', children = rows}}
+        if nation ~= 'china' then table.insert(elements, {tag = 'Image', attributes = {
+            image = 'oil', height = 32, width = 32, ignoreLayout = true, rectAlignment = 'UpperRight', offsetXY = '-44 -4'
+        }}) end
+        table.insert(popouts, {tag = 'Panel', attributes = {class = 'draggable', id = nation .. '-popout',
+            height = tostring(20 + row_count * 130), width = 360, padding = '0 0 0 0', position = '720 -296', active = false
+        }, children = elements})
+    end
+    return table.unpack(popouts)
+end
+
+function HUD.XML:initial() return {
+    {tag = 'Defaults', children = {self:default('Text', 'default'), self:default('Button', 'scenario'), self:default('Button', 'disabled')}},
+    {tag = 'VerticalLayout', attributes = {id = 'scenarios',
+        position = '0 300', height = 200, width = 960, padding = '10 10 10 10', color = '#000000b0',
+        allowDragging = true, returnToOriginalPositionWhenReleased = false
+    }, children = {
+        {tag = 'Text', value = 'Choose a scenario:', attributes = {minHeight = 80, fontSize = 48, outline = 'black', outlineSize = '1.5 1.5'}},
+        {tag = 'HorizontalLayout', attributes = {minHeight = 100, spacing = 20}, children = {
+            {tag = 'Button', value = 'Global War', attributes = {class = 'scenario', id = 'global'}},
+            {tag = 'Button', value = 'Eastern Front', attributes = {class = 'scenario', id = 'eastern', interactable = false}},
+            {tag = 'Button', value = 'War in Europe', attributes = {class = 'scenario', id = 'europe', interactable = false}},
+            {tag = 'Button', value = 'War in the Pacific', attributes = {class = 'scenario', id = 'pacific', interactable = false}}
+    }}}}
+} end
+
+function HUD.XML:scenario(scenario) return {
+    {tag = 'Defaults', children = self:defaults()},
+    {tag = 'Panel', attributes = {class = 'draggable shade', id = 'tracker',
+        position = '0 -460', height = 82, width = 1018, padding = '2 2 2 2'
+    }, children = {
+        {tag = 'Panel', attributes = {id = 'turn',
+            height = 43, width = 43, position = '214.5 19', ignoreLayout = true, color = '#cccccc', active = false
+        }},
+        {tag = 'Panel', attributes = {class = 'shade', id = 'help',
+            visibility = 'Pink', height = 235, width = 702, position = '-158 158', padding = '38 2 2 0', ignoreLayout = true
+        }, children = {
+            {tag = 'Panel', attributes = {class = 'shade', padding = '2 2 2 2'}, children = {
+                {tag = 'VerticalScrollView', attributes = {color = 'clear'}, children = {{tag = 'Panel', attributes = {padding = '4 6 4 4'}, children = {
+                    {tag = 'Text', attributes = {id = 'help-text', fontSize = 15, alignment = 'UpperLeft'}}
+            }}}}}},
+            {tag = 'Image', attributes = {image = 'question', ignoreLayout = true, rectAlignment = 'UpperLeft', offsetXY = '2 -2'}},
+            {tag = 'Button', attributes = {class = 'hide',
+                height = 35, width = 35, ignoreLayout = true, rectAlignment = 'UpperLeft', offsetXY = '2 -41', onClick = 'hideHUD(help)'}}
+        }},
+        {tag = 'Panel', attributes = {class = 'shade hud', id = 'resources', height = 158, position = '351 120'}, children = {
+            {tag = 'TableLayout', attributes = {class = 'hud'}, children = self.resources()}
+        }},
+        {tag = 'Panel', attributes = {class = 'shade hud', id = 'orders', height = 392, position = '351 237'}, children = {
+            {tag = 'Panel', attributes = {id = 'orders-highlight',
+                height = 396, width = 43, rectAlignment = 'UpperLeft', ignoreLayout = true
+            }},
+            {tag = 'TableLayout', attributes = {class = 'hud'}, children = self.orders()},
+            {tag = 'Panel', attributes = {class = 'resolve shade', id = 'confirm-panel'}, children = {
+                {tag = 'Button', attributes = {class = 'resolve', id = 'confirm', colors = '#ffffffc0|#c0ffc0c0|green|grey', onClick = 'confirmOrder'}}
+            }},
+            {tag = 'Panel', attributes = {class = 'resolve shade', id = 'cancel-panel'}, children = {
+                {tag = 'Button', attributes = {class = 'resolve', id = 'cancel', colors = '#ffffffc0|#ffd0d0c0|red|grey', onClick = 'cancelOrder'}}
+            }}
+        }},
+        {tag = 'Panel', attributes = {class = 'shade hud', id = 'combat', height = 602, position = '351 342'}, children = {
+            {tag = 'TableLayout', attributes = {class = 'hud'}, children = self.combat()}
+        }},
+        {tag = 'Panel', attributes = {class = 'shade hud', id = 'production', height = 431, position = '351 256'}, children = {
+            {tag = 'TableLayout', attributes = {class = 'hud'}, children = self.production()}
+        }},
+        {tag = 'TableLayout', attributes = {cellPadding = '2 2 2 2', cellBackgroundColor = 'clear'}, children = {
+            {tag = 'Row', children = self.upperTracker()}, {tag = 'Row', children = self.lowerTracker()}
+        }},
+        {tag = 'Button', attributes = {id = 'start',
+            position = '30 0', height = 64, width = 240, ignoreLayout = true,
+            text = 'Start round', fontSize = 36, onClick = 'Round', active = false
+        }}
+    }},
+    {tag = 'Panel', attributes = {class = 'draggable', id = 'movement',
+        height = 41, width = 800, position = '0 400', color = '#000000b0', active = false
+    }, children = {
+        {tag = 'Image', attributes = {id = 'movement-nation', rectAlignment = 'MiddleLeft', offsetXY = '3 0', raycastTarget = false}},
+        {tag = 'Text', attributes = {id = 'movement-order', fontSize = 32}}
+    }},
+    self.popouts(scenario)
+} end

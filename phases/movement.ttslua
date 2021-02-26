@@ -1,141 +1,120 @@
--- -- Step 1: Flip embattled hotspots
+Movement = Phase()
 
-function flipHotspots()
-    for _, obj in ipairs(getAllObjects()) do if obj.getName() == 'hotspot' and obj.is_face_down then obj.flip() end end
-    resolveMovement()
+function Movement:main()
+    if state.phase < 3 then
+        state.phase, state.step = 3, 0
+        for _, region in pairs(Map.regions) do if region.hotspot then
+            region.hotspot.flip()
+            region.hotspot.state = 'initial'
+        end end
+        Commands:verifyStacks():delay(1):next(|| self.resume())
+        coroutine.yield()
+    end
+    if state.phase == 3 then
+        HUD.updateTracker('Resolve movement orders', '3 - Movement Operations', 'movement')
+        if state.step < 70 then -- TODO: Change this to reflect number of players for scenarios
+            debug('Step is less than 70, showing movement confirmation panels')
+            UI.show('movement')
+            UI.show('confirm-panel')
+            UI.show('cancel-panel')
+            UI.show('orders-highlight')
+        end
+        for i = 1, 7 do for j = 1, 9 do UI.setAttribute('order' .. i .. j, 'active', false) end end
+        HUD.open('orders')
+    end
+    for i, nation in turnOrder() do if state.phase == 3 and state.step < i * 10 then
+        Orders[nation]:resolveMovement(state.step % 10)
+        state.step = i * 10
+    else Orders[nation]:resolveMovement(9) end end
+    UI.hide('movement')
+    UI.hide('confirm-panel')
+    UI.hide('cancel-panel')
+    UI.hide('orders-highlight')
+    if state.phase == 3 then self:deployCarrierFighters() end
 end
 
--- -- Step 2: Resolve movement in turn order
-
-function resolveMovement()
-    updateTracker('Resolve movement orders', '3 - Movement Operations', 'movement')
-    UI.show('movement')
-    UI.show('confirm-panel')
-    UI.show('cancel-panel')
-    UI.show('orders-highlight')
-    openHUD('orders')
-    for i = 1, 7 do for j = 1, 9 do UI.hide('order' .. i .. j) end end
-    state.combat = {landings = {}}
-    movementComplete = |data| resolveOrders(state.turn_order[state.turn_order[data.nation] + 1])
-    resolveOrders(state.turn_order[1])
-end
-
-function resolveOrders(nation)
-    if not nation then
-        confirmOrder, cancelOrder, movementComplete = nil, nil, nil
-        UI.hide('movement')
-        UI.hide('confirm-panel')
-        UI.hide('cancel-panel')
-        UI.hide('orders-highlight')
-        deployCarrierFighters()
-    else
-        local i = state.turn_order[nation]
-        UI.setAttribute('movement-nation', 'image', nation)
-        UI.setAttributes('orders-highlight', {offsetXY = i * 39 .. ' -39', color = '#' .. Colors[nation] .. 30})
-        UI.setAttribute('confirm-panel', 'visibility', Vis[Alliance[nation]])
-        UI.setAttribute('cancel-panel', 'visibility', Vis[Alliance[nation]])
-        for j, order in pairs(state.objects.orders[nation].call('resolveOrders')) do if order.command and order.target then
-            UI.setValue('command' .. i .. j, order.command)
-            UI.setValue('target' .. i .. j, order.target)
-            UI.show('order' .. i .. j)
-            UI.hide('slash' .. i .. j)
-    end end end
-end
-
-function parseOrder(params)
-    local nation, num, id, target = table.unpack(params)
-    local orders = state.objects.orders[nation]
-    debug('Parsing ', nation, ' order #', num, ': ', id, ' --> ', target)
-    local msg = state.objects.commands[nation][id].getName():match('^[^\n]+') .. ' moves to ' .. properName(target)
-    UI.setValue('movement-order', msg:gsub('%b[]', ''))
-    confirmOrder, cancelOrder = || orders.call('confirmOrder'), || orders.call('cancelOrder')
-    local flag = evaluateOrder(nation, id, target:lower():gsub('-', ''))
-    if flag == 'invalid' then msg = msg .. ' (' .. colorize('Invalid', 'red') .. ')'
-    elseif flag == 'pinned' then msg = msg .. ' (' .. colorize('Pinned', 'yellow') .. ')'
-    elseif flag == 'pact' then msg = msg .. ' (' .. colorize('Breaks pact', 'neutral') .. ')' end
-    alert(msg)
-    return flag
-end
-
-function evaluateOrder(nation, id, target)
-    local command, paths, partial_pin = state.objects.commands[nation][id], {}
-    local region = getRegion(command)
-    if id < 10 then paths = fleetMovement(nation, region, target)
-    elseif id < 20 then paths = airMovement(nation, region, target)
-    else paths = armyMovement(nation, region, target) end
+function Movement:evaluateMove(nation, command, target)
+    local is_axis, paths, partial_pin = Nations[nation]:isAxis(), {}
+    if command.memo == 'landing' or command.memo == nil then return 'invalid' end
+    local region = Map.regions[command.memo]
+    debug('Checking for valid path from ', region.id, ' to ', target.id)
+    if command.id < 10 then paths = self:fleetMovement(nation, region, target)
+    elseif command.id < 20 then paths = self:airMovement(nation, region, target)
+    else paths = self:armyMovement(nation, region, target) end
+    debug('Found ', #paths, ' valid path(s)')
     if #paths == 0 then return 'invalid' end
-    if id < 10 then
-        local free = netPin(nation, getCommands(region), 'fleet')
-        if free <= 0 then return 'pinned' elseif free < #command.getAttachments() then partial_pin = true end
-    elseif id > 19 then if Map.data.regions[region].is_sea and Alliance[nation] ~= Alliance[getOwnership(target) or 'none'] then
-        if netPin(nation, getCommands(region), 'fleet') < 0 then return 'pinned' end
-    else
-        local free = netPin(nation, getCommands(region), 'army')
-        if free <= 0 then return 'pinned' elseif free < #command.getAttachments() then partial_pin = true end
+    if command.id < 10 then
+        local free = self.netPin(nation, region:commands(), 'fleet')
+        if free <= 0 then return 'pinned' elseif free < command.units() then partial_pin = true end
+    elseif command.id > 19 then
+        if not region.is_sea or Nations[nation].side == Nations[target:owner()].side then
+            local free = self.netPin(nation, region:commands(), 'army')
+            if free <= 0 then return 'pinned' elseif free < command.units() then partial_pin = true end
+        else if self.netPin(nation, region:commands(), 'fleet') < 0 then return 'pinned' end
     end end
-    if not state.pact_broken and id > 9 then
-        local ally, other, has_path = isAxis(nation) and 'japan' or 'ussr', isAxis(nation) and 'ussr' or 'japan', false
+    if not state.pact_broken and command.id > 9 then
+        local ally, other, has_path = is_axis and 'japan' or 'ussr', is_axis and 'ussr' or 'japan', false
         for _, path in ipairs(paths) do
             local blocked = false
-            for _, waypoint in ipairs(path) do blocked = blocked or getOwnership(waypoint) == other end
+            for _, waypoint in ipairs(path) do blocked = blocked or Map.regions[waypoint]:owner() == other end
             has_path = has_path or not blocked
         end
-        if not has_path and (nation == ally or getOwnership(region) == ally) then return 'pact' end
+        if not has_path and (nation == ally or region:owner() == ally) then return 'pact' end
     end
-    if getOwnership(target) == 'neutral' and id > 19 and (isAxis(nation) or not Map.data.regions[target].allied) then return 'neutral' end
+    if target:owner() == 'neutral' and command.id > 19 and (is_axis or not target.allied) then return 'neutral' end
     if partial_pin then return 'partial' end
 end
 
-function fleetMovement(nation, region, target)
+function Movement:fleetMovement(nation, region, target)
     debug('Checking fleet pathing')
-    return mapBFS(region, |_, to| Map.data.regions[to:match('%a%d+')].is_sea ~= nil, function (d, from, to, v)
+    return Map:search(region.id, |_, to| Map.regions[to:match('%a%d+')].is_sea ~= nil, function (d, from, to, v)
         local id, flag = to:match('(%a%d+)(.?)')
-        if flag == '@' and not canalCheck(nation, from, id) then return false end
-        if id == target then table.insert(v.result, d == 1 and {id} or {from, id}) end
+        if flag == '@' and not self.canalCheck(nation, from, id) then return false end
+        if id == target.id then table.insert(v.result, d == 1 and {id} or {from, id}) end
         return d < 2
     end, {})
 end
 
-function canalCheck(nation, from, to)
-    for _, region in ipairs(Map.data.regions[from].canals[to]) do
-        local owner = getOwnership(region)
-        if owner == 'neutral' then if isAxis(nation) or not Map.data.regions[region].allied then return false end
-        elseif Alliance[owner] ~= Alliance[nation] then return false end
+function Movement.canalCheck(nation, from, to)
+    for _, region in ipairs(Map.regions[from].canals[to]) do
+        local owner = Map.regions[region]:owner()
+        if owner == 'neutral' then if Nations[nation]:isAxis() or not Map.regions[region].allied then return false end
+        elseif Nations[owner].side ~= Nations[nation].side then return false end
     end
     return true
 end
 
-function airMovement(nation, region, target)
+function Movement:airMovement(nation, region, target)
     debug('Checking air pathing')
-    return mapBFS(region, |d, to| d == 0 or not to:match('%^'), function (d, from, to, v)
+    return Map:search(region.id, |d, to| d == 0 or not to:match('%^'), function (d, from, to, v)
         local id, flag = to:match('(%a%d+)(.?)')
-        if d == 1 and id == target then table.insert(v.result, {id})
-        elseif d == 2 and id == target then table.insert(v.result, {from, id}) end
+        if d == 1 and id == target.id then table.insert(v.result, {id})
+        elseif d == 2 and id == target.id then table.insert(v.result, {from, id}) end
         if d > 1 or flag == '^' then return false else return true end
     end, {})
 end
 
-function armyMovement(nation, region, target)
+function Movement:armyMovement(nation, region, target)
     debug('Checking army pathing')
     local rail_status = {}
-    for _, nation in ipairs(state.turn_order) do rail_status[nation] = getStressZone(nation) < 3 end
-    local rail_ok = railCheck(nation, region, rail_status)
+    for _, nation in turnOrder() do rail_status[nation] = Morale.stressZone(nation) < 3 end
+    local rail_ok = self.railCheck(nation, region.id, rail_status)
     debug('Rail movement', rail_ok and ' ' or ' in', 'eligible')
-    return mapBFS(region, function (d, to)
+    return Map:search(region.id, function (d, to)
         local flag = to:match('%a%d+(.?)')
         if flag == '^' then return false else return flag == '#' or d < 2 end
     end, function (d, from, to, v)
         local id, flag = to:match('(%a%d+)(.?)')
-        local from_sea, to_sea = Map.data.regions[from].is_sea, Map.data.regions[id].is_sea
+        local from_sea, to_sea = Map.regions[from].is_sea, Map.regions[id].is_sea
         if v[id] then return false
         elseif from_sea and d == 1 then
-            if id == target then table.insert(v.result, {id}) end
+            if id == target.id then table.insert(v.result, {id}) end
             return to_sea
-        elseif from_sea then if to_sea and id == target then table.insert(v.result, {from, id}) end
-        elseif to_sea and d == 1 or rail_ok and flag == '#' and not v[target] and railCheck(nation, id, rail_status) then
-            if id == target then table.insert(v.result, {id}) else v[id] = true end
-            return id ~= target
-        elseif id == target and d == 1 then
+        elseif from_sea then if to_sea and id == target.id then table.insert(v.result, {from, id}) end
+    elseif to_sea and d == 1 or rail_ok and flag == '#' and not v[target.id] and self.railCheck(nation, id, rail_status) then
+            if id == target.id then table.insert(v.result, {id}) else v[id] = true end
+            return id ~= target.id
+        elseif id == target.id and d == 1 then
             table.insert(v.result, {id})
             v[id] = true
         end
@@ -143,148 +122,120 @@ function armyMovement(nation, region, target)
     end, {})
 end
 
-function railCheck(nation, region, status)
-    return Alliance[nation] == Alliance[getOwnership(region)]
-        and status[nation]
-        and (getCommands(region))[isAxis(nation) and 'allies' or 'axis'].army == nil
+function Movement.railCheck(nation, region, status)
+    region = Map.regions[region]
+    return Nations[nation].side == Nations[region:owner()].side
+        and status[nation] and Commands:region(region.id)[Nations[nation].other].army == nil
 end
 
-function netPin(nation, commands, force)
+function Movement.netPin(nation, commands, force)
     debug('Checking for ', force, ' pinning')
-    local totals = {axis = 0, allies = 0, japan = 0, ussr = 0}
+    local totals, is_axis = {axis = 0, allies = 0, japan = 0, ussr = 0}, Nations[nation]:isAxis()
     for side, forces in pairs(commands) do for _, command in ipairs(forces[force] or {}) do
-        local n, count = commandNation(command), #command.getAttachments()
+        local n, count = command.nation, command.units()
         if not state.pact_broken and n == 'japan' then totals.japan = totals.japan + count
         elseif not state.pact_broken and n == 'ussr' then totals.ussr = totals.ussr + count
         else totals[side] = totals[side] + count end
     end end
     debug('Unit counts: axis ', totals.axis, ', allies ', totals.allies, ', japan ', totals.japan, ', ussr ', totals.ussr)
     if state.pact_broken or nation == 'japan' or nation == 'ussr' then
-        return (totals[nation] or 0) + (totals.allies - totals.axis) * (isAxis(nation) and -1 or 1)
-    elseif isAxis(nation) then return math.min(totals.japan - totals.allies, 0) + totals.axis - totals.ussr
+        return (totals[nation] or 0) + (totals.allies - totals.axis) * (is_axis and -1 or 1)
+    elseif is_axis then return math.min(totals.japan - totals.allies, 0) + totals.axis - totals.ussr
     else return math.min(totals.ussr - totals.axis, 0) + totals.allies - totals.japan end
 end
 
-function orderButtons(params)
-    local nation, n, confirm, cancel = table.unpack(params)
-    local i, y, x1, x2 = state.turn_order[nation], -4 - n * 39
-    if i == 1 then x1, x2 = (i + 1) * 39, (i + 3) * 39
-    elseif i > 5 then x1, x2 = (i - 4) * 39 + 4, (i - 2) * 39 + 4
-    else x1, x2 = (i - 2) * 39 + 4, (i + 1) * 39 end
-    UI.setAttribute('confirm-panel', 'offsetXY', x1 .. ' ' .. y)
-    UI.setAttributes('confirm', confirm)
-    UI.setAttribute('cancel-panel', 'offsetXY', x2 .. ' ' .. y)
-    UI.setAttributes('cancel', cancel)
-end
-
-function orderCanceled(params)
-    UI.show('slash' .. state.turn_order[params[1]] .. params[2])
-end
-
-function setLanding(params)
-    local nation, id = table.unpack(params)
-    table.insert(state.combat.landings, state.objects.commands[nation][id])
-end
-
-function breakPact(nation)
-    if type(nation) == 'table' then nation = nation[1] end
+function Movement.breakPact(nation)
     if not state.pact_broken then if nation then
-        state.pact_broken = isAxis(nation) and 'japan' or 'ussr'
-        MoraleBoard.call('addStress', {nation = state.pact_broken, value = 6})
-        broadcastToAll(colorize(properName(state.pact_broken), state.pact_broken) .. ' has broken the Soviet-Japanese Non-Aggression Pact! (+6 stress)')
+        state.pact_broken = Nations[nation]:isAxis() and 'japan' or 'ussr'
+        Morale:addStress(state.pact_broken, 6)
+        broadcastToAll(Nations[state.pact_broken]:colorized() .. ' has broken the Soviet-Japanese Non-Aggression Pact! (+6 stress)')
     else
         state.pact_broken = true
         broadcastToAll('The Soviet-Japanese Non-Aggression Pact is no longer in force!')
     end end
-    state.objects.orders.japan.UI.hide('pact')
-    state.objects.orders.ussr.UI.hide('pact')
+    Orders.japan.UI.hide('pact')
+    Orders.ussr.UI.hide('pact')
 end
 
-function invadeNeutral(params)
-    local invader, region = table.unpack(params)
-    region = region:lower()
-    debug('Neutral ', region, ' was invaded by ', invader)
-    local data, commands, min, defender = Map.data.regions[region], getAllCommands(), 8
-    local other = isAxis(invader) and 'allies' or 'axis'
-    for _, nation in ipairs(mapBFS(region, |_, to| to:match('%a%d+(.?)') ~= '^', function (d, _, to, v)
+function Movement.invadeNeutral(invader, region)
+    debug('Neutral ', region.id, ' was invaded by ', invader)
+    local commands, anchor, other, min, defender = Commands:byRegion(), region.centroid or region.circle.c, Nations[invader].other, 8
+    for _, nation in ipairs(Map:search(region.id, |_, to| to:match('%a%d+(.?)') ~= '^', function (d, _, to, v)
         local id = to:match('%a%d+')
         if v[id] or v.d and d > v.d then return false else v[id] = true end
         debug('Checking commands in ', id)
         if commands[id] then for _, command in ipairs(commands[id][other].army or {}) do
-            local nation = commandNation(command)
+            local nation = command.nation
             if state.pact_broken or (invader ~= 'japan' or nation ~= 'ussr') and (invader ~= 'ussr' or nation ~= 'japan') then
                 table.insert(v.result, nation)
                 v.d = d
         end end end
         return true
-    end, {})) do if state.turn_order[nation] < min then defender, min = nation, state.turn_order[nation] end end
-    debug(defender, ' assumes control of ', region)
-    local pos = Map.obj.positionToWorld({data.centroid[1], 0.6, data.centroid[2]})
-    local rot = vector(0, Map.obj.call('rotationToCenter', data.centroid), 0)
-    local callback = function (units)
-        getObjectFromGUID(GUIDs.Nations[defender].flag_bag).takeObject({
-            position = pos, rotation = rot, callback_function = function (flag)
-                if units then
-                    mergeStack(flag, units)
-                    state.objects.commands[defender][999] = flag
-                end
-                state.objects.flags[region] = flag
-        end})
-        local deck = state.objects.neutrals
-        debug(JSON.encode_pretty(deck.getObjects()))
-        for _, card in ipairs(deck.getObjects()) do if card.name:find(region:upper()) then deck.takeObject({
+    end, {})) do if turnOrder[nation] < min then defender, min = nation, turnOrder[nation] end end
+    debug(defender, ' assumes control of ', region.id)
+    broadcastToAll(string.format('%s invades %s!\n%s has assumed control of the defense forces',
+        Nations[invader]:colorized(), region:colorizedName(), Nations[defender]:colorized()))
+    Morale:addStress(invader, 1)
+    local p = Promise()
+    local co = coroutine.wrap(function (resume)
+        local deck, units, flag = Cards.Neutrals
+        local pos, rot = Map.positionToWorld(anchor:copy():setAt('y', 0.6)), vector(0, Map:rotationToCenter(anchor), 0)
+        if data.army then
+            buildStack(data.army, pos, rot, true):next(function (units)
+                pos = pos + vector(0, 0.21 * #units, 0)
+                resume(units)
+            end)
+            units = coroutine.yield()
+        end
+        for _, card in ipairs(deck.getObjects()) do if card.name:find(region:displayID()) then deck.takeObject({
             index = card.index, position = deck.getPosition() + vector(0, 2, 0),
-            callback_function = |card| giveCard(card, defender)
+            callback_function = |card| Cards:give(card, defender)
         }) break end end
-    end
-    MoraleBoard.call('addStress', {nation = invader, value = 1})
-    if data.army then buildStack(data.army, pos, rot, true, function (units)
-        pos = pos + vector(0, 0.21 * #units, 0)
-        callback(units)
-    end) else callback() end
+        Bags.flags[defender].takeObject({position = pos, rotation = rot, callback_function = |flag| resume(flag)})
+        region.flag = coroutine.yield()
+        p:resolve()
+        if units then
+            local army = Stack(region.flag)
+            army:attach(units)
+            army.setName(string.format('%s standing army (%s)', region.name, Nations[defender]:colorized()))
+            army.nation, army.obj.script_state = defender, 'standing'
+            Commands.standing[region] = army
+    end end)
+    co(co)
+    return p
 end
 
--- -- Step 3: Carrier fighter movement
-
-function deployCarrierFighters()
-    updateTracker('Carrier fighter movement', nil, 'cfighters')
-    local fighterBag, delay, ready = getObjectFromGUID(GUIDs.Bags.Units.cfighter), 0, {}
-    for nation, commands in pairs(state.objects.commands) do
-        updateStatus(nation, true)
-        for i = 1, 9, 1 do if not commands[i] then break else
-            local count = commands[i].getName():match('(%d+)%s%[%w+%]Carrier')
-            if count then
+function Movement:deployCarrierFighters()
+    HUD.updateTracker('Carrier fighter movement', nil, 'cfighters')
+    local readied = {}
+    if state.step == 70 then
+        for nation, commands in pairs(Commands) do for i = 1, 9 do
+            if not commands[i] then break elseif commands[i].units.carrier > 0 then
                 local rotation, bump = commands[i].getRotation(), 0
-                if isAxis(nation) then rotation, bump = rotation + vector(0, 0, 180), 0.22 end
-                state.objects.cfighters[nation], ready[nation] = {}, false
-                state.objects.orders[nation].call('showReady')
-                updateStatus(nation, false)
-                for j = 1, count, 1 do
-                    Wait.time(function () fighterBag.takeObject({
+                if Nations[nation]:isAxis() then rotation, bump = rotation + vector(0, 0, 180), 0.22 end
+                readied[nation] = false
+                for j = 1, commands[i].units.carrier do
+                    Wait.frames(|| self.resume(), 3)
+                    coroutine.yield()
+                    Bags.cfighter.takeObject({
                         position = commands[i].getPosition() + vector(0, j * 0.25 + bump, 0),
                         rotation = rotation,
                         callback_function = function (obj)
-                            obj.setVar('nation', nation)
-                            obj.highlightOn(colorTable(Colors[nation]))
-                            table.insert(state.objects.cfighters[nation], obj)
-                        end
-                    }) end, delay)
-                    delay = delay + 0.15
-    end end end end end
-    playerReady = function (data) for nation, value in pairs(data) do
-        debug(nation, ' toggled ready state')
-        ready[nation] = value
-        updateStatus(nation, value)
-        for _, cfighter in ipairs(state.objects.cfighters[nation]) do
-            if value then cfighter.highlightOff()
-            else cfighter.highlightOn(colorTable(Colors[nation])) end
-    end end end
-    Wait.condition(function ()
-        playerReady = nil
-        for nation, _ in pairs(ready) do state.objects.orders[nation].call('hideReady') end
-        combatOperations()
-    end, function ()
-        for _, value in pairs(ready) do if not value then return false end end
-        return true
-    end)
+                            setGlow(obj, Color[nation])
+                            obj.script_state = nation
+                            table.insert(Commands.cfighters, Command(obj, nation))
+        end}) end end end end
+        state.step = 71
+    else for _, cfighter in ipairs(Commands.cfighters) do
+        readied[cfighter.nation] = false
+        setGlow(cfighter, Color[cfighter.nation])
+    end end
+    for _, nation in turnOrder() do if readied[nation] == false then
+        HUD.updateStatus(nation, false)
+        Orders[nation]:enableReady(|...| self.resume(...))
+    else HUD.updateStatus(nation, true) end end
+    Phase.readyLoop(readied, next(readied) == nil, function (nation, ready)
+        for _, cfighter in ipairs(Commands.cfighters) do if cfighter.nation == nation then
+            if ready then stopGlow(cfighter) else setGlow(cfighter, Color[nation]) end
+    end end end)
 end

@@ -1,0 +1,275 @@
+#include ../constants/map
+
+function Map:initialize(obj)
+    bind(obj, self)
+    self.position, self.rotation, self.snaps = obj.getPosition(), obj.getRotation(), obj.getSnapPoints()
+end
+
+function Map:setupRegions(filter)
+    local Y, lines = 0.585, {}
+    self.quadrants = {{{}, {}}, {{}, {}}}
+    for id, data in pairs(self.regions) do if not filter or filter[id:sub(1, 1)](tonumber(id:sub(2))) then
+        data.is_sea = id:match('^[aimp]') ~= nil
+        if data.points then
+            data.centroid, data.box = vector(0, 0, 0), {
+                max = vector(data.points[1][1], 0, data.points[1][2]),
+                min = vector(data.points[1][1], 0, data.points[1][2])
+            }
+            local prev_point, points, sum, cross = data.points[#data.points], {}, 0
+            for _, point in ipairs(data.points) do
+                table.insert(points, {point[1], Y, point[2]})
+                for i, dim in ipairs{'x', 'z'} do if data.box.max[dim] < point[i] then data.box.max[dim] = point[i]
+                elseif data.box.min[dim] > point[i] then data.box.min[dim] = point[i] end end
+                cross = prev_point[1] * point[2] - point[1] * prev_point[2]
+                for i, dim in ipairs{'x', 'z'} do data.centroid[dim] = data.centroid[dim] + (prev_point[i] + point[i]) * cross / 3 end
+                sum, prev_point = sum + cross, point
+            end
+            data.centroid = data.centroid * (1 / sum)
+            table.insert(points, {data.points[1][1], Y, data.points[1][2]})
+            table.insert(lines, {points = points, thickness = 0.02})
+        elseif data.circle then
+            data.circle.c, data.box = vector(data.circle.c[1], 0, data.circle.c[2]), {
+                max = vector(data.circle.c[1] + data.circle.r, 0, data.circle.c[2] + data.circle.r),
+                min = vector(data.circle.c[1] - data.circle.r, 0, data.circle.c[2] - data.circle.r)
+            }
+            local points = {{data.circle.c.x + data.circle.r, Y, data.circle.c.z}}
+            for i = 1, 12 do table.insert(points, {
+                data.circle.c.x + data.circle.r * math.cos(math.pi * i / 6), Y,
+                data.circle.c.z + data.circle.r * math.sin(math.pi * i / 6)
+            }) end
+            table.insert(lines, {points = points, thickness = 0.02, color = {0, 1, 1}})
+        end
+        if data.box.min.x < 0 then
+            if data.box.min.z < 0 then table.insert(self.quadrants[1][1], id) end
+            if data.box.max.z > 0 then table.insert(self.quadrants[1][2], id) end
+        end
+        if data.box.max.x > 0 then
+            if data.box.min.z < 0 then table.insert(self.quadrants[2][1], id) end
+            if data.box.max.z > 0 then table.insert(self.quadrants[2][2], id) end
+        end
+        self.regions[id] = Map.Region(id, data)
+    else self.regions[id] = nil end end
+    for _, region in ipairs(Scenarios[state.scenario].capitals) do self.regions[region].capital = true end
+    self.setTable('Lines', lines)
+    self.setVar('enabled', true)
+end
+
+function Map:getRegion(obj)
+    return self:inRegion(self.positionToLocal(obj.getPosition()))
+end
+
+function Map:inRegion(point)
+    local regions = {}
+    for _, id in ipairs(self.quadrants[point.x < 0 and 1 or 2][point.z < 0 and 1 or 2]) do
+        local region = self.regions[id]
+        if region.box.max.x > point.x and region.box.min.x < point.x and region.box.max.z > point.z and region.box.min.z < point.z then
+            if region.islands then table.insert(regions, region) else table.insert(regions, 1, region) end
+    end end
+    if #regions == 1 then return regions[1].id
+    else for _, region in ipairs(regions) do
+        if region.circle then if point:setAt('y', 0):distance(region.circle.c) < region.circle.r then return region.id end
+        elseif self.inside2d(point, region.points) then return region.id end
+    end end
+end
+
+function Map:rotationToCenter(point)
+    return (math.atan2((point.x or point[1]) - self.center.x, (point.z or point[2]) - self.center.z) / math.pi + 1) * 180
+end
+
+function Map:radialVector(point)
+    return (point - self.positionToWorld(self.center)):setAt('y', 0):normalized()
+end
+
+function Map:search(q, path, visit, v)
+    local from, to, d, node
+    if type(q) == 'table' then
+        repeat
+            if #q == 0 then return v.result end
+            node = table.remove(q, 1)
+            d, from, to = node[1], node[2], node[3]
+        until visit(d, from, to, v)
+        from = to:match('%a%d+')
+    else d, from, q, v = 0, q, {}, {[q] = 'start', result = v} end
+    for _, link in ipairs(self.regions[from].adjacent) do if path(d, link) then table.insert(q, {d + 1, from, link}) end end
+    return self:search(q, path, visit, v)
+end
+
+-- Computes the Delaunay triangulation of the given region and commands
+function Map:delaunay(region, commands, show_lines)
+    local co = coroutine.create(|cor| Map.delaunayBuild(region, commands, show_lines, cor))
+    coroutine.resume(co, co)
+end
+
+function Map.delaunayBuild(region, commands, show_lines, co)
+    local triangles = {}
+    local addPoint = function (point)
+        Map.delaunayAddPoint(point)
+        Wait.frames(|| coroutine.resume(co), 10)
+        coroutine.yield()
+    end
+    for _, point in ipairs(Map.regions[region].points) do addPoint(vector(point[1], 0, point[2])) end
+    for _, command in ipairs(commands) do if command.force == 'army' then
+        local origin = command.getPosition()
+        local offset = (command.getTransformForward() + command.getTransformRight()) * 0.45
+        for i = 1, 4 do addPoint(Map.positionToLocal(origin + offset:rotateOver('y', 90)):setAt('y', 0)) end
+        for i = #triangles, 1, -1 do if triangles[i].center == Map.positionToLocal(origin):setAt('y', 0) then table.remove(triangles, i) end end
+    elseif command.force == 'fleet' then
+        local origin = command.getPosition()
+        local forward, right = command.getTransformForward(), command.getTransformRight()
+        for x = 1, -1, -2 do for z = 1, -1, -1 do
+            addPoint(Map.positionToLocal(origin + right * (x - math.abs(z) * 0.1) + forward * z):setAt('y', 0))
+    end end end end
+    for i = #triangles, 1, -1 do
+        if not self.inside2d((triangles[i][1] + triangles[i][2] + triangles[i][3]) * (1/3), Map.regions[region].points) then
+            table.remove(triangles, i)
+    end end
+    if show_lines then
+        local lines = {}
+        for i, tri in ipairs(triangles) do
+            local points = {vector(tri[3].x, 0.585, tri[3].z)}
+            for _, point in ipairs(tri) do table.insert(points, vector(point.x, 0.585, point.z)) end
+            table.insert(lines, {points = points, thickness = 0.02})
+        end
+        Map.setVectorLines(lines)
+    end
+end
+
+function Map.delaunayTriangle(v1, v2, v3)
+    local tri = {v1, v2, v3}
+    local a, b, c = v2 - v1, v3 - v1, v3 - v2
+    local d, e = a:dot(v1 + v2), b:dot(v1 + v3)
+    tri.center = vector(b.z * d - a.z * e, 0, a.x * e - b.x * d) * (1 / (2 * (a.x * c.z - a.z * c.x)))
+    tri.r2 = tri.center:sqrDistance(v1)
+    return tri
+end
+
+function Map.delaunayAddPoint(point)
+    local edges = {}
+    for i = #triangles, 1, -1 do
+        local tri = triangles[i]
+        if point:sqrDistance(tri.center) < tri.r2 then
+            for v = 1, 3 do table.insert(edges, {tri[v], tri[v % 3 + 1]}) end
+            table.remove(triangles, i)
+    end end
+    while #edges > 0 do
+        local edge = table.remove(edges)
+        for i = 1, #edges do
+            if edge[1] == edges[i][1] and edge[2] == edges[i][2] or edge[1] == edges[i][2] and edge[2] == edges[i][1] then
+                table.remove(edges, i)
+                edge = nil
+                break
+        end end
+        if edge then table.insert(triangles, Map.delaunayTriangle(edge[1], edge[2], point)) end
+    end
+    if show_lines then
+        local lines = {}
+        for i, tri in ipairs(triangles) do
+            local points = {vector(tri[3].x, 0.585, tri[3].z)}
+            for _, point in ipairs(tri) do table.insert(points, vector(point.x, 0.585, point.z)) end
+            table.insert(lines, {points = points, thickness = 0.02})
+        end
+        Map.setVectorLines(lines)
+    end
+end
+
+-- Static helpers --
+function Map.inside2d(point, polygon)
+    local v1, inside = polygon[#polygon], false
+    for _, v2 in ipairs(polygon) do
+        if (point.x > v1[1]) != (point.x > v2[1])
+            and (point.x - v1[1]) * Map.signed_area(point, v1, v2) > 0 then inside = not inside end
+        v1 = v2
+    end
+    return inside
+end
+
+function Map.signed_area(a, b, c)
+    return a.x * (b[2] - c[2]) - a.z * (b[1] - c[1]) + b[1] * c[2] - b[2] * c[1]
+end
+
+-- subclass Region --
+Map.Region = {}
+setmetatable(Map.Region, {__call = function (t, id, data)
+    local r = {id = id}
+    for k, v in pairs(data) do r[k] = v end
+    for _, link in ipairs(data.adjacent) do if link:match('$$') then r.port = true end end
+    setmetatable(r, {__index = t})
+    return r
+end})
+
+function Map.Region:displayID() return self.id:gsub('[aimp]', '%0-'):upper() end
+function Map.Region:displayName() return self:displayID() .. (self.is_sea and '' or ' - ' .. self.name) end
+function Map.Region:colorizedName()
+    local id = self:displayID():colorize(self.is_sea and 'sea' or Nations[self.id:sub(1, 1)])
+    return id .. (self.is_sea and '' or ' - ' .. self.name)
+end
+
+function Map.Region:owner()
+    local nation
+    if self.flag ~= nil then
+        local name = self.flag.getName()
+        if name:match('^Defense') then nation = name:match('%b[](%a+)%b[]'):lower()
+        else nation = name:match('^%a+'):lower() end
+    else nation = self.id:sub(1, 1) end
+    return Nations[nation]
+end
+
+function Map.Region:side() return Nations[self:owner()].side end
+
+function Map.Region:commands() return Commands:region(self.id) end
+
+function Map.Region:income()
+    local income = {}
+    if self.resources then
+        for resource, value in pairs(self.resources) do income[resource] = value end
+        if self.card.is_face_down then
+            if income.oil then totals.oil = totals.oil - 1
+            elseif income.iron then totals.iron = totals.iron - 1
+            elseif income.osr then totals.osr = totals.osr - 1 end
+    end end
+    return income
+end
+
+function Map.Region:production()
+    return self.industry and self.industry - #(self.bombs or {}) or 0
+end
+
+function Map.Region:activeConvoys()
+    debug('Checking for active convoys in ', self.id)
+    local clusters = {}
+    if self.convoys then for _, cluster in ipairs(self.convoys) do
+        local t = {}
+        for origin, convoy in pairs(cluster) do
+            if not origin:find('%-') then
+                local side = Map.regions[origin]:side()
+                t[side] = t[side] or {}
+                t[side][origin] = convoy
+            else
+                local side = Map.regions[origin:match('(%w+)%-')]:side()
+                if side == Map.regions[origin:match('%-(%w+)')]:side() then
+                    t[side] = t[side] or {}
+                    t[side][origin] = convoy
+        end end end
+        for side, convoys in pairs(t) do
+            clusters[side] = clusters[side] or {}
+            table.insert(clusters[side], t[side])
+    end end end
+    return clusters
+end
+
+function Map.Region:bombTargets()
+    local targets = {}
+    local resources = self:income()
+    if resources.osr then targets.yellow = {osr = resources.osr} end
+    if resources.iron then targets.blue = {iron = resources.iron} end
+    if resources.oil then targets.red = {oil = resources.oil} end
+    if self.construction then for unit_type, num in self.construction.units do
+        targets[Units[unit_type].color] = targets[Units[unit_type].color] or {}
+        targets[Units[unit_type].color][unit_type] = num
+    end end
+    if self.industry then
+        targets.white = {bomb = self.industry - #(self.bombs or {})}
+        if targets.white.bomb == 0 then targets.white = nil end
+    elseif not self.bombs then targets.white = {bomb = 1} end
+    return targets
+end

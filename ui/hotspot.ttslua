@@ -1,0 +1,86 @@
+function Hotspot:initAssets()
+    self.Assets = {Nation = {}, Hit = {}, Bomb = {}}
+    for _, asset in ipairs(UI.getCustomAssets()) do if Units[asset.name] then
+        table.insert(self.Assets.Bomb, asset)
+        if Units[asset.name].force == 'army' then table.insert(self.Assets.Hit, asset) end
+    elseif Nations[asset.name] then
+        table.insert(self.Assets.Nation, asset)
+        table.insert(self.Assets.Hit, asset)
+    elseif asset.name:match('[io][irs][lor]n?') or asset.name == 'bomb' then
+        table.insert(self.Assets.Bomb, asset)
+    end end
+end
+
+function Hotspot:regionLabel()
+    self.UI.setXmlTable({{tag = 'Text', value = Map.regions[self.region]:displayID(), attributes = {id = 'region',
+        position = '0 0 -37.1', scale = '0.75 1', fontSize = 56, fontStyle = 'Bold'
+    }}})
+end
+
+function Hotspot:xmlAngle()
+    return self.getRotation().y - Map.rotation.y - Map:rotationToCenter(Map.positionToLocal(self.getPosition()))
+end
+
+function Hotspot:nationButtons(nations, label)
+    local xml, buttons = self.UI.getXmlTable(), {}
+    for _, nation in ipairs(nations) do table.insert(buttons, {tag = 'Button', attributes = {id = nation,
+        text = label, icon = nation, fontSize = 30, onClick = 'Global/Hotspot(' .. self.region .. ')',
+        colors = table.concat({Color[nation]:setAt('a', 0.75):toXml(), Color[nation]:toXml(), 'white', 'clear'}, '|')
+    }}) end
+    table.insert(xml, {tag = 'VerticalLayout', attributes = {id = 'buttons',
+        height = #nations * 120, width = 216, position = '0 0 -85', rotation = '0 0 ' .. self:xmlAngle()
+    }, children = buttons})
+    self.UI.setCustomAssets(self.Assets.Nation)
+    self.UI.setXmlTable(xml)
+end
+
+function Hotspot:bombButtons(bombers, targets)
+    local xml, callback = self.UI.getXmlTable(), 'Global/Hotspot(' .. self.region .. ')'
+    bomber_buttons = {tag = 'HorizontalLayout', attributes = {id = 'bombers'}, children = {}}
+    for i = 0, bombers do table.insert(bomber_buttons.children, {tag = 'Button', attributes = {id = i,
+        image = 'bomber', text = i, textColor = 'white', fontSize = 60, onClick = callback
+    }}) end
+    target_buttons = {tag = 'HorizontalLayout', attributes = {id = 'targets', active = false}, children = {}}
+    for _, t in ipairs(Combat.BombOrder) do if targets[t.color] and targets[t.color][t.target] then
+        table.insert(target_buttons.children, {tag = 'Button', attributes = {id = t.color .. '-' .. t.target,
+            image = t.target, text = targets[t.color][t.target], fontSize = 60,
+            textColor = (t.target == 'bomb' and Color.red or Color.white):toXml(),
+            onClick = callback, interactable = false
+        }}) end
+    end
+    local width = math.max(#bomber_buttons.children, #target_buttons.children)
+    for _, buttons in ipairs{bomber_buttons, target_buttons} do if width > #buttons.children then
+        local pad = (width - #buttons.children) * 60
+        buttons.attributes.padding = pad .. ' ' .. pad .. ' 0 0'
+    end end
+    table.insert(xml, {tag = 'Panel', attributes = {
+        height = 120, width = width * 120, position = '0 0 -150', rotation = '0 0 ' .. self:xmlAngle()
+    }, children = {bomber_buttons, target_buttons}})
+    self.UI.setCustomAssets(self.Assets.Bomb)
+    self.UI.setXmlTable(xml)
+end
+
+function Hotspot:hitButtons(targets)
+    local xml, rows, cols = self.UI.getXmlTable(), {}, 0
+    for nation, _ in pairs(targets) do table.insert(rows, {
+        tag = 'HorizontalLayout', attributes = {id = nation}, children = {}
+    }) end
+    for _, row in ipairs(rows) do
+        local nation = row.attributes.id
+        for unit, _ in pairs(targets[nation]) do table.insert(row.children, {tag = 'Button', attributes = {id = nation .. '-' .. unit,
+            image = unit, icon = #rows > 1 and nation or nil, onClick = 'Global/Hotspot(' .. self.region .. ')'
+        }}) end
+        cols = math.max(cols, #row.children)
+    end
+    if #rows > 1 then
+        for _, row in ipairs(rows) do
+            local pad = (cols - #row.children) * 60
+            row.attributes = {padding = pad .. ' ' .. pad .. ' 0 0'}
+        end
+        rows = {tag = 'VerticalLayout', children = rows}
+    else rows = rows[1] end
+    rows.attributes = {id = 'hits', height = rows * 120, width = cols * 120, position = '0 0 -85', rotation = '0 0 ' .. self:xmlAngle()}
+    table.insert(xml, rows)
+    self.UI.setCustomAssets(self.Assets.Hit)
+    self.UI.setXmlTable(xml)
+end

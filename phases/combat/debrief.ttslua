@@ -1,172 +1,90 @@
--- -- -- Return carrier fighters and place arrows
-function debriefAirCommands(commands)
-    debug('Placing landing tags and removing carrier fighters')
-    for _, forces in pairs(commands) do if forces.air then for _, command in ipairs(forces.air) do
-        if command.getName() ~= 'cfighter' then
-            table.insert(state.combat.landings, command)
-            placeLandingArrow(command)
-        else returnPiece(command) end
-    end end end
+function Combat:debrief(commands, combatants)
+    self.commands = commands or Commands:region(self.hotspot.region)
+    local naval = Map.regions[self.hotspot.region].is_sea
+    if naval then self:checkTransports() end
+    self:checkAirCommands()
+    if not naval and combatants then self:checkControl(combatants) end
+    local force = naval and 'fleet' or 'army'
+    self.hotspot:finalize(self.commands.axis[force] and self.commands.allies[force])
 end
 
-function placeLandingArrow(command)
-    local is_axis = isAxis(commandNation(command))
-    local offset = is_axis and 0.215 or 0
-    getObjectFromGUID(GUIDs.Bags.arrow).takeObject({
-        position = command.getPosition() + vector(0, 0.25 + offset, 0),
-        rotation = vector(0, math.random(360) - 180, is_axis and 180 or 0),
-        callback_function = function (arrow) Wait.condition(function () Wait.frames(function ()
-            command.jointTo(arrow, {type = 'Fixed'})
-            arrow.interactable = false
-        end, 3) end, || arrow.getPosition().y - offset - command.getPosition().y < 0.24) end
-    })
-end
-
--- -- -- Check for lost transports
-function checkTransports(region, commands)
-    debug('Checking for sunk transports in ', region)
+function Combat:checkTransports()
+    debug('Checking for unescorted transports')
     local sunk, guids = {}, {}
-    for side, other in pairs({axis = 'allies', allies = 'axis'}) do if commands[side].army and not commands[side].air then
+    for side, other in pairs(Nations.other) do if self.commands[side].army and not self.commands[side].air then
         sunk = commands[side].army
         if commands[other].air then
             if commands[side].fleet then for _, fleet in ipairs(commands[side].fleet) do
-                local name = fleet.getName()
-                if name:find('Battleship') or name:find('Carrier') or name:find('Cruiser') then
-                    sunk = {}
-                    break
-            end end end
+                if fleet.units() > fleet.units.submarine then sunk = {} break end
+            end end
         elseif commands[side].fleet or commands[other].fleet == nil then sunk = {} end
     end end
-    if #sunk > 0 then debug('Found transports to sink') end
-    removeStacks(sunk)
+    if #sunk > 0 then
+        debug('Destroying unescorted transports')
+        local ps = {}
+        for _, command in ipairs(sunk) do table.insert(ps, command:destroy()) end
+        Promise.all(ps):next(|| self.resume())
+        coroutine.yield()
+        self.commands = Commands:region(self.hotspot.region)
+    else return commands end
 end
 
--- -- -- Update territory control
-function territoryControl(hotspot, commands, invaders)
-    local region = getRegion(hotspot)
-    debug('Checking for change of control in ', region)
-    local owner, remaining, side = getOwnership(region), {}
-    if isAxis(owner) then if not commands.axis.army then side = 'allies' end
-    elseif not commands.allies.army then side = 'axis' end
-    if side then for _, command in ipairs(commands[side].army or {}) do
-        local nation = commandNation(command)
-        if not remaining[nation] then
-            remaining[nation] = true
-            table.insert(remaining, nation)
-    end end end
-    if #remaining > 0 then
-        debug('Enemy combatants remaining')
-        local orig_owner, new_owner = not isAxis(remaining[1]) and Map.data.regions[region].occupied or Prefixes[region:sub(1, 1)]
-        if isAxis(remaining[1]) == isAxis(orig_owner) and getStressZone(orig_owner) < 6 then
-            debug('Territory reverts to original owner ', orig_owner)
-            new_owner = orig_owner
-        elseif #remaining > 1 then
-            local click_fun = 'assignControl' .. region
-            createNationButtons(hotspot, remaining, 'Gains control', click_fun)
-            self.setVar(click_fun, function (_, nation)
-                hotspot.UI.setXml('')
-                new_owner = nation
-                self.setVar(click_fun, nil)
-            end)
-        else new_owner = remaining[1] end
-        Wait.condition(function ()
-            transferControl(hotspot, owner, new_owner)
-            MoraleBoard.call('addStress', {nation = owner, value = Map.data.regions[region].sv or 0})
-            awardMedals(hotspot, invaders, (owner == 'ussr' or owner == 'japan') and state.pact_broken)
-        end, || new_owner ~= nil)
-    else checkEmbattled(hotspot, commands) end
-end
-
-function createNationButtons(hotspot, nations, text, fun_name)
-    local buttons = {}
-    local rotation = Map.obj.call('rotationToCenter', Map.obj.positionToLocal(hotspot.getPosition())) + Map.rotation.y
-    for _, nation in ipairs(nations) do
-        local color = Colors[nation]
-        table.insert(buttons, {tag = 'Button', attributes = {
-            text = text, icon = nation, fontSize = '30',
-            colors = '#' .. color .. 'c0|#' .. color .. 'ff|white|clear',
-            onClick = 'Global/' .. fun_name .. '(' .. nation .. ')'
-        }})
-    end
-    hotspot.UI.setXmlTable({{tag = 'VerticalLayout', children = buttons, attributes = {
-        height = #nations * 120, width = 216, position = '0 0 -85',
-        rotation = '0 0 ' .. (hotspot.getRotation().y - rotation)
-    }}})
-end
-
-function transferControl(hotspot, from, to)
-    local region = getRegion(hotspot)
-    broadcastToAll(colorize(properName(to), to) .. ' has taken control of ' .. properName(region) .. ' from ' .. colorize(properName(from), from))
-    takeCard(region, from, |card| giveCard(card, to))
-    local token = state.objects.flags[region]
-    local flag_fun = function () getObjectFromGUID(GUIDs.Nations[to].flag_bag).takeObject({
-        position = (token or hotspot).getPosition(),
-        callback_function = function (flag) state.objects.flags[region] = flag end
-    }) end
-    if token then
-        returnPiece(token)
-        if Prefixes[to] ~= region:sub(1, 1) then flag_fun() end
-    else Wait.condition(flag_fun, || hotspot.isSmoothMoving()) end
-    if state.scenario == 'global' and not state.pact_broken and (region == 'g1' or region == 'r1') then breakPact() end
-end
-
-function awardMedals(hotspot, nations, pact_breaker)
-    local region = getRegion(hotspot)
-    local medal_count, callback, msg = isCapital(region) and 3 or 1, function ()
-        hotspot.UI.setXml('')
-        returnPiece(hotspot)
-        clearHotspot(region)
-    end, string.format('%s from victory in %s', colorize('medal', 'medal'), properName(region))
-    for i = #nations, 1, -1 do if nations[i] == pact_breaker then table.remove(nations, i) break end end
-    if #nations > 1 then
-        local click_fun = 'awardMedals' .. region
-        createNationButtons(hotspot, nations, '+1 medal', click_fun)
-        self.setVar(click_fun, function (_, value)
-            MoraleBoard.call('addMedals', {nation = value, value = 1})
-            alert(string.format('%s earned a %s', colorize(properName(nation), nation), msg))
-            medal_count = medal_count - 1
-            if medal_count == 0 then
-                callback()
-                self.setVar(click_fun, nil)
-        end end)
-    else
-        if #nations == 1 then
-            MoraleBoard.call('addMedals', {nation = nations[1], value = medal_count})
-            alert(string.format('%s earned %s %s', colorize(properName(nations[1]), nations[1]), medal_count > 1 and medal_count or 'a', msg))
-        end
-        callback()
-    end
-end
-
--- -- -- Flip or remove hotspot marker
-
-function checkEmbattled(hotspot, commands)
-    local region = getRegion(hotspot)
-    debug('Checking for embattled status in ', region)
-    if Map.data.regions[region].is_sea then
-        if commands.axis.fleet and commands.allies.fleet then hotspot.flip()
-        else returnPiece(hotspot) end
-    else
-        local card = getCard(region, getOwnership(region))
-        if commands.axis.army and commands.allies.army then
-            if not card.is_face_down then card.setRotation(card.getRotation():setAt('z', 180)) end
-            hotspot.flip()
-        else
-            if card.is_face_down then card.setRotation(card.getRotation():setAt('z', 0)) end
-            returnPiece(hotspot)
+function Combat:checkAirCommands()
+    debug('Placing landing tags and removing carrier fighters')
+    local ps, cfighters = {}, 0
+    for _, forces in pairs(self.commands) do if forces.air then
+        for _, command in ipairs(forces.air) do if command.getName() == 'cfighter' then
+            table.insert(ps, command:stash())
+            cfighters = cfighters + 1
+        else debug('Placing landing arrow on ', command.guid) table.insert(ps, command:placeArrow()) end end
     end end
-    clearHotspot(region)
+    if #ps > 0 then
+        Promise.all(ps):next(|| self.resume())
+        coroutine.yield()
+        if cfighters > 0 then self.commands = Commands:region(self.hotspot.region) end
+    end
 end
 
-function clearHotspot(region)
-    local more, busy = false, false
-    debug('Clearing hotspot in ', region)
-    state.combat.hotspots[region].status = 'done'
-    UI.setValue('combat-status' .. state.combat.hotspots[region].hud, '✓')
-    UI.hide('combat-clear' .. state.combat.hotspots[region].hud)
-    for r, hotspot in pairs(state.combat.hotspots) do
-        more, busy = more or hotspot.status ~= 'done', busy or hotspot.status == 'busy' or hotspot.status == 'raid'
-    end
-    if more then if not busy then enableSave('combat') end
-    else Wait.time(landAirCommands, 3) end
+function Combat:checkControl(combatants)
+    local region = Map.regions[self.hotspot.region]
+    debug('Checking for change of control in ', region.id)
+    local owner, new_owner = region:owner()
+    local defender, invader = Nations[owner].side, Nations[owner].other
+    if self.commands[invader].army and not self.commands[defender].army then
+        if region.occupied and Nations[region.occupied].side == invader then
+            new_owner = region.occupied
+        elseif Nations[Nations[region.id:sub(1, 1)]].side == invader then
+            new_owner = Nations[region.id:sub(1, 1)]
+        else
+            local remaining = {}
+            for _, command in ipairs(self.commands[invader].army) do
+                if not remaining[command.nation] then table.insert(remaining, command.nation) end
+                remaining[command.nation] = true
+            end
+            if #remaining > 1 then
+                self.hotspot:nationButtons(remaining, 'Gains control')
+                new_owner = coroutine.yield()
+            else new_owner = remaining[1] end
+        end
+        debug(new_owner, ' gains control, moving territory card')
+        -- place flag (if necessary)
+        region.card:giveTo(new_owner)
+        broadcastToAll(string.format('%s has taken control of %s from %s',
+            Nations[new_owner]:colorized(), region:colorizedName(), Nations[owner]:colorized()))
+        Morale:addStress(owner, region.sv)
+        local medals, awardees = region.is_capital and 3 or 1, {}
+        log('Awarding medals: ' .. medals)
+        log(combatants)
+        for _, nation in ipairs(combatants) do
+            if nation ~= state.pact_broken or owner ~= Nations[nation].pact then
+                table.insert(awardees, nation)
+        end end
+        if #awardees > 1 then
+            self.hotspot:nationButtons(awardees, '+1 medal')
+            for i = 1, medals do Morale:addMedals(coroutine.yield, 1) end
+        elseif #awardees == 1 then Morale:addMedals(combatants[1], medals)
+        else alert('No medals awarded due to breaking Soviet-Japanese non-aggression pact') end
+        self.hotspot.UI.setCustomAssets()
+        self.hotspot.UI.setXml('')
+    else debug('No change of control') end
 end

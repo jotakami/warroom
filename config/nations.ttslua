@@ -1,0 +1,57 @@
+Nation = {}
+setmetatable(Nation, {__call = function (t, data)
+    data.other = Nations.other[data.side]
+    setmetatable(data, {__index = t})
+    return data
+end})
+
+function Nation:isAxis() return self.side == 'axis' end
+
+function Nation:shortName() return #self.id < 5 and self.id:upper() or self.id:proper() end
+
+function Nation:colorized() return self:shortName():colorize(self.id) end
+
+Nations = {
+    n = 'neutral', g = 'germany', t = 'italy', j = 'japan',
+    c = 'china', b = 'uk', u = 'usa', r = 'ussr',
+    neutral = {prefix = 'n', side = 'neutral'},
+    other = {axis = 'allies', allies = 'axis'}
+}
+setmetatable(Nations, {__pairs = function (T, k) return function (t, k)
+    local v
+    repeat k, v = next(t, k)
+    until v == nil or #k > 1 and getmetatable(v)
+    if v ~= nil then return k, v end
+end, T, nil end})
+
+Nations.china = Nation({id = 'china', player = 'Yellow',
+    order = 6, prefix = 'c', name = 'China', side = 'allies',
+    morale = {4, 4}})
+Nations.uk = Nation({id = 'uk', player = 'Brown',
+    order = 4, prefix = 'b', name = 'British Commonwealth', side = 'allies',
+    morale = {6, 4}})
+Nations.ussr = Nation({id = 'ussr', player = 'Red',
+    order = 5, prefix = 'r', name = 'Soviet Union', side = 'allies', pact = 'japan',
+    morale = {6, 5}})
+Nations.usa = Nation({id = 'usa', player = 'Blue',
+    order = 1, prefix = 'u', name = 'United States of America', side = 'allies',
+    morale = {5, 4}})
+Nations.germany = Nation({id = 'germany', player = 'White',
+    order = 2, prefix = 'g', name = 'Germany', side = 'axis',
+    morale = {6, 6}})
+Nations.italy = Nation({id = 'italy', player = 'Green',
+    order = 3, prefix = 't', name = 'Kingdom of Italy', side = 'axis',
+    morale = {4, 4}})
+Nations.japan = Nation({id = 'japan', player = 'Orange',
+    order = 7, prefix = 'j', name = 'Imperial Japan', side = 'axis', pact = 'ussr',
+    morale = {7, 6}})
+
+function Nations:inOrder()
+    local t = {}
+    for nation, data in pairs(self) do t[data.order] = nation end
+    return t
+end
+
+function Nations:byPlayer(player)
+    for _, nation in pairs(self) do if nation.player == player then return nation end end
+end

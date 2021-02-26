@@ -1,0 +1,116 @@
+Hotspot = {}
+Hotspot.__meta = wrapper(Hotspot)
+setmetatable(Hotspot, {__call = function (T, ...) if select('#', ...) > 2 then
+    local region, data = select(2, ...)
+    Map.regions[region].hotspot.resume(data)
+else
+    local obj, region = ...
+    local t = wrap(T, obj)
+    if obj.memo == nil then obj.memo = 'initial' end
+    t.region = region
+    t:regionLabel()
+    return t
+end end})
+
+#include ../ui/hotspot
+
+function Hotspot:stash()
+    self.setPositionSmooth(self.getPosition() + vector(0, 3, 0))
+    return Promise.condition(|| not self.isSmoothMoving()):next(|| self.destruct())
+end
+
+function Hotspot:activate()
+    debug('Activating hotspot in ', self.region, ' with status ', self.memo)
+    if self.memo == 'raid' then self.resume()
+    elseif self.memo ~= 'busy' then
+        local commands = Commands:region(self.region)
+        local action = self:action(commands)
+        debug('Resolving ', action, ' hotspot in region ', self.region)
+        if action == 'battle' then
+            if rawget(Battle.left, 'combat') and rawget(Battle.right, 'combat') then return false
+            else Combat.Battle(self, commands) end
+        else Combat[action:proper()](self, commands) end
+        if self.memo == 'initial' then self.obj.memo = 'busy' end
+        UI.setValue('combat-status' .. self.hud, '♦')
+        return true
+    end
+    return false
+end
+
+--TODO: clean up the use of helper functions?
+function Hotspot:action(commands)
+    local region = Map.regions[self.region]
+    commands = commands or Commands:region(region.id)
+    local force = region.is_sea and 'fleet' or 'army'
+    local side, other, japan_only, ussr_only
+    if commands.axis.air or commands.axis[force] then
+        side, other = 'axis', 'allies'
+        japan_only = Combat.nationOnly('japan', commands.axis.air, commands.axis[force])
+        if japan_only then debug('Japan only in region ', region.id) end
+    end
+    if commands.allies.air or commands.allies[force] then
+        ussr_only = Combat.nationOnly('ussr', commands.allies.air, commands.allies[force])
+        if ussr_only then debug('USSR only in region ', region.id) end
+        if side then if state.pact_broken or not (japan_only and ussr_only) then return 'battle' end
+        else side, other = 'allies', 'axis' end
+    end
+    if side then if region.is_sea then
+        local convoys = region:activeConvoys()
+        if japan_only and ussr_only then
+            if convoys.allies and not Combat.convoyOnly('ussr', convoys.allies)
+                or convoys.axis and not Combat.convoyOnly('japan', convoys.axis) then return 'raid'
+            elseif commands.allies.army and not Combat.nationOnly('ussr', commands.allies.army)
+                or commands.axis.army and not Combat.nationOnly('japan', commands.axis.army) then return 'uncontested' end
+        elseif convoys[other] and (state.pact_broken or
+            not (japan_only and Combat.convoyOnly('ussr', convoys.allies)) and
+            not (ussr_only and Combat.convoyOnly('japan', convoys.axis))) then return 'raid'
+        elseif commands[other].army and (state.pact_broken or
+            not (japan_only and Combat.nationOnly('ussr', commands.allies.army)) and
+            not (ussr_only and Combat.nationOnly('japan', commands.axis.army))) then return 'uncontested' end
+    else
+        local owner = Nations[region:owner()].side
+        if japan_only and ussr_only then if owner == 'axis' then side, other = 'allies', 'axis' end end
+        if owner == other then if commands[side].army then return 'uncontested'
+        else for _, command in ipairs(commands[side].air) do if command.units.bomber > 0 then return 'uncontested' end
+    end end end end end
+    return nil
+end
+
+function Hotspot:getCombatants(commands)
+    commands = commands or Commands:region(self.region)
+    local region, combatants = Map.regions[self.region], {}
+    local owner = region:owner()
+    if owner then combatants[owner] = true end
+    for _, side in pairs(commands) do for _, force in pairs(side) do for _, command in ipairs(force) do
+        combatants[command.nation] = true
+    end end end
+    if self:action(commands) == 'raid' then
+        local clusters = region:activeConvoys()
+        local side = (commands.axis.air or commands.axis.fleet) and 'allies' or 'axis'
+        for _, cluster in ipairs(clusters[side]) do for origin, _ in pairs(cluster) do
+            owner = Map.regions[origin:match('^%a%d+')]:owner()
+            if owner ~= 'neutral' then combatants[owner] = true end
+    end end end
+    return combatants
+end
+
+-- Battle debrief methods
+
+function Hotspot:finalize(embattled)
+    debug('Finalizing hotspot')
+    local region = Map.regions[self.region]
+    debug('Checking for embattled status in ', region.id)
+    if embattled then
+        self.flip()
+        self:regionLabel()
+        if not region.is_sea then region.card:embattled(true) end
+    else
+        self:stash()
+        self.UI.setXml('')
+        if not region.is_sea then region.card:embattled(false) end
+    end
+    self.memo = 'done'
+    UI.setValue('combat-status' .. self.hud, '✓')
+    UI.hide('combat-clear' .. self.hud)
+    Combat.resume()
+end

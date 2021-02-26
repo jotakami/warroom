@@ -1,6 +1,8 @@
-function debug(...)
-    if Global.getVar('Debug') then print('[808080](DEBUG) ', ...) end
-end
+logStyle('debug', 'Grey')
+logStyle('warn', 'Red')
+
+function debug(...) if Global.getVar('Debug') then log(table.concat{'[DEBUG] ', ...}, '', 'debug') end end
+function warn(...) if Global.getVar('Debug') then log(table.concat{'[WARNING] ', ...}, '', 'warn') end end
 
 function alert(...)
     if AlertID then printToAll(table.concat(table.pack('(', AlertID, ') ', ...))) else printToAll(...) end

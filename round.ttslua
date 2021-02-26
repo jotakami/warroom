@@ -1,0 +1,77 @@
+Round = {}
+setmetatable(Round, {__call = function (t, ...)
+    if t.resume == nil then
+        t.resume = coroutine.wrap(|...| t:main(...))
+        t.resume(...)
+    else t.resume() end
+end})
+
+function Round:main()
+    if state.phase < 1 then
+        HUD.updateTracker('', '', 'start')
+        HUD.resetStatus()
+        UI.show('start')
+        coroutine.yield()
+        UI.hide('start')
+        state.round = state.round + 1
+        if state.round > 1 then HUD.close('production') end
+        local i = 0
+        for _, token in pairs(Tokens.turn) do
+            i = i + 1
+            token.setPositionSmooth(Map.positionToWorld(Map.snaps[i].position:lerp(Map.center, 0.225)))
+            token.setRotationSmooth(Map.snaps[i].rotation + Map.rotation)
+    end end
+    for nation, orders in ipairs(Orders) do orders:startRound(state.round) end
+    UI.setValue('round', state.round)
+    if state.phase < 2 then Economy(self.resume) end
+    Planning(self.resume)
+    Movement(self.resume)
+    if state.phase < 5 then Combat(self.resume) end
+    if state.phase < 6 then Refit(self.resume) end
+    if state.phase < 7 then Morale(self.resume) end
+    Production(self.resume)
+    state.phase, self.resume = 0, nil
+end
+
+Phase = {}
+setmetatable(Phase, {__call = function (t, meta)
+    local p = {}
+    meta = meta or {}
+    meta.__call = t.main
+    setmetatable(p, meta)
+    return p
+end})
+
+function Phase.main(t, co, ...)
+    if rawget(t, 'resume') == nil then
+        t.resume = co
+        t:main(...)
+    else t.resume(...) end
+end
+
+function Phase.readyLoop(readied, initial, fun)
+    local all_ready = initial or false
+    while not all_ready do
+        local nation, ready = coroutine.yield()
+        if fun == nil or fun(nation, ready) ~= false then
+            readied[nation], all_ready = ready, true
+            HUD.updateStatus(nation, ready)
+            for _, r in pairs(readied) do all_ready = all_ready and r end
+        else Wait.frames(|| Orders[nation]:toggleReady(false), 1) end
+    end
+    for nation, _ in pairs(readied) do Orders[nation].UI.hide('ready') end
+end
+
+turnOrder = {get = function ()
+    local turns = {}
+    for nation, token in pairs(Tokens.turn) do table.insert(turns, {
+        nation = nation, angle = (Map:rotationToCenter(Map.positionToLocal(token.getPosition())) + 60) % 360
+    }) end
+    table.sort(turns, |a, b| a.angle > b.angle)
+    for i = 1, #turns do turns[turns[i].nation], turns[i] = i, turns[i].nation end
+    return turns
+end}
+setmetatable(turnOrder, {
+    __call = |t| ipairs(t.get()),
+    __index = |t, k| t.get()[k]
+})

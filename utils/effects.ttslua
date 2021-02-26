@@ -1,0 +1,56 @@
+function setBlinker(obj, hcolor, on_time, delay)
+    hcolor, on_time, delay = hcolor and colorTable(hcolor) or {1, 1, 1}, on_time or 0.5, delay or 1
+    local id
+    obj.highlightOn(hcolor, on_time)
+    id = Wait.time(|| obj ~= nil and obj.highlightOn(hcolor, on_time) or Wait.stop(id), delay, -1)
+    obj.setVar('blinker', id)
+end
+
+function stopBlinker(obj) if obj.getVar('blinker') then Wait.stop(obj.getVar('blinker')) end end
+
+function setGlow(obj, clr)
+    clr = clr or Color.white
+    local i, id = 0
+    id = Wait.time(function () if obj ~= nil then
+        obj.highlightOn(clr:copy():setAt('a', 0):lerp(clr, (i > 10 and 20 - i or i) / 10))
+        i = (i + 1) % 20
+    else Wait.stop(id) end end, 0.08, -1)
+    obj.setVar('glow', id)
+    return obj
+end
+
+function stopGlow(obj) if obj.getVar('glow') then
+    obj.highlightOff()
+    Wait.stop(obj.getVar('glow'))
+    return obj
+end end
+
+function setPulse(obj, clr2)
+    clr2 = clr2 or color(0.5, 0.5, 0.5)
+    local clr1, i, id = obj.getColorTint(), 0
+    id = Wait.time(function () if obj ~= nil then
+        obj.setColorTint(clr1:lerp(clr2, (i > 10 and 20 - i or i) / 10))
+        i = (i + 1) % 20
+    else Wait.stop(id) end end, 0.08, -1)
+    obj.setVar('pulse', id)
+    return obj
+end
+
+function stopPulse(obj, clr) if obj.getVar('pulse') then
+    obj.setColorTint(clr or Color.white)
+    Wait.stop(obj.getVar('pulse'))
+    return obj
+end end
+
+function fadeOut(obj, delay)
+    delay = delay or 1
+    local i, p = delay * 10 - 1, Promise()
+    Wait.time(function () if i > 0 then
+        obj.setColorTint(Color.white:setAt('a', 0.1 * i / delay))
+        i = i - 1
+    else
+        obj.destruct()
+        p:resolve()
+    end end, 0.1, delay * 10)
+    return p
+end

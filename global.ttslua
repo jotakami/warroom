@@ -1,220 +1,42 @@
-#include constants/nations
-#include constants/stress
-#include constants/units
-#include constants/guids
-#include constants/help
 #include utils/debug
-#include config
+#include utils/exports
+#include utils/promise
+#include utils/colors
+#include utils/builtins
+#include utils/effects
 
--- Save and Load
+#include config/guids
+#include config/help
+#include config/nations
+#include config/scenario
+
+#include components/map
+#include components/dice
+#include components/cards
+#include components/units
+#include components/stack
+#include components/command
+#include components/hotspot
+#include components/orders
+#include components/battle
+#include components/morale
+
 #include saveload
-
--- -- Global UI
-#include xml/global
 #include hud
+#include round
 
--- Scenario selection, game setup and round setup
 #include phases/setup
-
--- Phase 1: Direct National Economy
-
-function resourceIncome()
-    updateTracker('Tallying resource income', '1 - Direct National Economy')
-    resetStatus()
-    openHUD('resources')
-    local delay = 0
-    for i, nation in ipairs(state.turn_order) do
-        local totals = {oil = 0, iron = 0, osr = 0}
-        for _, card in ipairs(getObjectFromGUID(GUIDs.Nations[nation].card_zone).getObjects()) do
-            local resources = Map.data.regions[card.getName():match('^%w+'):lower()].resources
-            if resources then
-                for resource, value in pairs(resources) do totals[resource] = totals[resource] + value end
-                if card.is_face_down then
-                    if resources.oil then totals.oil = totals.oil - 1
-                    elseif resources.iron then totals.iron = totals.iron - 1
-                    elseif resources.osr then totals.osr = totals.osr - 1 end
-        end end end
-        if nation == 'china' then totals.oil = nil end
-        Wait.time(function ()
-            local msg = colorize(properName(nation), nation)
-            if getStressZone(nation) < 5 then
-                msg = msg .. ' gained '
-                if (totals.oil or 0) + totals.iron + totals.osr > 0 then
-                    state.objects.resources[nation].call('addResources', totals)
-                    for resource, value in pairs(totals) do if value > 0 then
-                        msg = msg .. colorize(value, resource) .. ' ' .. resource .. ', '
-                    end end
-                    msg = msg:sub(1, -3)
-                else msg = msg .. 'no resources' end
-            else msg = msg .. ' cannot gain resources due to [ff4040]economic collapse[-]' end
-            alert(msg)
-            updateStatus(nation, true)
-        end, (i - 1) * 0.5)
-    end
-    Wait.time(writeOrders, #state.turn_order * 0.5)
-end
-
--- Phase 2: Strategic Planning
+#include phases/economy
 #include phases/planning
-
--- Phase 3: Movement Operations
 #include phases/movement
-
--- Phase 4: Combat Operations
 #include phases/combat
-
--- Phase 5: Refit and Deploy
 #include phases/refit
-
--- Phase 6: Morale
 #include phases/morale
-
--- Phase 7: Production
 #include phases/production
 
 -- Helper Functions --
-#include utils/stacks
-#include utils/dice
-#include utils/cards
-#include utils/blinker
-
--- -- Map/region helpers
-
-function isCapital(region)
-    for _, id in ipairs(Scenarios[state.scenario].capitals) do if id == region then return true end end
-    return false
-end
-
-function hasPort(region)
-    for _, link in ipairs(Map.data.regions[region].adjacent) do if link:match('$$') then return true end end
-    return false
-end
-
-function getOwnership(region)
-    if state.objects.flags[region] ~= nil then
-        local name = state.objects.flags[region].getName()
-        if name:match('^Defense') then return name:match('%b[](%a+)%b[]'):lower()
-        else return name:match('^%a+'):lower() end
-    end
-    return Prefixes[region:sub(1, 1)]
-end
-
-function getRegion(obj)
-    if type(obj) == 'table' then obj = obj[1] end
-    local pos = Map.obj.positionToLocal(obj.getPosition())
-    return Map.obj.call('findRegion', {pos.x, pos.z})
-end
-
-function getCommands(region)
-    debug('Getting commands for region ', region)
-    local commands, side, force = {axis = {}, allies = {}}
-    for nation, cmds in pairs(state.objects.commands) do
-        side = Alliance[nation]
-        for num, command in pairs(cmds) do if getRegion(command) == region then
-            if num < 10 then force = 'fleet' elseif num < 20 then force = 'air' else force = 'army' end
-            commands[side][force] = commands[side][force] or {}
-            table.insert(commands[side][force], command)
-    end end end
-    for nation, cfighters in pairs(state.objects.cfighters) do
-        for _, cfighter in ipairs(cfighters) do if cfighter ~= nil then
-            if getRegion(cfighter) == region then
-                side = Alliance[cfighter.getVar('nation')]
-                commands[side].air = commands[side].air or {}
-                table.insert(commands[side].air, cfighter)
-    end end end end
-    return commands
-end
-
-function getAllCommands()
-    local commands, side, force, pos, region = {}
-    for nation, cmds in pairs(state.objects.commands) do
-        side = Alliance[nation]
-        for num, command in pairs(cmds) do
-            region = getRegion(command)
-            if region then
-                commands[region] = commands[region] or {axis = {}, allies = {}}
-                if num < 10 then force = 'fleet' elseif num < 20 then force = 'air' else force = 'army' end
-                commands[region][side][force] = commands[region][side][force] or {}
-                table.insert(commands[region][side][force], command)
-    end end end
-    for nation, cfighters in pairs(state.objects.cfighters) do
-        side = Alliance[nation]
-        for _, cfighter in ipairs(cfighters) do if cfighter ~= nil then
-            region = getRegion(cfighter)
-            if region then
-                commands[region] = commands[region] or {axis = {}, allies = {}}
-                commands[region][side].air = commands[region][side].air or {}
-                table.insert(commands[region][side].air, cfighter)
-    end end end end
-    return commands
-end
-
-function getNewCommand(nation, force)
-    if type(nation) == 'table' then nation, force = nation.nation, nation.force end
-    for id, command in pairs(state.objects.commands[nation]) do
-        local pos = command.getPosition()
-        if (math.abs(pos.x) > 45 or pos.z < -45) then
-            if id < 10 then if force == 'fleet' then return command end
-            elseif id < 20 then if force == 'air' then return command end
-            elseif force == 'army' then return command end
-    end end
-end
-
-function returnPiece(obj)
-    local name, callback = obj.getName(), || obj.destruct()
+function stash(obj)
     obj.highlightOff()
-    if isCommand(name) then
-        local tray = getObjectFromGUID(GUIDs.Nations[commandNation(obj)].trays[3 - math.min(math.floor(name:match('^%b[]%a+%b[]%s(%d+)') / 10), 2)])
-        callback = || obj.setPositionSmooth(tray.getPosition() + vector(math.random() * 3 - 1.5, 1 + math.random() * 2, math.random() * 3 - 1.5))
-    end
     obj.setPositionSmooth(obj.getPosition() + vector(0, 3, 0))
-    Wait.condition(callback, || not obj.isSmoothMoving())
-end
-
-function returnPieceGUID(data) returnPiece(getObjectFromGUID(data[1])) end
-
-function destroyObjects(objs) for _, obj in ipairs(objs) do obj.destruct() end end
-
-function checkScenario(nation)
-    return state.scenario == 'global' or Scenarios[state.scenario].nations[nation]
-end
-
-function isAxis(nation) return Alliance[nation] == 'axis' end
-
-function regionPrefix(nation) return nation:gsub('uk', 'b'):gsub('ussr', 'r'):sub(1, 1):gsub('i', 't') end
-
-function properName(s)
-    if type(s) == 'table' then s = s[1] end
-    if s:match('[bcgjnrtu]%d+') then return colorize(s:upper(), Prefixes[s:sub(1, 1)]) .. ' - ' .. Map.data.regions[s].name
-    elseif s:match('[aimp]%d+') then return colorize(s:sub(1, 1):upper() .. '-' .. s:sub(2, -1), 'sea')
-    elseif #s < 5 then return s:upper()
-    else return proper(s) end
-end
-
-function ordinalize(n)
-    if type(n) == 'table' then n = n[1] end
-    if n > 3 and n < 21 then return n .. 'th'
-    elseif n % 10 == 1 then return n .. 'st'
-    elseif n % 10 == 2 then return n .. 'nd'
-    elseif n % 10 == 3 then return n .. 'rd'
-    else return n .. 'th' end
-end
-
-function mapBFS(q, path, visit, v)
-    local from, to, d, node
-    if type(q) == 'table' then
-        repeat
-            if #q == 0 then return v.result end
-            node = table.remove(q, 1)
-            d, from, to = node[1], node[2], node[3]
-        until visit(d, from, to, v)
-        from = to:match('%a%d+')
-    else d, from, q, v = 0, q, {}, {[q] = 'start', result = v} end
-    for _, link in ipairs(Map.data.regions[from].adjacent) do if path(d, link) then table.insert(q, {d + 1, from, link}) end end
-    return mapBFS(q, path, visit, v)
-end
-
-function test(params)
-    local guid, from, to = table.unpack(params)
-    transferControl(getObjectFromGUID(guid), from, to)
+    return Promise.condition(|| not obj.isSmoothMoving()):next(|| obj.destruct())
 end

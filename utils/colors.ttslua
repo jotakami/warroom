@@ -1,0 +1,28 @@
+function Color.fromHex(hex) return color(
+    tonumber(hex:sub(1, 2), 16) / 255,
+    tonumber(hex:sub(3, 4), 16) / 255,
+    tonumber(hex:sub(5, 6), 16) / 255,
+    #hex == 8 and tonumber(hex:sub(7, 8), 16) / 255 or nil
+) end
+
+function Color:toXml(includeAlpha) return '#' .. self:toHex(includeAlpha) end
+
+Colors = {
+    axis = 'c08080', allies = 'a0a0ff', neutral = 'e8e8e8',
+    uk = 'bd9d6d', ussr = 'b77969', usa = '829d63', china = 'fcc80b',
+    germany = '7f7f7f', italy = 'b9c834', japan = 'd97f3a',
+    sea = 'd6eaf8', medal = 'f8b938', cg = '9bbc62',
+    oil = 'red', iron = 'blue', osr = 'yellow',
+    infantry = 'yellow', artillery = 'blue', armor = 'green',
+    fighter = 'green', cfighter = 'd0d0d0', bomber = 'red',
+    submarine = 'yellow', cruiser = 'blue', carrier = 'green', battleship = 'red',
+    yellow = 'ddb426', blue = '4276bb', green = '558f3a',
+    red = '9a2829', black = '000000', white = 'ffffff'
+}
+
+for k, clr in pairs(Colors) do if type(clr) == 'string' then
+    local name = k
+    if Color[k] then name = '_' .. name
+    elseif Colors[clr] then clr = Colors[clr] end
+    Color.Add(name, Color.fromHex(clr))
+end end

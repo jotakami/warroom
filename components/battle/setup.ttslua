@@ -1,0 +1,212 @@
+function Battle:initializeCombat(combat)
+    local region = Map.regions[combat.hotspot.region]
+    debug('Setting up battle for region ', region.id)
+    local mode = region.is_sea and 'sea' or 'land'
+    self.combat = combat
+    self.UI.setValue('region', region:displayID())
+    self.UI.setAttribute('region', 'color', Color[Nations[region.id:sub(1, 1)] or 'sea']:toXml())
+    if mode ~= self:mode() then self:flipBoard() end
+    self.UI.show('status-panel')
+    self.UI.setValue('status', 'Set stances')
+    self.dice, self.zones_active = {}, true
+    for side, _ in pairs(Nations.other) do
+        self.UI.hide(side .. '-roller')
+        for _, stage in ipairs(mode == 'land' and {'air', 'bomb', 'ground'} or {'air', 'surface'}) do
+            self.dice[stage] = self.dice[stage] or {}
+            self.dice[stage][side] = 0
+    end end
+end
+
+function Battle:flipBoard()
+    local sign = self.is_face_down and -1 or 1
+    self:adjustZones()
+    self:flipUI()
+    self.setPositionSmooth(self.getPosition() + vector(0, 0.2, 0) * sign)
+    self.setRotationSmooth(self.getRotation() + vector(0, 0, 180) * sign)
+    Wait.condition(function ()
+        self:adjustSnaps()
+        Wait.condition(|| self.combat.resume(), || self.UI.getAttribute('status-panel', 'position') == '0 104 ' .. (self.is_face_down and 1 or -21))
+    end, || not self.isSmoothMoving())
+    coroutine.yield()
+end
+
+function Battle:adjustZones()
+    local sign = self.is_face_down and -1 or 1
+    for _, zone in ipairs{self.commands, self.casualties.axis, self.casualties.allies} do
+        zone.translate(vector(0, 0, zone.z) * self.getScale() * sign)
+    end
+    for side, units in pairs(self.stances[self.is_face_down and 'land' or 'sea']) do
+        for unit, stances in pairs(units) do for _, stance in pairs(stances) do
+            stance.translate(vector(sign * units.x, 0, stance.z) * self.getScale())
+            stance.setTags({unit})
+            self.zones[stance.guid] = stance
+    end end end
+end
+
+function Battle:adjustSnaps()
+    local mode, snaps = self:mode(), {}
+    local y, z = mode == 'land' and 0.2 or 0, self.positionToLocal(self.commands.getPosition()).z
+    local rotation = vector(0, mode == 'land' and 0 or 33, mode == 'land' and 0 or -180)
+    for side, t in pairs(Battle.Snaps[mode]) do for nation, x in pairs(t.nations) do
+        local snap = {position = vector(x, y, z), rotation = rotation * vector(1, side == 'axis' and 1 or -1, 1)}
+        self.commands.snaps[nation] = snap
+        table.insert(snaps, {tags = {'command', nation}, snap = snap})
+    end end
+    for _, units in pairs(self.stances[mode]) do for unit, stances in pairs(units) do for _, stance in pairs(stances) do
+        for _, snap in pairs(stance.snaps) do table.insert(snaps, {tags = {unit}, snap = snap}) end
+    end end end
+    for i = 1, #snaps do snaps[i] = {
+        position = snaps[i].snap.position, rotation = snaps[i].snap.rotation * vector(0, -1, 0),
+        rotation_snap = true, tags = snaps[i].tags
+    } end
+    self.setSnapPoints(snaps)
+end
+
+-- TODO: handle standing army stacks
+function Battle:placeUnits(sides)
+    local battle, ps, mode = {axis = {nations = {}}, allies = {nations = {}}}, {}, self:mode()
+    local region = Map.regions[self.combat.hotspot.region]
+    for side, forces in pairs(sides) do for force, commands in pairs(forces) do
+        if region.industry and region:side() ~= side then battle[side].special = true end
+        if force == 'air' then battle[Nations.other[side]].antiair = true end
+        if force ~= 'army' or mode == 'land' then for _, command in ipairs(commands) do
+            local t = battle[side].nations[command.nation] or {}
+            battle[side].nations[command.nation] = t
+            if command.getName() == 'cfighter' then
+                t.fighter = t.fighter or {}
+                table.insert(t.fighter, 1, command)
+                command.origin = {pos = command.getPosition(), rot = command.getRotation()}
+            else
+                t.command = t.command or {}
+                table.insert(t.command, force ~= 'air' and 1 or #t.command + 1, command)
+                for i, unit in ipairs(command:detach()) do
+                    t[unit.name] = t[unit.name] or {}
+                    if unit.name == 'carrier' or unit.name == 'battleship' then battle[side].special = true end
+                    table.insert(t[unit.name], unit)
+                    if i == 1 then command.origin = {pos = unit.getPosition(), rot = unit.getRotation()} end
+    end end end end end end
+    debug('Moving units to battle board')
+    for side, params in pairs(battle) do for nation, types in pairs(params.nations) do for name, units in pairs(types) do
+        local step, point = 0.21
+        if name ~= 'command' then
+            point = self.stances[mode][side][name][Units[name].stance(mode, params.antiair, params.special)].snaps[nation]
+        else step, point = 0.23, self.commands.snaps[nation] end
+        table.insert(ps, Units.stack(units, self.positionToWorld(point.position), self.getRotation() + point.rotation, step))
+    end end end
+    Promise.all(ps):next(function (...)
+        debug('All units have been moved')
+        self.guids = {}
+        for _, units in ipairs{...} do for _, unit in ipairs(units) do self.guids[unit.guid] = unit end end
+        self.combat.resume()
+    end)
+    coroutine.yield()
+    for side, _ in pairs(Nations.other) do self.UI.setAttributes(side .. '-confirm', {
+        text = 'Ready', textColor = 'white', interactable = true
+    }) end
+    if mode == 'land' then
+        local invaders = {}
+        for nation, _ in pairs(battle[Nations[region:owner()].other].nations) do
+            table.insert(invaders, nation)
+        end
+        return invaders
+    elseif sides.axis.land or sides.allies.land then
+        return {axis = sides.axis.land, allies = sides.allies.land}
+    end
+end
+
+function Battle:updateDice(zone, obj, sign)
+    local stance = self.zones[zone.guid]
+    if stance and rawget(stance, 'unit') then
+        for stage, value in pairs(stance.dice) do if self.dice[stage] then
+            self.dice[stage][stance.side] = self.dice[stage][stance.side] + value * sign
+        end end
+        self:updateDiceTotal(stance.side)
+    end
+end
+
+function Battle:updateDiceTotal(side)
+    for stage, sides in pairs(self.dice) do
+        local value, id = sides[side], side .. '-' .. stage
+        if stage == 'surface' and rawget(self, 'advantage') and self.advantage[side].port then value = value + 2 end
+        if value > 0 then
+            self.UI.show(id)
+            self.UI.setValue(id .. '-dice', math.min(value, 30))
+        else self.UI.hide(id) end
+    end
+end
+
+function Battle:setAdvantages()
+    debug('Checking force and port advantage')
+    local adv, sides = {axis = {}, allies = {}}, {axis = -1, allies = 1}
+    local naval, balance = self:mode() == 'sea', 0
+    for side, units in pairs(self.stances[self:mode()]) do
+        sides[side] = {types = {}, value = sides[side]}
+        for unit, stances in pairs(units) do if Units[unit].force ~= 'air' then
+            for _, stance in pairs(stances) do if #stance:getUnits() > 0 then
+                sides[side].types[unit] = true
+                if Units[unit].force == 'fleet' then sides[side].fleet = true end
+    end end end end end
+    if naval then for _, link in ipairs(Map.regions[self.combat.hotspot.region].adjacent) do if link:match('$$') then
+        local owner, side = Map.regions[link:sub(1, -2)]:owner()
+        if owner ~= 'neutral' then
+            side = Nations[owner].side
+            if side and Morale.stressZone(owner) < 3 then sides[side].port = true end
+        elseif Map.regions[link:sub(1, -2)].allied then sides.allies.port = true end
+    end end end
+    for side, data in pairs(sides) do
+        for _, _ in pairs(data.types) do balance = balance + data.value end
+        if data.port and data.fleet then
+            adv[side].port = true
+            self:updateDiceTotal(side)
+    end end
+    if balance < 0 then adv.axis.force = true
+    elseif balance > 0 then adv.allies.force = true end
+    self.advantage = {axis = {}, allies = {}}
+    for side, advantages in pairs(adv) do for advantage, _ in pairs(advantages) do
+        debug('Setting ', advantage, ' advantage for ', side)
+        local sign = (side == 'axis' and -1 or 1)-- * (naval and -1 or 1)
+        self.advantage[side][advantage] = Bags.arrow.takeObject({
+            position = self.commands.positionToWorld(vector(0.05 * sign, 0, naval and (advantage == 'force' and 0.5 or -0.5) or 0)),
+            rotation = self.getRotation() + vector(0, 90 * sign, side == 'axis' ~= naval and 180 or 0), smooth = false
+        })
+    end end
+end
+
+function Battle:lockStances(side)
+    debug('Locking ', side, ' stances')
+    for unit_type, stances in pairs(self.stances[self:mode()][side]) do
+        for label, stance in pairs(stances) do if #stance:getUnits() > 0 then
+            debug('Found ', #stance.units, ' ', unit_type, ' in ', label, ' stance')
+            local stacks = {}
+            stance.stacks = {}
+            for _, obj in ipairs(stance.units) do
+                local unit = self.guids[obj.guid]
+                stacks[unit.nation] = stacks[unit.nation] or {}
+                table.insert(stacks[unit.nation], unit)
+            end
+            for nation, units in pairs(stacks) do
+                debug('Locking ', nation, ' stack with ', #units, ' units')
+                table.sort(units, function (a, b)
+                    local cfighter = a.name == 'cfighter'
+                    if cfighter ~= (b.name == 'cfighter') then return cfighter
+                    else return a.getPosition().y < b.getPosition().y end
+                end)
+                for i = 1, #units do units[i].next = units[i - 1] end
+                stance.stacks[nation] = units[#units]
+                local pos, rot = self.positionToWorld(stance.snaps[nation].position), stance.snaps[nation].rotation + self.getRotation()
+                Units.stack(units, pos, rot):skip(3):next(function (units) for _, unit in ipairs(units) do unit.setLock(true) end end)
+    end end end end
+end
+
+function Battle:countUnits(params)
+    local total = 0
+    for side, units in pairs(self.stances[self:mode()]) do if not params.side or side == params.side then
+        for unit, stances in pairs(units) do
+            local countable = true
+            if params.force and Units[unit].force ~= params.force then countable = false end
+            if params.color and Units[unit].color ~= params.color then countable = false end
+            if params.unit and unit ~= params.unit then countable = false end
+            if countable then for _, stance in pairs(stances) do total = total + #stance:getUnits() end end
+    end end end
+    return total
+end

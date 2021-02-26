@@ -1,93 +1,73 @@
-function writeOrders(resume)
-    updateTracker('Write orders and bids', '2 - Strategic Planning', 'orders')
-    resetStatus()
-    enableSave('planning')
-    local ready = {}
-    for _, nation in ipairs(state.turn_order) do
-        state.objects.orders[nation].call('writeOrders', {getStressZone(nation) > 3, resume})
-        ready[nation] = false
+Planning = Phase()
+
+function Planning:main()
+    if state.phase >= 2 then
+        for nation, orders in pairs(Orders) do orders:restoreOrders() end
+        if state.phase > 2 then return end
+    else state.phase, state.step = 2, 0 end
+    HUD.updateTracker('Write orders and bids', '2 - Strategic Planning', 'orders')
+    HUD.resetStatus()
+    if state.step < 2 then
+        local readied = {}
+        for nation, orders in pairs(Orders) do
+            readied[nation] = false
+            orders:writeOrders(|...| self.resume(...), Morale.stressZone(nation) > 3, state.step == 1)
+            if state.scenario == 'global' and not state.pact_broken then orders.UI.setAttribute('pact', 'interactable', true) end
+        end
+        state.step = 1
+        Phase.readyLoop(readied)
     end
-    if state.scenario == 'global' and not state.pact_broken then
-        state.objects.orders.japan.UI.setAttribute('pact', 'interactable', true)
-        state.objects.orders.ussr.UI.setAttribute('pact', 'interactable', true)
+    self:setTurnOrder(self:revealBids())
+    for i, nation in turnOrder() do
+        UI.setAttribute('tracker' .. i, 'image', nation)
+        if nation ~= 'china' and Orders[nation].bid > 0 then Resources[nation].addResources({oil = -Orders[nation].bid})
+        else Resources[nation].broadcastUpdate() end
     end
-    playerReady = function (data)
-        local all_ready = true
-        for nation, value in pairs(ready) do if data[nation] ~= nil then
-            updateStatus(nation, data[nation])
-            ready[nation], all_ready = data[nation], all_ready and data[nation]
-        else all_ready = all_ready and ready[nation] end end
-        if all_ready then
-            playerReady = nil
-            disableSave()
-            revealBids()
-    end end
+    HUD.updateTurn()
+    HUD.resetStatus()
 end
 
-function validateCommand(params)
-    local command = state.objects.commands[params[1]][params[2]]
-    return command ~= nil and getRegion(command) ~= nil
-end
-
-function validateRegion(params) return Map.data.regions[params[1]] ~= nil end
-
-function revealBids()
-    updateTracker('Reveal bids')
-    resetStatus()
-    local bids, delay = {}, 0
-    for nation, orders in pairs(state.objects.orders) do
-        Wait.time(function ()
-            bids[nation] = orders.call('revealBid')
-            broadcastToAll(colorize(properName(nation), nation) .. ' bid ' .. colorize(bids[nation], 'oil') .. ' oil')
-            updateStatus(nation, bids[nation], Colors.oil)
-        end, delay)
-        delay = delay + 0.5
+function Planning:revealBids()
+    HUD.updateTracker('Reveal bids')
+    HUD.resetStatus()
+    local bids = {}
+    for nation, orders in pairs(Orders) do
+        if orders.not_china then
+            orders.UI.setAttribute('bid', 'visibility', '')
+            bids[nation] = orders.bid
+            broadcastToAll(string.format('%s bid %s oil', Nations[nation]:colorized(), string.colorize(bids[nation], 'oil')))
+        else bids[nation] = 0 end
+        HUD.updateStatus(nation, bids[nation], Color.oil)
+        Wait.time(|| self.resume(), 0.5)
+        coroutine.yield()
     end
-    Wait.time(|| setTurnOrder(bids), delay)
+    return bids
 end
 
-function setTurnOrder(bids)
-    updateTracker('Establish turn order', nil, 'turn_order')
-    state.new_turn_order = {}
-    local order, spots = {}, {}
+function Planning:setTurnOrder(bids)
+    state.step = 2
+    HUD.updateTracker('Establish turn order', nil, 'turn_order')
+    local order, spots, ps, total, token = {}, {}, {}, 0
     for nation, bid in pairs(bids) do
-        state.objects.turn_tokens[nation].setLock(true)
-        table.insert(order, {bid = bid + math.random(), nation = nation})
+        Tokens.turn[nation].setLock(true)
+        table.insert(order, {bid = bid + math.random(), nation = nation, turn = turnOrder[nation]})
+        total = total + 1
     end
     table.sort(order, |a, b| a.bid < b.bid)
-    for i = 1, #order do table.insert(spots, Map.obj.positionToWorld(Map.snaps[i].position)) end
-    chooseTurns(order, spots)
-end
-
-function chooseTurns(order, spots)
-    if #order == 0 then
-        onObjectDrop = nil
-        payBids()
-    else
-        local nation = table.remove(order).nation
-        local token = state.objects.turn_tokens[nation]
-        updateTurn(nation)
+    for i = 1, #order do spots[i] = Map.positionToWorld(Map.snaps[i].position) end
+    onObjectDrop = function (_, obj) if obj.guid == token.guid then Wait.frames(function () for i = 1, 7 do
+        if spots[i] and obj.getPosition():setAt('y', spots[i].y) == spots[i] then self.resume(i) break end
+    end end, 5) end end
+    while #order > 0 do
+        local data = table.remove(order)
+        token = Tokens.turn[data.nation]
+        HUD.updateTurn(data.nation, data.turn)
+        setGlow(token)
         token.setLock(false)
-        setBlinker(token)
-        onObjectDrop = function (_, obj) if obj.getGUID() == token.getGUID() then Wait.frames(function ()
-            for i = 1, 7 do if spots[i] and obj.getPosition():setAt('y', spots[i].y) == spots[i] then
-                stopBlinker(obj)
-                state.new_turn_order[nation], state.new_turn_order[i] = i, nation
-                spots[i] = nil
-                updateStatus(nation, ({'①', '②', '③', '④', '⑤', '⑥', '⑦'})[i], Colors.white)
-                chooseTurns(order, spots)
-                break
-        end end end, 15) end end
+        local prev, spot = token, coroutine.yield()
+        stopGlow(token)
+        Wait.condition(|| prev.setLock(true), || prev.resting)
+        HUD.updateStatus(data.nation, ({'①', '②', '③', '④', '⑤', '⑥', '⑦'})[spot], Color.white, nil, data.turn)
     end
-end
-
-function payBids()
-    state.turn_order, state.new_turn_order = state.new_turn_order, nil
-    for i, nation in ipairs(state.turn_order) do
-        UI.setAttribute('tracker' .. i, 'image', nation)
-        state.objects.orders[nation].call('payBid')
-    end
-    updateTurn()
-    resetStatus()
-    flipHotspots()
+    onObjectDrop = nil
 end

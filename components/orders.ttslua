@@ -1,0 +1,132 @@
+OrdersChart = Wrapper(function (t, nation)
+    t.nation, t.not_china = nation, nation ~= 'china'
+    return t
+end)
+OrdersChart.Assets = {'cancel', 'confirm', 'invalid', 'maximize', 'maximize-hover', 'neutral', 'pin'}
+
+function OrdersChart:initialize(scenario)
+    log('Initializing ' .. self.nation .. ' orders')
+    self.resources = {current = {oil = self.not_china and 0 or nil, iron = 0, osr = 0}}
+    local order_count = 9
+    if scenario ~= 'global' and (self.nation == 'uk' or self.nation == 'usa')
+        or self.nation == 'china' or self.nation == 'italy' then order_count = 6 end
+    if not state.orders[self.nation] then
+        state.orders[self.nation] = {}
+        if self.not_china then
+            self:setState(0, 'bid')
+            self.trade = {}
+            state.orders[self.nation].trade = self.trade
+        end
+        self:setState({}, 'moves')
+        for i = 1, order_count do self:setState({}, 'moves', i) end
+        self.purchases = {}
+        state.orders[self.nation].purchases = self.purchases
+    else
+        self:restore(state.orders[self.nation])
+        for i, move in ipairs(self.moves) do
+            if move.command then move.command = Commands[self.nation][move.command] end
+            if move.target then move.target = Map.regions[move.target] end
+    end end
+    self:loadUI(scenario)
+end
+
+function OrdersChart:restore(state)
+    for k, v in pairs(state) do if k ~= 'purchases' and k ~= 'trade' and type(v) == 'table' then
+        self[k] = {}
+        if next(v) then OrdersChart.restore(self[k], v) end
+    else self[k] = v end end
+end
+
+#include ../ui/orders
+
+-- GAME PHASE FUNCTIONS --
+
+-- Phase 1: Direct National Economy
+
+function OrdersChart:startRound(round)
+    self.UI.setValue('round', round)
+    if self.not_china then
+        self.UI.hide('bid')
+        for resource, _ in pairs(self.resources.current) do for _, label in ipairs{'trade', 'minus', 'plus'} do
+            self.UI.hide(label .. '-' .. resource)
+    end end end
+    for i = 1, #self.moves do self.UI[Morale.stressZone(self.nation) > 3 and #self.moves - i < 3 and 'show' or 'hide']('slash' .. i) end
+    self.UI.hide('production')
+end
+
+-- Phase 2: Strategic Planning
+#include orders/planning
+
+-- Phase 3: Movement Operations
+#include orders/movement
+
+-- Phase 7: Production
+#include orders/production
+
+-- INTERFACE FUNCTIONS --
+
+function OrdersChart:setResources(data)
+    debug('Updating ', self.nation, ' resources')
+    self.resources.current = data
+    for resource, value in pairs(data) do if resource ~= 'oil' or self.nation ~= 'china' then
+        self.UI.setValue('resources-' .. resource, value)
+    end end
+    HUD.setResources(self.nation, data)
+    self:updateTrade()
+end
+
+function OrdersChart:breakPact(color)
+    if rawget(self, 'pact') == nil or self.pact ~= color then
+        local colors, r = self.UI.getAttribute('pact', 'colors'), 0
+        self.pact = color
+        self.UI.setAttribute('pact', 'colors', colors:gsub('white', Color[self.nation]:toXml(false)))
+        Wait.time(function ()
+            r = r + 0.05
+            if r > 0.96 then
+                self.pact = nil
+                self.UI.setAttribute('pact', 'colors', colors)
+            else self.UI.setAttribute('pact', 'colors', colors:gsub('([^|]+|)[^|]+(|[^|]+|.+)',
+                '%1' .. Color[self.nation]:lerp(Color.white, r):toXml(false) .. '%2')) end
+        end, 0.1, 20)
+        broadcastToColor('Press again within 2 seconds to break the pact', color)
+    else breakPact(self.nation) end
+end
+
+-- HELPER FUNCTIONS --
+
+function OrdersChart:setState(value, ...)
+    local ks, t, s = {...}, self, state.orders[self.nation]
+    for i = 1, #ks - 1 do t, s = t[ks[i]], s[ks[i]] end
+    t[ks[#ks]] = value
+    if type(value) == 'table' then if value.id then s[ks[#ks]] = value.id
+    elseif next(value) == nil then s[ks[#ks]] = {} end
+    else s[ks[#ks]] = value end
+    return self
+end
+
+function OrdersChart:toggleReady(ready)
+    self.UI.setAttributes('ready', {isOn = not ready, color = ready and '#80ff80' or '#ffffff'})
+    self.onReady(self.nation, ready)
+end
+
+function OrdersChart:enableReady(callback)
+    self.UI.setAttributes('ready', {color = '#ffffff', isOn = true, active = true})
+    if callback then self.onReady = callback end
+end
+
+function OrdersChart:visibility()
+    if Nations[self.nation].side == 'axis' then return 'White|Green|Orange|Black'
+    else return 'Blue|Brown|Red|Yellow|Black' end
+end
+
+function OrdersChart:inputOK(id, value)
+    self.UI.setAttributes(id, {text = value, textColor = 'black'})
+    UI.setAttributes(self.nation .. '-' .. id, {text = value, textColor = 'black'})
+end
+
+function OrdersChart:inputError(id, value)
+    self.UI.setAttributes(id, {text = value, textColor = 'red'})
+    UI.setAttributes(self.nation .. '-' .. id, {text = value, textColor = 'red'})
+end
+
+function OrdersChart:setIntValue(id, value) self.UI.setValue(id, value == 0 and '' or value) end

@@ -1,93 +1,83 @@
--- -- Step 1: Land air commands
+Refit = Phase()
 
-function landAirCommands()
-    debug('Landing air commands')
-    updateTracker('Land air commands', '5 - Refit & Deploy', 'landing')
-    updateTurn()
-    resetStatus()
-    closeHUD('combat')
-    local ready = {}
-    for _, nation in ipairs(state.turn_order) do ready[nation] = true end
-    onObjectRandomize, onObjectHover = nil, nil
-    for nation, cfighters in pairs(state.objects.cfighters) do for _, cfighter in ipairs(cfighters) do
-        if cfighter ~= nil and cfighter.getPosition().z < 45 then returnPiece(cfighter) end
+function Refit:main()
+    HUD.updateTracker('Land air commands', '5 - Refit & Deploy', 'landing')
+    HUD.updateTurn()
+    HUD.resetStatus()
+    local readied, ps, deploy = {}, {}, {}
+    if state.phase < 5 or state.step < 2 then
+        state.phase, state.step = 5, 1
+        HUD.close('combat')
+        for _, cfighter in ipairs(Commands.cfighters) do stash(cfighter) end
+        Commands.cfighters = {}
+        debug('Removed remaining carrier fighters')
+        for command in Commands:all() do if command.force == 'air' and (#command.getJoints() > 0 or command.memo) then
+            debug('Removing arrow tag from ', command.nation, ' ', command.id)
+            if #command.getJoints() > 0 then
+                stash(getObjectFromGUID(command.getJoints()[1].joint_object_guid))
+                command.jointTo()
+            end
+            command.obj.memo, readied[command.nation] = command.memo or command:region(), false
+            setGlow(command, Color[command.nation])
+        end end
+        for _, nation in turnOrder() do if readied[nation] == false then
+            HUD.updateStatus(nation, false)
+            Orders[nation]:enableReady(|...| self.resume(...))
+        else HUD.updateStatus(nation, true) end end
+        Phase.readyLoop(readied, next(readied) == nil, function (nation, ready)
+            for _, command in pairs(Commands[nation]) do if command.memo then
+                if ready then stopGlow(command) else setGlow(command, Color[nation]) end
+        end end end)
+    end
+    for command in Commands:all() do command.obj.memo = nil end
+    HUD.updateTracker('Deploy units and reorganize commands', nil, 'deploy')
+    HUD.resetStatus()
+    state.step, readied = 2, {}
+    for _, nation in turnOrder() do
+        readied[nation], deploy[nation] = false, {}
+        HUD.updateStatus(nation, false)
+        Orders[nation]:enableReady(|...| self.resume(...))
+    end
+    for id, region in pairs(Map.regions) do if region.construction ~= nil then
+        local owner, p = region:owner(), Promise()
+        coroutine.resume(coroutine.create(|| self:deployUnits(region):next(p)))
+        table.insert(deploy[owner], p:next(function (units) deploy[owner][id] = units end))
     end end
-    state.objects.cfighters = {}
-    debug('Removed remaining carrier fighters')
-    for _, landing in ipairs(state.combat.landings) do
-        local nation = commandNation(landing)
-        state.objects.orders[nation].call('showReady')
-        ready[nation] = false
-        getObjectFromGUID(landing.getJoints()[1].joint_object_guid).destruct()
-        landing.jointTo()
-        landing.highlightOn(colorTable(Colors[nation]))
-    end
-    for _, nation in ipairs(state.turn_order) do updateStatus(nation, ready[nation]) end
-    if #state.combat.landings > 0 then playerReady = function (data)
-        local all_ready = true
-        for nation, status in pairs(ready) do if data[nation] ~= nil then
-            debug(nation, ' toggled ready state')
-            updateStatus(nation, data[nation])
-            ready[nation], all_ready = data[nation], all_ready and data[nation]
-            for _, landing in ipairs(state.combat.landings) do if commandNation(landing) == nation then
-                if data[nation] then landing.highlightOff() else landing.highlightOn(colorTable(Colors[nation])) end
-        end end else all_ready = all_ready and status end end
-        if all_ready then
-            state.combat = nil
-            deployUnits()
-    end end else
-        state.combat = nil
-        deployUnits()
-    end
+    for _, nation in turnOrder() do if #deploy[nation] > 0 then
+        Orders[nation].UI.setAttribute('ready', 'interactable', false)
+        Promise.all(deploy[nation]):next(function ()
+            Orders[nation].UI.setAttribute('ready', 'interactable', true)
+            for i = #deploy[nation], 1, -1 do deploy[nation][i] = nil end
+    end) end end
+    Phase.readyLoop(readied, next(readied) == nil, function (nation, ready) if ready then
+        local ps = {}
+        for id, units in pairs(deploy[nation]) do
+            for i = #units, 1, -1 do if units[i] == nil then table.remove(units, i) end end
+            while #units > 0 do
+                local stack = {table.remove(units)}
+                local pos, force = stack[1].getPosition():setAt('y', 0), Units[stack[1].getName()].force
+                for i = #units, 1, -1 do if (units[i].getPosition():setAt('y', 0) - pos):magnitude() < 0.1 then
+                    table.insert(stack, table.remove(units, i))
+                end end
+                table.insert(ps, Commands:getNew(
+                    nation, force, pos:setAt('y', #stack * 0.21 + 7), stack[1].getRotation()
+                ):next(|command| command:form(nil, stack)):catch(function ()
+                    for _, unit in ipairs(stack) do table.insert(units, unit) end
+                    return Promise():reject('Failed to form new stack(s)')
+                end))
+        end end
+        if #ps > 0 then
+            Promise.all(ps):next(|| self.resume(nation, ready), || Orders[nation]:toggleReady(false))
+            return false
+    end end end)
 end
 
--- -- Step 2/3: Deploy units and reorganize commands
-
-function deployUnits()
-    debug('Deploying new units and reorganizing commands')
-    updateTracker('Deploy units and reorganize commands', '5 - Refit & Deploy', 'deploy')
-    resetStatus()
-    local ready, new_units, checker = {}, {}
-    for nation, orders in pairs(state.objects.orders) do
-        ready[nation] = false
-        orders.call('showReady')
+function Refit:deployUnits(region)
+    while stack.units() > region:production() do
+        debug('Over production capacity!')
+        -- deal with this later
     end
-    for region, stack in pairs(state.objects.construction) do if stack ~= nil then
-        debug('Deploying unit stack ', stack.getName(), ' in ', region)
-        local nation, units = getOwnership(region), breakStack(stack)
-        new_units[nation] = new_units[nation] or {}
-        for _, unit in ipairs(units) do table.insert(new_units[nation], unit) end
-        returnPiece(stack)
-        state.objects.orders[nation].UI.setAttribute('other-ready', 'interactable', false)
-        -- TODO: check for overproduction due to bombed industries
-    end end
-    state.objects.construction = {}
-    checker = Wait.time(function () if not checkDeployment(new_units) then Wait.stop(checker) end end, 2, -1)
-    enableSave('refit')
-    playerReady = function (data)
-        local all_ready = true
-        for nation, status in pairs(ready) do if data[nation] ~= nil then
-            debug(nation, ' toggled ready state')
-            updateStatus(nation, data[nation])
-            ready[nation], all_ready = data[nation], all_ready and data[nation]
-        else all_ready = all_ready and status end end
-        if all_ready then
-            playerReady = nil
-            for _, orders in pairs(state.objects.orders) do orders.call('hideReady') end
-            Wait.stop(checker)
-            disableSave()
-            morale()
-    end end
-end
-
-function checkDeployment(new_units)
-    local more = false
-    for nation, units in pairs(new_units) do
-        for i = #units, 1, -1 do if units[i] == nil then table.remove(units, i) end end
-        if #units == 0 then
-            new_units[nation] = nil
-            state.objects.orders[nation].UI.setAttribute('other-ready', 'interactable', true)
-        else more = true end
-    end
-    return more
+    local nation, units = region:owner(), region.construction:removeAttachments()
+    for _, unit in ipairs(units) do setGlow(unit, Color[nation]) end
+    return stash(region.construction):next(|| units)
 end

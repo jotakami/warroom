@@ -1,0 +1,146 @@
+Battle.XML = {Defaults = {
+    Text = {
+        ground = {color = '#42352d', shadow = '#d2c6b6', shadowDistance = '1 -3'},
+        air = {color = '#4d5959'},
+        bomb = {color = '#cc6b58', shadow = '#6a4f46', shadowDistance = '3 -1'},
+        surface = {color = '#202040', shadow = '#a0a0ff'}
+    },
+    Button = {
+        axis = {colors = 'clear|#c0808040|#c0808080|#a04040'},
+        allies = {colors = 'clear|#a0a0ff40|#a0a0ff80|#4040a0'}
+    },
+    Panel = {fadein = {showAnimation = 'FadeIn', animationDuration = 0.5}}
+}}
+
+function Battle.XML.rollers(naval, side)
+    local rows, X = {}, 144 * (side == 'axis' and 1 or -1) * (naval and -1 or 1)
+    for i = 1, 10 do table.insert(rows, {tag = 'Panel', attributes = {padding = '0 0 25 25'}, children = {
+        {tag = 'Button', attributes = {id = side .. '-roll' .. i, class = side, onClick = 'rollDice'}}
+    }}) end
+    return {tag = 'VerticalLayout', attributes = {id = side .. '-roller',
+        position = X + (side == 'axis' and not naval and 1 or 0) .. ' -9 ' .. (naval and 1 or -21),
+        rotation = '0 ' .. (naval and 180 or 0) .. ' 0', scale = '0.1 0.1', height = 1725, width = 90
+    }, children = rows}
+end
+
+function Battle.XML.status(hand, naval)
+    local children = {
+        {tag = 'Text', attributes = {id = 'region',
+            position = '5 -22 0', width = 180, scale = '1.2 1', fontSize = 60, fontStyle = 'Bold'
+        }},
+        {tag = 'Text', attributes = {id = 'status',
+            position = '5 24 0', width = 260, fontSize = 42, color = '#cccccc'
+        }}
+    }
+    for side, sign in pairs{axis = -1, allies = 1} do
+        for dice_type, params in pairs({
+            ground = {pos = 190, width = 103},
+            surface = {pos = 210, width = 113},
+            air = {pos = naval and 325 or 295, width = 102},
+            bomb = {pos = 405, width = 112}
+        }) do table.insert(children, {tag = 'Panel', attributes = {id = side ..'-' .. dice_type,
+            position = 5 + params.pos * sign .. ' 0 0', width = params.width, active = false
+        }, children = {
+            {tag = 'Image', attributes = {image = dice_type .. '-dice'}},
+            {tag = 'Text', attributes = {id = side .. '-' .. dice_type .. '-dice',
+                class = dice_type, scale = '0.8 1', fontSize = 84, fontStyle = 'Bold'
+            }}
+        }}) end
+        table.insert(children, {tag = 'Panel', attributes = {id = side ..'-confirm-panel',
+            position = 5 + (naval and 580 or 650) * sign .. ' 0 0',
+            height = 80, width = 300, color = '#404040', active = false
+        }, children = {{tag = 'Button', attributes = {id = side .. '-confirm',
+            class = side, fontSize = 42, textColor = 'white', onClick = 'Global/Battle(' .. hand .. ')'
+        }}}})
+    end
+    return children
+end
+
+function Battle.XML.targets(hand, side)
+    local targets = {tag = 'TableLayout', attributes = {
+        minWidth = 560, cellPadding = '5 5 5 5', cellBackgroundColor = 'clear'
+    }, children = {{tag = 'Row', children = {}}}}
+    for i = 1, 8 do table.insert(targets.children[1].children, {tag = 'Cell', children = {
+        {tag = 'Button', attributes = {id = side .. '-target' .. i,
+            fontSize = 36, textOutline = 'Black',
+            colors = '#ffffff|#ffffff|#c8c8c8|#ffffff40', onClick = 'Global/Battle(' .. hand .. ')'
+        }}
+    }}) end
+    local label = {tag = 'Text', value = 'Targets', attributes = {
+        minWidth = 27, rotation = '0 0 ' .. (side == 'axis' and 90 or -90), fontSize = 20,
+        fontStyle = 'Bold', color = 'White', horizontalOverflow = 'Overflow'
+    }}
+    return side == 'axis' and {label, targets} or {targets, label}
+end
+
+function Battle.XML:defaults()
+    local children = {}
+    for tag, classes in pairs(self.Defaults) do for class, attr in pairs(classes) do
+        if class ~= 'default' then attr.class = class end
+        table.insert(children, {tag = tag, attributes = attr})
+    end end
+    return children
+end
+
+function Battle.XML:setup(hand, naval)
+    local rot = (naval and 180 or 0) .. ' 0 ' .. (naval and 0 or 180)
+    local xml = {
+        {tag = 'Defaults', children = self:defaults()},
+        {tag = 'Panel', attributes = {id = 'status-panel',
+            class = 'fadein', position = '0 104 ' .. (naval and 1 or -21),
+            rotation = rot, scale = '0.15 0.15', height = 107, width = 2100,
+            color = '#282020', active = false
+        }, children = self.status(hand, naval)}
+    }
+    for _, side in ipairs{'axis', 'allies'} do
+        table.insert(xml, self.rollers(naval, side))
+        table.insert(xml, {tag = 'Panel', attributes = {id = side .. '-targets',
+            class = 'fadein', position = (side == 'axis' and '-79.5 -86' or '80.3 -86') .. ' -21',
+            rotation = '0 0 180', scale = '0.2 0.2', height = 80, width = 592, color = '#000000d8',
+            padding = (side == 'axis' and '0 5' or '5 0') .. ' 5 5', active = false
+        }, children = self.targets(hand, side)})
+    end
+    return xml
+end
+
+function Battle.XML:repairs(align, onClick)
+    local buttons = {}
+    for resource, attr in pairs{
+        osr = {align = 'Upper'},
+        iron = {align = 'Lower'},
+        oil = {align = 'Middle', offset = (align == 'Left' and -56 or 56) .. ' 0'}
+    } do table.insert(buttons, {tag = 'Button', attributes = {
+        id = resource, height = 56, width = 56, offsetXY = attr.offset,
+        rectAlignment = attr.align .. align, image = resource,
+        transition = 'SpriteSwap', highlightedSprite = resource .. '-hover',
+        colors = 'white|white|white|#606060a0', onClick = onClick
+    }}) end
+    return table.unpack(buttons)
+end
+
+function Battle:loadUI()
+    log('Loading battle board UI')
+    local assets = {}
+    for _, asset in ipairs(UI.getCustomAssets()) do
+        if asset.name:match('dice') or Units[asset.name] or asset.name == 'bomb' then
+            table.insert(assets, asset)
+        elseif asset.name:match('[io][irs][lor]n?') then
+            table.insert(assets, asset)
+    end end
+    self.UI.setCustomAssets(assets)
+    self.UI.setXmlTable(self.XML:setup(self.hand, self.is_face_down))
+end
+
+function Battle:flipUI()
+    local naval = not self.is_face_down
+    for side, sign in pairs{axis = -1, allies = 1} do
+        local attr = self.XML.rollers(naval, side).attributes
+        self.UI.setAttributes(side .. '-rollers', {position = attr.position, rotation = attr.rotation})
+        self.UI.setAttribute(side .. '-air', 'position', 5 + (naval and 325 or 295) * sign .. ' 0 0')
+        self.UI.setAttribute(side .. '-confirm-panel', 'position', 5 + (naval and 580 or 650) * sign .. ' 0 0')
+    end
+    self.UI.setAttributes('status-panel', {
+        position = '0 104 ' .. (naval and 1 or -21),
+        rotation = (naval and 180 or 0) .. ' 0 ' .. (naval and 0 or 180)
+    })
+end

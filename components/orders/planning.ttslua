@@ -1,0 +1,89 @@
+function OrdersChart:writeOrders(ready_callback, disrupted, resume)
+    local attr = {active = true, visibility = self:visibility()}
+    if self.not_china then self.UI.setAttributes('bid', attr) end
+    self.UI.setAttributes('moves', attr)
+    for _, player in ipairs(Player.getPlayers()) do if player.color == Nations[self.nation].player then
+        attr.visibility = player.color .. '|Black'
+    end end
+    self.UI.setAttributes('maximize', attr)
+    self:setOrders(false, not resume)
+    if disrupted then for i = #self.moves - 2, #self.moves do
+        self.UI.hide('command' .. i)
+        self.UI.hide('target' .. i)
+    end end
+    self:enableReady(function (nation, ready)
+        self:setOrders(ready)
+        HUD.updateStatus(nation, ready)
+        ready_callback(nation, ready)
+    end)
+end
+
+function OrdersChart:restoreOrders()
+    if self.not_china and self.bid > 0 then self.UI.setAttribute('bid', 'text', self.bid) end
+    for i, move in ipairs(self.moves) do
+        if move.command then
+            local id, value = 'command' .. i, move.command.id
+            self.UI.setAttribute(id, 'text', value)
+            UI.setAttribute(self.nation .. '-' .. id, 'text', value)
+        end
+        if move.target then
+            local id, value = 'target' .. i, move.target:displayID()
+            self.UI.setAttribute(id, 'text', value)
+            UI.setAttribute(self.nation .. '-' .. id, 'text', value)
+    end end
+end
+
+function OrdersChart:setOrders(lock, clear)
+    for i = 1, #self.moves do
+        if clear then self:setState({}, 'moves', i) end
+        for _, label in ipairs{'command', 'target'} do
+            self.UI.setAttribute(label .. i, 'interactable', not lock)
+            if clear then self.UI.setAttribute(label .. i, 'text', '') end
+    end end
+    if self.not_china then
+        self.UI.setAttribute('bid', 'interactable', not lock)
+        if clear then
+            self:setState(0, 'bid')
+            self.UI.setAttribute('bid', 'text', '')
+    end end
+    self.UI.setAttribute('maximize', 'active', not lock)
+end
+
+function OrdersChart:popout(color)
+    self:setOrders(true)
+    self.UI.hide('ready')
+    HUD.openPopout(self.nation, color)
+end
+
+function OrdersChart:minimize()
+    self:setOrders(false)
+    self.UI.show('ready')
+end
+
+function OrdersChart:updateCommand(i, value)
+    local id = 'command' .. i
+    self.UI.setAttribute(id, 'text', value)
+    UI.setAttribute(self.nation .. '-' .. id, 'text', value)
+    if value ~= nil and value ~= '' then
+        local command = Commands[self.nation][tonumber(value) or 0]
+        self:setState(command ~= nil and command:region() ~= nil and command or nil, 'moves', i, 'command')
+        if self.moves[i].command then self:inputOK(id, value) else self:inputError(id, value) end
+    else self:setState(nil, 'moves', i, 'command'):inputOK(id, '') end
+end
+
+function OrdersChart:updateTarget(i, value)
+    local id = 'target' .. i
+    self.UI.setAttribute(id, 'text', value)
+    UI.setAttribute(self.nation .. '-' .. id, 'text', value)
+    if value ~= nil and value ~= '' then
+        local region = Map.regions[value:gsub('%-', ''):lower()]
+        self:setState(region ~= nil and region or nil, 'moves', i, 'target')
+        if self.moves[i].target then self:inputOK(id, region:displayID()) else self:inputError(id, value) end
+    else self:setState(nil, 'moves', i, 'target'):inputOK(id, '') end
+end
+
+function OrdersChart:updateBid(value)
+    if value == nil or value >= 0 and value <= self.resources.current.oil then
+        self:setState(value or 0, 'bid'):inputOK('bid', value or '')
+    else self:setState(0, 'bid'):inputError('bid', value) end
+end

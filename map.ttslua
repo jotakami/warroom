@@ -1,151 +1,28 @@
-#include constants/map
-#include constants/nations
 #include utils/debug
+#include utils/exports
 
 function onLoad()
-    prepareRegionData()
-    loaded = true
+    Map, Reset = import('Map'), {}
 end
 
-function prepareRegionData()
-    local Z = 0.585
-    Lines, Quadrants = {}, {{{}, {}}, {{}, {}}}
-    for region, data in pairs(MapData.regions) do
-        data.is_sea = region:match('^[aimp]') ~= nil
-        if data.points then
-            data.centroid, data.box = {0, 0}, {
-                xmax = data.points[1][1], xmin = data.points[1][1],
-                zmax = data.points[1][2], zmin = data.points[1][2]
-            }
-            local prev_point, points, sum, cross = data.points[#data.points], {}, 0
-            for _, point in ipairs(data.points) do
-                table.insert(points, {point[1], Z, point[2]})
-                for i, dim in ipairs{'x', 'z'} do if data.box[dim .. 'max'] < point[i] then data.box[dim .. 'max'] = point[i]
-                elseif data.box[dim .. 'min'] > point[i] then data.box[dim .. 'min'] = point[i] end end
-                cross = prev_point[1] * point[2] - point[1] * prev_point[2]
-                for i = 1, 2 do data.centroid[i] = data.centroid[i] + (prev_point[i] + point[i]) * cross / 3 end
-                sum, prev_point = sum + cross, point
-            end
-            table.insert(points, {data.points[1][1], Z, data.points[1][2]})
-            table.insert(Lines, {points = points, thickness = 0.02})
-            data.centroid[1], data.centroid[2] = data.centroid[1] / sum, data.centroid[2] / sum
-        elseif data.circle then
-            local points = {{data.circle.c[1] + data.circle.r, Z, data.circle.c[2]}}
-            for i = 1, 12 do table.insert(points, {data.circle.c[1] + data.circle.r * math.cos(math.pi * i / 6), Z, data.circle.c[2] + data.circle.r * math.sin(math.pi * i / 6)}) end
-            table.insert(Lines, {points = points, thickness = 0.02, color = {0, 1, 1}})
-            data.box = {
-                xmax = data.circle.c[1] + data.circle.r, xmin = data.circle.c[1] - data.circle.r,
-                zmax = data.circle.c[2] + data.circle.r, zmin = data.circle.c[2] - data.circle.r
-        } end
-        if data.box.xmin < 0 then
-            if data.box.zmin < 0 then table.insert(Quadrants[1][1], region) end
-            if data.box.zmax > 0 then table.insert(Quadrants[1][2], region) end
-        end
-        if data.box.xmax > 0 then
-            if data.box.zmin < 0 then table.insert(Quadrants[2][1], region) end
-            if data.box.zmax > 0 then table.insert(Quadrants[2][2], region) end
-    end end
-end
-
-function showVectorLines() self.setVectorLines(Lines) end
-function hideVectorLines() self.setVectorLines({}) end
+function showBorders() self.setVectorLines(Lines or {}) end
+function hideBorders() self.setVectorLines({}) end
 
 -- Collision Checks
 
 function onCollisionEnter(collision_info)
-    if not loaded then return end
     local obj = collision_info.collision_object
     local pos = self.positionToLocal(obj.getPosition())
-    if pos == last_pos then return nil
-    else
-        if reset then Wait.stop(reset) end
-        last_pos, reset = pos, Wait.frames(function () last_pos = nil end, 1)
-    end
-    local region = findRegion({pos.x, pos.z})
+    if enabled and pos ~= Reset.last then
+        if Reset.pid then Wait.stop(Reset.pid) end
+        Reset = {last = pos, pid = Wait.frames(function () last_pos = nil end, 1)}
+    else return end
+    local region, msg = Map:inRegion(pos), string.format('coords: X=%.4f Z=%.4f', pos.x, pos.z)
     if region then
-        debug('coords: ', string.format('X=%.4f Y=%.4f', pos.x, pos.z), ', angle: ', string.format('%.1f', rotationToCenter(pos)), ', region: ', region)
-        setRegion(obj, region, pos)
-    else debug('coords: ', string.format('X=%.4f Y=%.4f', pos.x, pos.z)) end
-end
-
-function setRegion(obj, region, pos)
-    local name = obj.getName()
-    obj.setVar('region', region)
-    if name:match('construction') then obj.setRotationSmooth({0, rotationToCenter(pos), 0}, true, true)
-    elseif isCommand(name) then
-        obj.setDescription('In region ' .. prettyName(region))
-        obj.setRotationSmooth({0, rotationToCenter(pos), 0}, true, true)
-    end
-end
-
-function isCommand(name)
-    local force = name:match('^%b[]%a+%b[]%s%d+%a%a%s(%a+)')
-    return force == 'Army' or force == 'Air' or force == 'Fleet'
-end
-
-function commandNation(name, command)
-    if name == 'cfighter' then return command.getVar('nation')
-    else return name:match('^%b[](%a+)'):lower() end
-end
-
-function commandType(name)
-    if name == 'cfighter' then return 'air'
-    else return name:match('%d+%a%a%s(%a+)'):lower() end
-end
-
-function isSeaRegion(region)
-    if type(region) == 'table' then region = region[1] end
-    return region:find('a') or region:find('i') or region:find('m') or region:find('p')
-end
-
-function prettyName(region)
-    if type(region) == 'table' then region = region[1] end
-    local str = region:upper()
-    if str:match('[AIMP]') then return str:sub(1, 1) .. '-' .. str:sub(2)
-    else return str .. ' - ' .. MapData.regions[region].name end
-end
-
-function findRegion(point)
-    local regions = {}
-    for _, region in ipairs(Quadrants[point[1] < 0 and 1 or 2][point[2] < 0 and 1 or 2]) do
-        local data = MapData.regions[region]
-        if data.box.xmax > point[1] and data.box.xmin < point[1] and data.box.zmax > point[2] and data.box.zmin < point[2] then
-            if data.islands then table.insert(regions, region) else table.insert(regions, 1, region) end
-    end end
-    if #regions == 1 then return regions[1]
-    else for _, region in ipairs(regions) do if MapData.regions[region].circle then
-        if distance(point, MapData.regions[region].circle.c) < MapData.regions[region].circle.r then
-            return region
-    end elseif inside2d(point, MapData.regions[region].points) then
-        return region
-    end end end
-end
-
-function centroid(region)
-    if type(region) == 'table' then region = region[1] end
-    if MapData.regions[region].circle then return MapData.regions[region].circle.c
-    else return MapData.regions[region].centroid end
-end
-
-function distance(p1, p2)
-    return ((p2[1] - p1[1]) ^ 2 + (p2[2] - p1[2]) ^ 2) ^ 0.5
-end
-
-function inside2d(point, polygon)
-    local v1, inside = polygon[#polygon], false
-    for _, v2 in ipairs(polygon) do
-        if (point[1] > v1[1]) != (point[1] > v2[1]) and (point[1] - v1[1]) * signed_area(point, v1, v2) > 0 then
-            inside = not inside
-        end
-        v1 = v2
-    end
-    return inside
-end
-
-function signed_area(a, b, c)
-    return a[1] * (b[2] - c[2]) - a[2] * (b[1] - c[1]) + b[1] * c[2] - b[2] * c[1]
-end
-
-function rotationToCenter(point)
-    return (math.atan2((point.x or point[1]) - MapData.center.x, (point.z or point[2]) - MapData.center.z) / math.pi + 1) * 180
+        local y = Map:rotationToCenter(pos)
+        debug(msg, string.format(', angle: %.1f, region: %s', y, region))
+        if #obj.getAttachments() > 0 then
+            obj.setRotationSmooth({0, y, 0}, true, true)
+            obj.setDescription('In region ' .. Map.regions[region]:colorizedName())
+    end else debug(msg) end
 end

@@ -1,0 +1,233 @@
+Commands = {cfighters = {}, standing = {}, trays = {}}
+setmetatable(Commands, {
+    __pairs = function (t, k) return function (t, k)
+        local v
+        repeat k, v = next(t, k)
+        until v == nil or type(v) == 'table' and Nations[k] ~= nil
+        if nil ~= v then return k, v end
+    end, t, nil end,
+    __call = function (t, obj)
+        local nation, id = obj.getName():lower():match('^%b[](%a+)%b[] (%d+)')
+        if nation and id then return t[nation][tonumber(id)] end
+    end
+})
+
+Commands.Forces = {}
+setmetatable(Commands.Forces, {__call = function (t, commands)
+    local c = {axis = {}, allies = {}}
+    setmetatable(c, {__index = t})
+    if commands then for _, command in ipairs(commands) do c:add(command) end end
+    return c
+end})
+
+function Commands.Forces:add(command, side, force)
+    side, force = side or Nations[command.nation].side, force or command.force
+    self[side][force] = self[side][force] or {}
+    table.insert(self[side][force], command)
+end
+
+function Commands:all() return function (t, command)
+    local nation
+    if command ~= nil then
+        nation = command.nation
+        _, command = next(t[nation], command.id)
+    end
+    if command == nil then
+        repeat nation, command = next(t, nation)
+        until command == nil or type(command) == 'table' and Nations[nation] ~= nil
+        if command ~= nil then _, command = next(command) end
+    end
+    return command
+end, self, nil end
+
+function Commands:region(region)
+    debug('Getting commands for region ', region)
+    local forces, force = self.Forces()
+    for command in self:all() do if command:region() == region then
+        forces:add(command)
+    end end
+    for _, cfighter in ipairs(self.cfighters) do
+        if cfighter ~= nil and Map:getRegion(cfighter) == region then
+            forces:add(cfighter, Nations[cfighter.nation].side, 'air')
+    end end
+    if self.standing[region] then
+        local army = self.standing[region]
+        forces:add(army, Nations[army.nation].side, 'army')
+    end
+    return forces
+end
+
+function Commands:byRegion()
+    debug('Getting all commands by region')
+    local forces, side, force, pos, region = {}
+    for command in self:all() do
+        region = Map:getRegion(command)
+        if region then
+            forces[region] = forces[region] or Commands.Forces()
+            forces[region]:add(command)
+    end end
+    for nation, cfighters in pairs(self.cfighters) do for _, cfighter in ipairs(cfighters) do if cfighter ~= nil then
+        region = Map:getRegion(cfighter)
+        if region then
+            forces[region] = forces[region] or Commands.Forces()
+            forces[region]:add(cfighter, Nations[nation].side, 'air')
+    end end end end
+    return forces
+end
+
+function Commands:getNew(nation, force, pos, rot)
+    for _, command in pairs(self[nation]) do if command.force == force and not command.isSmoothMoving() then
+        if (math.abs(command.getPosition().x) > 45 or command.getPosition().z < -45) then if pos then
+            command.setPositionSmooth(pos)
+            if rot then command.setRotationSmooth(rot) end
+            return command:notMoving():next(|| command)
+        else return Promise():resolve(command) end end
+    end end
+    return Promise():reject('No free commands')
+end
+
+function Commands:verifyStacks()
+    local ps = {}
+    for command in self:all() do if command:region() and command.units() == 0 then
+        table.insert(ps, command:form())
+    end end
+    return #ps > 0 and Promise.all(ps) or Promise():resolve()
+end
+
+Command = {}
+setmetatable(Command, {__call = function (t, obj, nation)
+    local name, s, c = obj.getName(), Stack(obj), {}
+    if name ~= 'cfighter' then
+        c.nation, c.id, c.force = name:lower():match('^%b[](%a+)%b[] (%d+)%a+ (%a+)')
+        c.id = c.id and tonumber(c.id)
+    else c = {nation = nation, id = obj.guid, force = 'air'} end
+    setmetatable(c, {
+        __index = |_, k| t[k] or s[k],
+        __tostring = |t| '(' .. t.guid .. ') ' .. t.getName():match('^[^\n]+')
+    })
+    return c
+end})
+
+function Command:region() return Map:getRegion(self) end
+
+function Command:form(player, units)
+    debug('Forming ', Nations[self.nation]:shortName(), ' ', self:ordinal(), ' command stack')
+    units = units or player and Player[player].getSelectedObjects() or {}
+    if #units < 2 then
+        debug('No objects selected, casting for units')
+        units = {}
+        for _, hit in ipairs(Physics.cast({
+            origin = self.getPosition() + vector(0, 0.1, 0),
+            direction = {0, -1, 0}, max_distance = 2
+        })) do table.insert(units, hit.hit_object) end
+        debug('Found ', #units, ' objects')
+        table.sort(units, |a, b| a.getPosition().y < b.getPosition().y)
+        while #units > 0 and not Units(units[1]) do debug('Removing ', units[1].getName(), ' from list') table.remove(units, 1) end
+    else
+        debug('Using ', #units, ' selected object(s)')
+        table.sort(units, |a, b| a.getPosition().y < b.getPosition().y)
+        for i = 1, #units do if units[i].guid == self.guid then table.remove(units, i) break end end
+    end
+    local invalid
+    if #units > 0 and #units < 9 then for _, unit in ipairs(units) do
+        local data = Units(unit)
+        if not data or not data.cost or data.force ~= self.force then invalid = 'Wrong units for this command type' end
+    end else invalid = 'Too few or too many units (' .. #units .. ')' end
+    if invalid then return Promise():reject('Could not form stack: ' .. invalid)
+    else return self:attach(units) end
+end
+
+function Command:combine(arg)
+    local selected = type(arg) == 'table' and arg or Player[arg].getSelectedObjects()
+    local total, invalid = self.units()
+    for i = #selected, 1, -1 do if not Units(selected[i]) then
+        selected[i] = Commands(selected[i]) or false
+        if not selected[i] then invalid = true
+        elseif selected[i].guid == self.guid then table.remove(selected, i)
+        elseif selected[i].nation ~= self.nation or selected[i].force ~= self.force then invalid = true
+        else total = total + selected[i].units() end
+    elseif Units(selected[i]).cost then total = total + 1 else invalid = true end end
+    if not invalid and #selected > 0 and total < 9 then
+        local units, ps = self:detach(), {}
+        for i = #selected, 1, -1 do if not Units(selected[i]) then
+            for _, unit in ipairs(selected[i]:detach()) do table.insert(units, unit) end
+            table.insert(ps, selected[i]:stash())
+        else table.insert(units, table.remove(selected, i)) end end
+        table.insert(ps, self:attach(units))
+        return Promise.all(ps):next(|| self)
+    else return Promise():reject('Can\'t merge the selected units') end
+end
+
+function Command:destroy()
+    return Promise.all(Morale:casualties(self:detach()), self:stash())
+end
+
+function Command:destroyUnit(name)
+    local unit_p, command_p = self:remove(name)
+    return Promise.all(command_p, unit_p:next(|unit| Morale:casualties(unit)))
+end
+
+function Command:detach()
+    local units = {}
+    for _, obj in ipairs(self.removeAttachments()) do table.insert(units, Unit(obj, self)) end
+    for unit, _ in pairs(self.units) do self.units[unit] = nil end
+    self:setDisplayName()
+    self:updateContextMenu()
+    return units
+end
+
+function Command:stash()
+    local offset = vector(math.random() * 3 - 1.5, math.random() * 2 + 1, math.random() * 3 - 1.5)
+    self.setPositionSmooth(self.getPosition() + vector(0, 3, 0))
+    return self:notMoving():next(|| self.setPositionSmooth(Commands.trays[self.nation][self.force].getPosition() + offset))
+end
+
+function Command:placeArrow()
+    local is_axis, p = Nations[self.nation]:isAxis(), Promise()
+    local offset = is_axis and 0.215 or 0
+    Bags.arrow.takeObject({
+        position = self.getPosition() + vector(0, 0.25 + offset, 0),
+        rotation = vector(0, math.random(360) - 180, is_axis and 180 or 0),
+        callback_function = function (arrow)
+            Promise.condition(|| arrow.getPosition().y - self.getPosition().y - offset < 0.24)
+            :skip(3):next(function ()
+                self.jointTo(arrow, {type = 'Fixed'})
+                arrow.interactable = false
+                p:resolve()
+    end) end})
+    return p
+end
+
+function Command:ordinal()
+    local n, tail = self.id, 'th'
+    if n < 4 or n > 20 then if n % 10 == 1 then tail = 'st'
+    elseif n % 10 == 2 then tail = 'nd'
+    elseif n % 10 == 3 then tail = 'rd' end end
+    return n .. tail
+end
+
+function Command:displayName() return self.getName():match('^[^\n]+') end
+
+function Command:updateContextMenu()
+    self.clearContextMenu()
+    if self.units() > 0 then
+        self.addContextMenuItem('Break stack', || self:detach())
+        self.addContextMenuItem('Combine stacks', |player| self:combine(player))
+    else self.addContextMenuItem('Form stack', |player| self:form(player)) end
+    return self
+end
+
+function Command:clearUI()
+    self.UI.setCustomAssets()
+    self.UI.setXml('')
+end
+
+Construction = {}
+setmetatable(Construction, {__call = function (T, obj)
+    local s, c = Stack(obj), {}
+    setmetatable(c, {__index = |_, k| T[k] or s[k]})
+    obj.tooltip = true
+    return c
+end})
+
+function Construction:displayName() return 'Units under construction' end

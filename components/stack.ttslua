@@ -1,0 +1,119 @@
+Stack = {units = {}}
+setmetatable(Stack, {__call = function (T, obj)
+    local s = {obj = obj, units = {}}
+    setmetatable(s, {__index = |t, k| T[k] or t.obj[k]})
+    setmetatable(s.units, getmetatable(T.units))
+    return s
+end})
+setmetatable(Stack.units, {__index = || 0, __call = function (t)
+    local total = 0
+    for unit, count in pairs(t) do total = total + count end
+    return total
+end})
+
+function Stack:attach(units)
+    local count, desc = {}, ''
+    if self:check(units) then return self:align(units):next(self.attach) end
+    for _, unit in ipairs(units) do
+        self.units[unit.getName()] = self.units[unit.getName()] + 1
+        self.addAttachment(type(unit) == 'table' and unit.obj or unit)
+    end
+    self:setDisplayName():updateContextMenu()
+    return Promise():resolve(self)
+end
+
+function Stack:check(units)
+    local pos, rot_y, order, align = units[1].getPosition(), units[1].getRotation().y, Units(units[1]).order
+    for i = 1, #units do
+        local unit = units[i + 1] or self
+        local rot = unit.getRotation()
+        if rot.x > 180 then rot.x = 360 - rot.x end
+        if rot.z > 180 then rot.z = 360 - rot.z end
+        if (unit.getPosition() - pos):setAt('y', 0):magnitude() > 0.02 then return 'position'
+        elseif (rot - vector(0, rot_y, 0)):magnitude() > 1 then return 'rotation'
+        elseif i < #units and Units(unit).order > order then return 'order' end
+        pos.y, order = unit.getPosition().y + 0.21, (Units(unit) or {}).order
+    end
+end
+
+function Stack:align(units)
+    local pos, rot_y
+    table.sort(units, function (a, b)
+        if Units(a).order == Units(b).order then return a.getPosition().y < b.getPosition().y
+        else return Units(a).order > Units(b).order end
+    end)
+    for i, unit in ipairs(units) do
+        unit.setLock(true)
+        if i == 1 then pos, rot = unit.getPosition(), vector(0, unit.getRotation().y, 0)
+        else Stack.alignPosition(unit, pos) end
+        Stack.alignRotation(unit, rot)
+        pos = pos + vector(0, 0.21, 0)
+    end
+    self.setLock(true)
+    self:alignPosition(pos)
+    self:alignRotation(rot)
+    return Promise.condition(function ()
+        for _, unit in ipairs(units) do if unit.isSmoothMoving() then return false end end
+        return not self.isSmoothMoving()
+    end):next(function ()
+        local pp = Promise()
+        Wait.frames(function ()
+            for _, unit in ipairs(units) do unit.setLock(false) end
+            self.setLock(false)
+            Wait.frames(|| pp:resolve(self, units), 1)
+        end, 1)
+        return pp
+    end)
+end
+
+function Stack.alignPosition(unit, pos)
+    if (unit.getPosition() - pos):magnitude() < 0.1 then unit.setPosition(pos)
+    else unit.setPositionSmooth(pos, false, true) end
+end
+
+function Stack.alignRotation(unit, rot)
+    if (unit.getRotation() - rot):magnitude() < 3 then unit.setRotation(rot)
+    else unit.setRotationSmooth(rot, false, true) end
+end
+
+function Stack:remove(name)
+    local unit_p, stack_p = Promise(), Promise()
+    Promise.condition(|| self.units() > 0):next(|| Promise.frames(1, self:detach()))
+        :next(function (units) if #units == 1 and units[1].getName() == name then
+            self:stash():next(|| stack_p:resolve(self))
+            unit_p:resolve(units[1])
+        else
+            local index
+            self.setPositionSmooth(self.getPosition() - units[#units].getPosition() + units[#units - 1].getPosition())
+            for i = #units, 1, -1 do if units[i].getName() == name or i == 1 then
+                unit_p:resolve(units[i])
+                index = i break
+            else units[i].setPositionSmooth(units[i - 1].getPosition()) end end
+            table.remove(units, index)
+            self:notMoving():next(function ()
+                self:attach(units)
+                stack_p:resolve(self)
+        end) end end)
+    return unit_p, stack_p
+end
+
+function Stack:restoreUnits()
+    for _, unit in ipairs(self.getAttachments()) do self.units[unit.name] = self.units[unit.name] + 1 end
+    return self
+end
+
+function Stack:notMoving() return Promise.condition(|| not self.isSmoothMoving(), self) end
+
+function Stack:setDisplayName()
+    local name, details = self:displayName(), ''
+    if self.units() > 0 then for unit, count in pairs(self.units) do
+        details = string.format('\n %s %s%s', count, unit:proper():colorize(unit), details)
+    end end
+    self.setName(name .. details)
+    return self
+end
+
+function Stack:updateContextMenu()
+    self.clearContextMenu()
+    return self
+end
