@@ -11,7 +11,11 @@ function Refit:main()
         for _, cfighter in ipairs(Commands.cfighters) do stash(cfighter) end
         Commands.cfighters = {}
         debug('Removed remaining carrier fighters')
-        for command in Commands:all() do if command.force == 'air' and (#command.getJoints() > 0 or command.memo) then
+        for command in Commands:all() do if command.force == 'fleet' and #command.getJoints() > 0 then
+            debug('Removing dive token from ', command.nation, ' ', command.id)
+            stash(getObjectFromGUID(command.getJoints()[1].joint_object_guid))
+            command.jointTo()
+        elseif command.force == 'air' and (#command.getJoints() > 0 or command.memo) then
             debug('Removing arrow tag from ', command.nation, ' ', command.id)
             if #command.getJoints() > 0 then
                 stash(getObjectFromGUID(command.getJoints()[1].joint_object_guid))
@@ -25,9 +29,19 @@ function Refit:main()
             Orders[nation]:enableReady(|...| self.resume(...))
         else HUD.updateStatus(nation, true) end end
         Phase.readyLoop(readied, next(readied) == nil, function (nation, ready)
-            for _, command in pairs(Commands[nation]) do if command.memo then
-                if ready then stopGlow(command) else setGlow(command, Color[nation]) end
-        end end end)
+            local invalid
+            for _, command in pairs(Commands[nation]) do if command.memo then if ready then
+                local source, dest = Map.regions[command.memo], Map.regions[command:region()]
+                if dest.is_sea or not Movement:airMovement(command.nation, source, dest)
+                        or (dest:owner() == 'neutral' and (Nations[command.nation]:isAxis() or not dest.allied))
+                        or dest:side() ~= Nations[command.nation].side then
+                    invalid = true
+                    setPulse(command, Color.red)
+                    Wait.time(|| stopPulse(command), 6)
+                else stopGlow(command) end
+            else setGlow(command, Color[nation]) end end end
+            if invalid then return false end
+        end)
     end
     for command in Commands:all() do command.obj.memo = nil end
     HUD.updateTracker('Deploy units and reorganize commands', nil, 'deploy')

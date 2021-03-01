@@ -1,7 +1,9 @@
 function OrdersChart:loadUI(scenario)
     local gassets, assets = UI.getCustomAssets(), {}
-    for _, asset in ipairs(UI.getCustomAssets()) do for _, name in ipairs(OrdersChart.Assets) do
-        if asset.name == name then table.insert(assets, gassets[id]) end end
+    for _, asset in ipairs(UI.getCustomAssets()) do
+        for _, name in ipairs{
+            'cancel', 'confirm', 'invalid', 'maximize', 'maximize-hover', 'neutral', 'pin'
+        } do if asset.name == name then table.insert(assets, gassets[id]) end end
         if asset.name == 'pact' and scenario == 'global'
             and (self.nation == 'japan' or self.nation == 'ussr') then table.insert(assets, asset) end
     end
@@ -60,7 +62,7 @@ function OrdersChart:loadUI(scenario)
         {{tag = 'Cell'}}, {{tag = 'Cell'}}, {{tag = 'Cell'}},
         {{tag = 'Cell', attributes = {class = 'input'}, children = {{tag = 'Text', attributes = {id = 'cg-quantity'}}}}}
     }
-    for i, id in ipairs{'post_trade', 'cost', 'remaining', 'cg'} do for _, resource in ipairs{'oil', 'iron', 'osr'} do
+    for i, id in ipairs{'post_trade', 'cost', 'remaining', 'cg'} do for resource in Resources() do
         if self.not_china or resource ~= 'oil' then table.insert(cols[i], {tag = 'Cell', attributes = {class = 'cost'},
             children = {{tag = id == 'cg' and 'InputField' or 'Text', attributes = {class = 'cg' and 'purchase' or nil, id = id .. '-' .. resource}}}
         }) else table.insert(cols[i], {tag = 'Cell'}) end

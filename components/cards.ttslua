@@ -33,7 +33,7 @@ function Card:giveTo(nation)
     return Promise.condition(|| not (card.isSmoothMoving() or card.getLock()))
         :next(|| card.setPositionSmooth(card.getPosition() + vector(0, 3, 0)))
         :when(|| not card.isSmoothMoving()):next(function ()
-            card.setPositionSmooth(Cards[nation].getPosition() + vector(0, 2, 0))
+            card.setPositionSmooth(Cards[nation].getPosition() + vector(0, 3, 0))
             card.setRotationSmooth(Cards[nation].getRotation())
             return card
         end):when(|| not card.isSmoothMoving())
@@ -113,6 +113,7 @@ function Cards:add(card)
             end
             if next == nil then card.prev, prev.next = prev, card end
         else self.first = card end
+        debug('Added ', card.id, ' to ', self.nation, ' card zone')
         self:arrange()
     end
 end
@@ -123,6 +124,7 @@ function Cards:remove(card)
         if rawget(card, 'prev') then card.prev.next, arrange = rawget(card, 'next'), true
         else self.first = rawget(card, 'next') end
         card.next, card.prev = nil
+        debug('Removed ', card.id, ' from ', self.nation, ' card zone')
         self:arrange()
     end
 end

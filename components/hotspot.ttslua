@@ -6,8 +6,8 @@ setmetatable(Hotspot, {__call = function (T, ...) if select('#', ...) > 2 then
 else
     local obj, region = ...
     local t = wrap(T, obj)
-    if obj.memo == nil then obj.memo = 'initial' end
-    t.region = region
+    if obj.memo == nil then obj.memo = region end
+    t.region = obj.memo
     t:regionLabel()
     return t
 end end})
@@ -20,17 +20,14 @@ function Hotspot:stash()
 end
 
 function Hotspot:activate()
-    debug('Activating hotspot in ', self.region, ' with status ', self.memo)
-    if self.memo == 'raid' then self.resume()
-    elseif self.memo ~= 'busy' then
+    debug('Activating hotspot in ', self.region, ' with tags: ', table.concat(self.getTags(), ', '))
+    if not self.hasTag('busy') then
         local commands = Commands:region(self.region)
         local action = self:action(commands)
         debug('Resolving ', action, ' hotspot in region ', self.region)
-        if action == 'battle' then
-            if rawget(Battle.left, 'combat') and rawget(Battle.right, 'combat') then return false
-            else Combat.Battle(self, commands) end
-        else Combat[action:proper()](self, commands) end
-        if self.memo == 'initial' then self.obj.memo = 'busy' end
+        Combat[action:proper()](self, commands)
+        self.addTag('busy')
+        self.removeTag('active')
         UI.setValue('combat-status' .. self.hud, '♦')
         return true
     end
@@ -107,9 +104,10 @@ function Hotspot:finalize(embattled)
     else
         self:stash()
         self.UI.setXml('')
+        region.hotspot = nil
         if not region.is_sea then region.card:embattled(false) end
     end
-    self.memo = 'done'
+    self.setTags({'inactive'})
     UI.setValue('combat-status' .. self.hud, '✓')
     UI.hide('combat-clear' .. self.hud)
     Combat.resume()

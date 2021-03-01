@@ -29,7 +29,7 @@ function Morale:convert()
         self.UI.setAttribute(nation .. '-stress', 'image', 'stress-level0')
         self.UI.hide(nation .. '-stress')
     end
-    local rows, right = Nations:inOrder(), self.getTransformRight() * (self.is_face_down and -1 or 1)
+    local rows, right = Nations:moraleOrder(), self.getTransformRight() * (self.is_face_down and -1 or 1)
     for _, obj in ipairs(Physics.cast({
         origin = self.getPosition() + self.getTransformForward():scale(1.8):setAt('y', self.is_face_down and 2.5 or 2.7),
         type = 3, size = vector(25.5, 5, 13.2), orientation = vector(0, self.getRotation().y, 0),

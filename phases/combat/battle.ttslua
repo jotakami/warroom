@@ -1,22 +1,27 @@
-Combat.Battle = {}
-setmetatable(Combat.Battle, {__call = function (t, hotspot, commands)
-    local T = {hotspot = hotspot}
-    setmetatable(T, {__index = t})
-    T.resume = coroutine.wrap(|...| T:main(...))
-    return T.resume(commands)
-end, __index = Combat})
+Combat.Battle = Combat.Action()
 
 function Combat.Battle:main(commands)
     local region, board = Map.regions[self.hotspot.region]
     local mode = region.is_sea and 'sea' or 'land'
-    if not rawget(Battle.left, 'combat') then board = Battle.left end
-    if not rawget(Battle.right, 'combat') and (not board or Battle.right:mode() == mode) then board = Battle.right end
-    if board == nil then return true end
     setGlow(self.hotspot, Color.red)
+    repeat
+        if not rawget(Battle.left, 'combat') then board = Battle.left end
+        if not rawget(Battle.right, 'combat') and (not board or Battle.right:mode() == mode) then board = Battle.right end
+        if board == nil then
+            table.insert(state.battle_queue, region.id)
+            coroutine.yield()
+        end
+    until board ~= nil
     board:initializeCombat(self)
-    local aux_data = board:placeUnits(commands)
+    local aux_data, initiative, i = board:placeUnits(commands), {}, 0
+    Commands.standing[region.id] = nil
     board:setAdvantages()
-    local initiative, i = self:getInitiative(commands), 0
+    for side, forces in pairs(commands) do
+        initiative[side] = 0
+        for force, commands in pairs(forces) do for _, command in ipairs(commands) do
+            initiative[side] = math.max(initiative[side], turnOrder[command.nation])
+    end end end
+    initiative = initiative.axis > initiative.allies and 'allies' or 'axis'
     debug(initiative .. ' has initiative')
     for _, side in ipairs{initiative, Nations.other[initiative]} do
         board.UI.setAttributes(side .. '-confirm', {text = 'Ready', textColor = 'white'})
@@ -39,24 +44,56 @@ function Combat.Battle:main(commands)
         board:stage('ground', initiative)
     else board:stage('surface', initiative) end
     board:repairs()
-    Promise.all(board:replaceCommands(), board:losses()):next(function (commands)
+    Promise.all(board:replaceCommands(), board:losses()):next(function (data)
+        local commands, extras = data.forces, data.extras
         stopGlow(self.hotspot)
         if mode == 'sea' and aux_data then for side, force in pairs(aux_data) do
-            commands[side].land = force
+            commands[side].army = force
         end end
-        self.resume(commands)
-    end)
+        if not extras then self.resume(commands) else
+            if mode == 'sea' then
+                for _, unit in ipairs(extras) do
+                    unit.addContextMenuItem('Form dived command', || self.diveSub(region, unit, extras))
+                end
+                Wait.condition(|| self.resume(commands), function ()
+                    for i = #extras, 1, -1 do if extras[i].obj == nil then table.remove(extras, i) end end
+                    return #extras == 0
+                end)
+            else
+                region.flag.setPositionSmooth(region.flag.getPosition() + vector(0, #extras * 0.21, 0))
+                Promise.condition(|| not region.flag.isSmoothMoving()):next(function ()
+                    local army = Standing(region.flag)
+                    Commands.standing[region.id] = army
+                    return army:attach(extras)
+                end):next(|| self.resume(Commands:region(region.id)))
+    end end end)
     board:reset()
+    Wait.condition(function () if #state.battle_queue > 0 then
+        Map.regions[table.remove(state.battle_queue, 1)].hotspot.resume()
+    end end, || board.UI.getAttribute('status-panel', 'active') == 'false')
     self:debrief(coroutine.yield(), mode == 'land' and aux_data or nil)
 end
 
-function Combat.Battle:getInitiative(sides)
-    debug('Determining initiative')
-    local initiative = {}
-    for side, forces in pairs(sides) do
-        initiative[side] = 0
-        for force, commands in pairs(forces) do for _, command in ipairs(commands) do
-            initiative[side] = math.max(initiative[side], turnOrder[command.nation])
+function Combat.Battle.diveSub(source, sub, subs)
+    local dest = Map.regions[Map:getRegion(sub)]
+    if source.id ~= dest.id then for _, adj in ipairs(source.adjacent) do
+        if adj:match(dest.id) and (adj:sub(-1) ~= '@' or Movement.canalCheck(nation, source.id, dest.id)) then
+            local units = {}
+            for i = #subs, 1, -1 do if subs[i].obj == nil then table.remove(subs, i)
+            elseif subs[i].nation == sub.nation and Map:getRegion(subs[i]) == dest.id then
+                subs[i].removeTag('escaped')
+                table.insert(units, subs[i])
+            end end
+            local pos, rot = sub.getPosition() + vector(0, #units * 0.21, 0), sub.getRotation()
+            local command_p, dive_p = Commands:getNew(sub.nation, 'fleet', pos, rot), Promise()
+            Bags.convoy_dive.takeObject({
+                position = pos + vector(0, 0.42, 0), rotation = rot:setAt('z', 180),
+                callback_function = |obj| dive_p:resolve(obj)
+            })
+            Promise.all(command_p, dive_p):skip(10):next(function (command, token)
+                command.jointTo(token, {type = 'Fixed'})
+                token.interactable = false
+                command:attach(units)
+            end)
     end end end
-    return initiative.axis > initiative.allies and 'allies' or 'axis'
 end

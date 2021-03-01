@@ -18,6 +18,7 @@
 #include components/command
 #include components/hotspot
 #include components/orders
+#include components/resources
 #include components/battle
 #include components/morale
 

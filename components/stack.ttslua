@@ -15,6 +15,7 @@ function Stack:attach(units)
     local count, desc = {}, ''
     if self:check(units) then return self:align(units):next(self.attach) end
     for _, unit in ipairs(units) do
+        if not self.hasTag('standing') then unit.removeTag('standing') end
         self.units[unit.getName()] = self.units[unit.getName()] + 1
         self.addAttachment(type(unit) == 'table' and unit.obj or unit)
     end

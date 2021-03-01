@@ -24,29 +24,35 @@ setmetatable(Nations, {__pairs = function (T, k) return function (t, k)
     if v ~= nil then return k, v end
 end, T, nil end})
 
-Nations.china = Nation({id = 'china', player = 'Yellow',
-    order = 6, prefix = 'c', name = 'China', side = 'allies',
-    morale = {4, 4}})
-Nations.uk = Nation({id = 'uk', player = 'Brown',
-    order = 4, prefix = 'b', name = 'British Commonwealth', side = 'allies',
-    morale = {6, 4}})
-Nations.ussr = Nation({id = 'ussr', player = 'Red',
-    order = 5, prefix = 'r', name = 'Soviet Union', side = 'allies', pact = 'japan',
-    morale = {6, 5}})
 Nations.usa = Nation({id = 'usa', player = 'Blue',
-    order = 1, prefix = 'u', name = 'United States of America', side = 'allies',
+    order = 4, prefix = 'u', name = 'United States of America', side = 'allies',
     morale = {5, 4}})
 Nations.germany = Nation({id = 'germany', player = 'White',
-    order = 2, prefix = 'g', name = 'Germany', side = 'axis',
+    order = 5, prefix = 'g', name = 'Germany', side = 'axis',
     morale = {6, 6}})
 Nations.italy = Nation({id = 'italy', player = 'Green',
-    order = 3, prefix = 't', name = 'Kingdom of Italy', side = 'axis',
+    order = 6, prefix = 't', name = 'Kingdom of Italy', side = 'axis',
+    morale = {4, 4}})
+Nations.uk = Nation({id = 'uk', player = 'Brown',
+    order = 2, prefix = 'b', name = 'British Commonwealth', side = 'allies',
+    morale = {6, 4}})
+Nations.ussr = Nation({id = 'ussr', player = 'Red',
+    order = 3, prefix = 'r', name = 'Soviet Union', side = 'allies', pact = 'japan',
+    morale = {6, 5}})
+Nations.china = Nation({id = 'china', player = 'Yellow',
+    order = 1, prefix = 'c', name = 'China', side = 'allies',
     morale = {4, 4}})
 Nations.japan = Nation({id = 'japan', player = 'Orange',
     order = 7, prefix = 'j', name = 'Imperial Japan', side = 'axis', pact = 'ussr',
     morale = {7, 6}})
 
 function Nations:inOrder()
+    local t = {}
+    for nation, _ in pairs(self) do table.insert(t, nation) end
+    return t
+end
+
+function Nations:moraleOrder()
     local t = {}
     for nation, data in pairs(self) do t[data.order] = nation end
     return t

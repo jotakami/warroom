@@ -66,25 +66,29 @@ function Combat:checkControl(combatants)
                 new_owner = coroutine.yield()
             else new_owner = remaining[1] end
         end
-        debug(new_owner, ' gains control, moving territory card')
-        -- place flag (if necessary)
+        debug(new_owner, ' gains control')
         region.card:giveTo(new_owner)
+        if region.flag then stash(region.flag) end
+        if Nations[new_owner].prefix ~= region.id:sub(1, 1) then
+            local pos = (region.flag or self.hotspot).getPosition()
+            Wait.condition(function () region.flag = Bags.flags[new_owner].takeObject({
+                position = pos, rotation = {0, math.random(360), 0}
+            }) end, || self.hotspot.isSmoothMoving())
+        else region.flag = nil end
         broadcastToAll(string.format('%s has taken control of %s from %s',
             Nations[new_owner]:colorized(), region:colorizedName(), Nations[owner]:colorized()))
         Morale:addStress(owner, region.sv)
         local medals, awardees = region.is_capital and 3 or 1, {}
-        log('Awarding medals: ' .. medals)
-        log(combatants)
+        debug('Awarding ', medals, ' medals to combatants: ', table.concat(combatants, ' '))
         for _, nation in ipairs(combatants) do
             if nation ~= state.pact_broken or owner ~= Nations[nation].pact then
                 table.insert(awardees, nation)
         end end
         if #awardees > 1 then
             self.hotspot:nationButtons(awardees, '+1 medal')
-            for i = 1, medals do Morale:addMedals(coroutine.yield, 1) end
+            for i = 1, medals do Morale:addMedals(coroutine.yield(), 1) end
         elseif #awardees == 1 then Morale:addMedals(combatants[1], medals)
         else alert('No medals awarded due to breaking Soviet-Japanese non-aggression pact') end
-        self.hotspot.UI.setCustomAssets()
-        self.hotspot.UI.setXml('')
+        self.hotspot.UI.hide('nations')
     else debug('No change of control') end
 end

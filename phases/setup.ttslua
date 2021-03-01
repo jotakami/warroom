@@ -7,7 +7,7 @@ function chooseScenario(_, value, id)
         position = {0.05, 6.605, -0.05}, rotation = {90, 0, 0}, scale = {83, 83, 83}
     }}) end
     UI.setXmlTable(HUD.XML:scenario(id))
-    Promise.condition(|| UI.getAttribute('help-button', 'image') ~= nil):next(function ()
+    HUD.loaded():next(function ()
         state = {scenario = id or 'global', options = options, round = 0, phase = 0, orders = {}}
         Setup.initialize()
         Setup.initNations()
@@ -15,8 +15,6 @@ function chooseScenario(_, value, id)
         return Setup.unpack(id)
     end):next(function ()
         Setup.hotspots()
-        Hotspot:initAssets()
-        UI.show('resources-button')
         if state.scenario == 'global' then
             Orders.japan.UI.show('pact')
             Orders.ussr.UI.show('pact')
@@ -33,16 +31,15 @@ function Setup.initialize()
     UI.setValue('round', state.round == 0 and '-' or state.round)
     Map:setupRegions(state.scenario ~= 'global' and Scenarios[state.scenario].regions)
     Morale:initialize(getObjectFromGUID(GUIDs.Morale), state.scenario)
-    Orders, Resources, Tokens = {}, {}, {homeland = {}, turn = {}}
+    Tokens = {homeland = {}, turn = {}}
 end
 
 function Setup.initNations()
     for nation, _ in pairs(Scenarios[state.scenario].nations) do
         log('Initializing ' .. nation .. ' components')
         local guids = GUIDs.Nations[nation]
-        Orders[nation] = OrdersChart(getObjectFromGUID(guids.orders), nation)
-        Orders[nation]:initialize(state.scenario)
-        Resources[nation] = bind(getObjectFromGUID(guids.resources))
+        Orders[nation] = OrdersChart(getObjectFromGUID(guids.orders), nation):initialize(state.scenario)
+        Resources[nation] = ResourceChart(getObjectFromGUID(guids.resources), nation):initialize()
         Commands.trays[nation] = {}
         Cards[nation] = Cards(getObjectFromGUID(GUIDs.Nations[nation].card_zone), nation)
         for force, guid in pairs(guids.trays) do Commands.trays[nation][force] = getObjectFromGUID(guid) end
@@ -55,12 +52,14 @@ function Setup.unpack(scenario)
     local delay, ready, i = Promise.frames(1), {}, 1
     for _, nation in ipairs(Nations:inOrder()) do if Scenarios[scenario].nations[nation] then
         log('Unpacking ' .. nation .. ' components')
-        for _, resource in ipairs{'oil', 'iron', 'osr'} do UI.show('frame-' .. resource .. i) end
+        local turn = i
+        for resource in Resources() do UI.show('frame-' .. resource .. i) end
         local guids = GUIDs.Nations[nation]
         local components = getObjectFromGUID(guids.components)
         Tokens.homeland[nation] = Setup.homelandToken(components, i)
         Tokens.turn[nation] = Setup.turnToken(components, i)
-        table.insert(ready, delay:next(|| Setup.unpackNation(nation, components, i)))
+        Wait.condition(|| Resources[nation]:loaded(), || Tokens.turn[nation].resting)
+        table.insert(ready, delay:next(|| Setup.unpackNation(nation, components, turn)))
         delay, i = delay:next(|| Promise.time(0.5)), i + 1
     end end
     return Promise.all(ready)
@@ -199,10 +198,10 @@ function Setup.commands(components, nation)
 end
 
 function Setup.neutrals()
-    local p = Promise()
-    local co = coroutine.create(function ()
+    local p, cards, pos = Promise(), {}
+    coroutine.resume(coroutine.create(function ()
         local deck, resume = getObjectFromGUID(GUIDs.Neutrals), coroutine.running()
-        local cards, pos = {}, deck.getPosition() + vector(0, 0.5, 0)
+        pos = deck.getPosition() + vector(0, 0.5, 0)
         for i = #deck.getObjects(), 1, -1 do
             local id = 'n' .. i
             if not Map.regions[id] then deck.takeObject({
@@ -220,20 +219,18 @@ function Setup.neutrals()
                 card.setName(Card(card, id):colorizedName())
                 table.insert(cards, card)
         end end
-        p:resolve(cards)
-    end)
-    coroutine.resume(co)
-    return p:skip(3):next(function (cards)
-        for _, card in ipairs(cards) do card.setLock(false) end
+        p:resolve()
+    end))
+    return p:skip(3):next(function ()
+        for i, card in ipairs(cards) do Wait.frames(|| card.setLock(false), i) end
     end):when(function ()
         for _, card in ipairs(cards) do if card ~= nil then return false end end
         return true
-    end):skip(3):next(function () for _, hit in ipairs(Physics.cast({
+    end):skip(10):next(function () log('Casting to find neutral card deck') for _, hit in ipairs(Physics.cast({
         origin = pos, direction = {0, -1, 0}, max_distance = 5
-    })) do if hit.hit_object.name == 'Deck' then
+    })) do if hit.hit_object.name == 'Deck' then log('Found neutral deck')
         Cards.neutral = hit.hit_object
         Cards.neutral.setName('Neutral territory cards')
-        break
     end end end)
 end
 

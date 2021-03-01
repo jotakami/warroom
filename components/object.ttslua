@@ -1,0 +1,16 @@
+Object = {}
+setmetatable(Object, {__call = function (T, obj)
+    local t = {}
+    setmetatable(t, {__index = |_, k| T[k] or obj[k]})
+    return t
+end})
+
+function Object:stash()
+    self.highlightOff()
+    self.setPositionSmooth(self.getPosition() + vector(0, 3, 0))
+    return self:notMoving():next(|| self.destruct())
+end
+
+function Object:notMoving(value)
+    return Promise.condition(|| not self.isSmoothMoving(), value)
+end

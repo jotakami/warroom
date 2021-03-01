@@ -50,28 +50,29 @@ function Commands:region(region)
         if cfighter ~= nil and Map:getRegion(cfighter) == region then
             forces:add(cfighter, Nations[cfighter.nation].side, 'air')
     end end
-    if self.standing[region] then
-        local army = self.standing[region]
-        forces:add(army, Nations[army.nation].side, 'army')
-    end
+    if self.standing[region] then forces:add(self.standing[region], Nations[self.standing[region].nation].side, 'army') end
     return forces
 end
 
 function Commands:byRegion()
     debug('Getting all commands by region')
-    local forces, side, force, pos, region = {}
+    local forces = {}
     for command in self:all() do
-        region = Map:getRegion(command)
-        if region then
-            forces[region] = forces[region] or Commands.Forces()
-            forces[region]:add(command)
+        local id = Map:getRegion(command)
+        if id then
+            forces[id] = forces[id] or Commands.Forces()
+            forces[id]:add(command)
     end end
-    for nation, cfighters in pairs(self.cfighters) do for _, cfighter in ipairs(cfighters) do if cfighter ~= nil then
-        region = Map:getRegion(cfighter)
-        if region then
-            forces[region] = forces[region] or Commands.Forces()
-            forces[region]:add(cfighter, Nations[nation].side, 'air')
-    end end end end
+    for _, cfighter in ipairs(self.cfighters) do
+        local id = Map:getRegion(cfighter)
+        if id then
+            forces[id] = forces[id] or Commands.Forces()
+            forces[id]:add(cfighter, Nations[cfighter.nation].side, 'air')
+    end end
+    for id, command in pairs(self.standing) do
+        forces[id] = forces[id] or Commands.Forces()
+        forces[id]:add(command, Nations[command.nation].side, 'army')
+    end
     return forces
 end
 
@@ -111,7 +112,7 @@ end})
 function Command:region() return Map:getRegion(self) end
 
 function Command:form(player, units)
-    debug('Forming ', Nations[self.nation]:shortName(), ' ', self:ordinal(), ' command stack')
+    debug('Forming ', Nations[self.nation]:shortName(), ' command stack')
     units = units or player and Player[player].getSelectedObjects() or {}
     if #units < 2 then
         debug('No objects selected, casting for units')
@@ -132,7 +133,7 @@ function Command:form(player, units)
     if #units > 0 and #units < 9 then for _, unit in ipairs(units) do
         local data = Units(unit)
         if not data or not data.cost or data.force ~= self.force then invalid = 'Wrong units for this command type' end
-    end else invalid = 'Too few or too many units (' .. #units .. ')' end
+    end else invalid = (#units > 0 and 'Too many' or 'No') .. ' units' end
     if invalid then return Promise():reject('Could not form stack: ' .. invalid)
     else return self:attach(units) end
 end
@@ -177,6 +178,9 @@ function Command:detach()
 end
 
 function Command:stash()
+    if self.getName() == 'cfighter' then for i, cfighter in ipairs(Commands.cfighters) do
+        if cfighter.guid == self.guid then return stash(table.remove(Commands.cfighters, i)) end
+    end end
     local offset = vector(math.random() * 3 - 1.5, math.random() * 2 + 1, math.random() * 3 - 1.5)
     self.setPositionSmooth(self.getPosition() + vector(0, 3, 0))
     return self:notMoving():next(|| self.setPositionSmooth(Commands.trays[self.nation][self.force].getPosition() + offset))
@@ -185,6 +189,7 @@ end
 function Command:placeArrow()
     local is_axis, p = Nations[self.nation]:isAxis(), Promise()
     local offset = is_axis and 0.215 or 0
+    self.removeTag('landing')
     Bags.arrow.takeObject({
         position = self.getPosition() + vector(0, 0.25 + offset, 0),
         rotation = vector(0, math.random(360) - 180, is_axis and 180 or 0),
@@ -231,3 +236,57 @@ setmetatable(Construction, {__call = function (T, obj)
 end})
 
 function Construction:displayName() return 'Units under construction' end
+
+Standing = {}
+setmetatable(Standing, {__call = function (T, obj, free)
+    local s, c = Stack(obj), {}
+    if obj.getName():match('standing army') then
+        s:restoreUnits()
+        c.nation = obj.getName():lower():match('%b[](%a+)%b[]')
+        c.force = s.units.fighter == s.units() and 'air' or 'army'
+    else
+        c = {nation = obj.getName():lower():match('^%a+'), force = 'army'}
+        obj.tooltip = true
+        obj.addTag('standing')
+        if free then obj.addTag('free') end
+    end
+    setmetatable(c, {__index = |_, k| T[k] or s[k]})
+    return c
+end})
+
+function Standing:displayName()
+    local region = Map.regions[Map:getRegion(self)]
+    return string.format('%s standing army (%s)', region.name, Nations[self.nation]:colorized())
+end
+
+function Standing:updateContextMenu()
+    self.clearContextMenu()
+    if not self.hasTag('free') then self.addContextMenuItem('Break stack', || self:detach(true)) end
+    return self
+end
+
+function Standing:detach(reform)
+    local units, tags = {}, self.getTags()
+    Commands.standing[Map:getRegion(self)] = nil
+    for _, obj in ipairs(self.removeAttachments()) do
+        for _, tag in ipairs(tags) do obj.addTag(tag) end
+        table.insert(units, Unit(obj, self))
+    end
+    for unit, _ in pairs(self.units) do self.units[unit] = nil end
+    self.obj.tooltip = false
+    self.setTags({})
+    self.setName(Nations[self.nation]:shortName() .. ' flag')
+    if reform then
+        local pid = Wait.condition(|| self.clearContextMenu(), function ()
+            for i = #units, 1, -1 do if units[i].obj == nil then table.remove(units, i) end end
+            return #units == 0
+        end)
+        self.clearContextMenu()
+        self.addContextMenuItem('Form standing army', function ()
+            Wait.stop(pid)
+            self:attach(units)
+            Commands.standing[Map:getRegion(self)] = self
+        end)
+    end
+    return units
+end

@@ -1,0 +1,97 @@
+Resources = {}
+setmetatable(Resources, {
+    __pairs = function (T, k) return function (t, k)
+        local v
+        repeat k, v = next(t, k)
+        until v == nil or type(v) == 'table'
+        if v ~= nil then return k, v end
+    end, T, nil end,
+    __call = || pairs{oil = 'red', iron = 'blue', osr = 'yellow'}
+})
+
+ResourceChart = Wrapper(function (t, nation)
+    t.nation, t.not_china = nation, nation ~= 'china'
+    return t
+end)
+
+function ResourceChart:initialize()
+    log('Initializing ' .. self.nation .. ' resource chart')
+    for resource in Resources() do if resource ~= 'oil' or self.not_china then
+        self[resource] = {value = 0, more = {value = 0}}
+    end end
+    self.snaps = {oil = {}, iron = {}, osr = {}}
+    for i, snap in ipairs(self.getSnapPoints()) do
+        table.insert(self.snaps[i < 22 and 'oil' or i < 43 and 'iron' or 'osr'], self.positionToWorld(snap.position))
+    end
+    return self
+end
+
+function ResourceChart:loaded() self.setVar('loaded', true) end
+
+function ResourceChart:add(data)
+    data.oil = self.not_china and data.oil or nil
+    for resource, value in pairs(self:totals()) do if data[resource] then
+        data[resource] = data[resource] + value
+    end end
+    self:set(data)
+end
+
+function ResourceChart:set(data)
+    local current = self:totals()
+    for resource, value in pairs(data) do
+        self[resource].value, self[resource].more.value = math.min(value, 20), math.max(value - 20, 0)
+        if current[resource] < 20 or value < 20 then self:adjustPeg(resource) end
+        if value > 20 then
+            if current[resource] < 21 then
+                self[resource].more.peg = self[resource].peg.clone({position = self.snaps[resource][self[resource].more.value]})
+                self[resource].more.peg.setColorTint(Color.white)
+                self[resource].more.peg.setName('more')
+            else self:adjustPeg(resource, true) end
+        elseif self[resource].value > 20 then self[resource].more.peg.destruct() end
+    end
+    for resource, value in pairs(current) do data[resource] = data[resource] or value end
+    self:updateUI(data)
+end
+
+function ResourceChart:updateUI(data)
+    data = data or self:totals()
+    Orders[self.nation]:setResources(data)
+    HUD.setResources(self.nation, data)
+end
+
+function ResourceChart:totals()
+    local resources = {}
+    for resource in Resources() do if resource ~= 'oil' or self.not_china then
+        resources[resource] = self[resource].value + self[resource].more.value
+    end end
+    return resources
+end
+
+function ResourceChart:adjustPeg(resource, more)
+    local t = more and self[resource].more or self[resource]
+    t.peg.setPositionSmooth(self.snaps[resource][t.value + 1] + vector(0, 0.1, 0))
+end
+
+function ResourceChart:pegDown(peg, point)
+    debug('Peg down on ', self.nation, ' resource chart')
+    point = vector(table.unpack(point))
+    local resource, value, t
+    for res, points in pairs(self.snaps) do for i, snap in ipairs(points) do
+        if point:distance(snap) < 0.005 then resource, value = res, i - 1 break end
+    end if resource then break end end
+    if peg.getName() == resource then t = self[resource]
+    elseif resource and peg.getName() == 'more' then t = self[resource].more end
+    if t then
+        t.value, t.peg = value, peg
+        self:updateUI()
+    end
+end
+
+function ResourceChart:pegUp(peg)
+    debug('Peg up on ', self.nation, ' resource chart')
+    for resource in Resources() do if resource ~= 'oil' or self.not_china then
+        if self[resource].more.peg ~= nil and peg.guid == self[resource].more.peg.guid then
+            self[resource].more = {value = 0}
+            self:updateUI() break
+    end end end
+end

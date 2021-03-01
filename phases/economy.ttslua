@@ -26,7 +26,7 @@ function Economy:resourceIncome(nation)
     if Morale.stressZone(nation) < 5 then
         msg = msg .. ' gained '
         if (totals.oil or 0) + totals.iron + totals.osr > 0 then
-            Resources[nation].addResources(totals)
+            Resources[nation]:add(totals)
             for resource, value in pairs(totals) do if value > 0 then
                 msg = string.format('%s%s %s, ', msg, string.colorize(value, resource), resource)
             end end

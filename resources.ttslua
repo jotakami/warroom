@@ -1,75 +1,18 @@
 #include utils/exports
 
 function onLoad()
-    Nation = self.getName():match('^(%a+)%s'):lower()
-    Orders = import('Orders.' .. Nation)
-    PegBag = getObjectFromGUID(Global.getTable('GUIDs').Bags.Pegs)
-    Pegs = {}
-    state, disable_collision = {iron = 0, iron_more = 0, osr = 0, osr_more = 0}, {}
-    if Nation ~= 'china' then state.oil, state.oil_more = 0, 0 end
-    loaded = true
+    Resources = import('Resources.' .. self.getName():match('^(%a+)%s'):lower())
 end
 
 function onCollisionEnter(collision_info)
-    if loaded ~= true then
-        if loaded == nil then Wait.condition(|| onCollisionEnter(collision_info), || loaded == true) end
-        return
-    end
-    local peg, resource, value = collision_info.collision_object
-    for i, snap in ipairs(self.getSnapPoints()) do
-        if self.positionToLocal(collision_info.contact_points[1]):distance(snap.position) < 0.005 then
-            if i < 22 then if Nation ~= 'china' then resource, value = 'oil', i - 1 end
-            elseif i < 43 then resource, value = 'iron', i - 22
-            else resource, value = 'osr', i - 43 end
-            break
-    end end
-    if not disable_collision[resource] then
-        if peg.getName() == resource then state[resource], Pegs[resource] = value, peg
-        elseif peg.getName() == 'more' then state[resource .. '_more'], Pegs[resource .. '_more'] = value, peg end
-        broadcastUpdate()
-    else disable_collision[resource] = nil end
+    if loaded and collision_info.collision_object.hasTag('peg') then
+        Resources:pegDown(collision_info.collision_object, collision_info.contact_points[1])
+    else Wait.condition(|| onCollisionEnter(collision_info), || loaded == true) end
 end
 
 function onCollisionExit(collision_info)
-    if loaded == true and collision_info.collision_object.held_by_color then for spot, peg in pairs(Pegs) do
-        if peg ~= nil and spot:match('more') and collision_info.collision_object.getGUID() == peg.getGUID() then
-            state[spot], Pegs[spot] = 0, nil
-            broadcastUpdate() break
-    end end end
-end
-
-function addResources(data)
-    if Nation == 'china' then data.oil = nil end
-    for resource, value in pairs(data) do data[resource] = state[resource] + state[resource .. '_more'] + value end
-    setResources(data)
-end
-
-function setResources(data)
-    local current, offset, total = totals(), {oil = 1, iron = 22, osr = 43}, {}
-    for resource, value in pairs(data) do
-        state[resource], state[resource .. '_more'] = math.min(value, 20), math.max(value - 20, 0)
-        local more = offset[resource] + state[resource .. '_more']
-        if current[resource] < 20 or value < 20 then Pegs[resource].setPositionSmooth(pegPosition(offset[resource] + state[resource])) end
-        if value > 20 then if current[resource] < 21 then
-            Pegs[resource .. '_more'] = PegBag.takeObject({position = pegPosition(more), smooth = false})
-        else Pegs[resource .. '_more'].setPositionSmooth(pegPosition(more)) end
-        elseif current[resource] > 20 then Pegs[resource .. '_more'].destruct() end
+    if loaded then
+        local peg = collision_info.collision_object
+        if peg.hasTag('peg') and peg.held_by_color then Resources:pegUp(peg) end
     end
-    for resource, value in pairs(current) do data[resource] = data[resource] or value end
-    broadcastUpdate(data)
-end
-
-function broadcastUpdate(data)
-    local ok, _ = pcall(|| Orders:setResources(data or totals()))
-    if not ok then Wait.time(|| broadcastUpdate(data or totals()), 2) end
-end
-
-function totals()
-    local resources = {iron = state.iron + state.iron_more, osr = state.osr + state.osr_more}
-    if Nation ~= 'china' then resources.oil = state.oil + state.oil_more end
-    return resources
-end
-
-function pegPosition(index)
-    return self.positionToWorld(self.getSnapPoints()[index].position) + vector(0, 0.1, 0)
 end

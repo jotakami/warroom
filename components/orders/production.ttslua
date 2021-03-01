@@ -1,5 +1,5 @@
 function OrdersChart:writeProduction(ready_callback, trades, resume)
-    local attr = {active = true, visibility = self:visibility()}
+    local attr = {active = true, visibility = Vis[Nations[self.nation].side]}
     self.UI.setAttributes('production', attr)
     self:setProduction(false, not resume)
     if next(trades) ~= nil then for resource, _ in pairs(self.resources.current) do

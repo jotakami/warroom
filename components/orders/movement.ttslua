@@ -26,7 +26,7 @@ function OrdersChart:resolveMovement(n)
             self:resolveMove(j)
             coroutine.yield()
             stopGlow(move.command)
-            if move.command.memo ~= 'landing' then move.command.obj.memo = nil end
+            move.command.obj.memo = nil
         else self.UI.show('slash' .. j) end
         state.step = state.step + 1
     end
@@ -51,7 +51,7 @@ function OrdersChart:resolveMove(n)
         Movement.invadeNeutral(self.nation, target):next(Movement.resume)
     end else
         confirmOrder = function ()
-            if command.id > 9 and command.id < 20 then command.obj.memo = 'landing' end
+            if command.id > 9 and command.id < 20 then command.addTag('landing') end
             Movement.resume()
         end
         if flag == 'invalid' then confirm.active, cancel.text, cancel.icon = false, 'Invalid', 'invalid'

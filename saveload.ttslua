@@ -13,6 +13,7 @@ function onLoad(saved_state)
     end
     for _, guid in ipairs(f_guids) do getObjectFromGUID(guid).interactable = false end
     Map:initialize(getObjectFromGUID(GUIDs.Map))
+    Hotspot:initAssets()
     for label, guids in pairs(GUIDs.Battle) do Battle[label] = Battle(getObjectFromGUID(guids.board), label):initialize(guids) end
     Bags = {}
     for piece, guids in pairs(GUIDs.Bags) do
@@ -29,7 +30,7 @@ function onLoad(saved_state)
     else
         state = JSON.decode(saved_state)
         UI.setXmlTable(HUD.XML:scenario(state.scenario))
-        Promise.condition(|| UI.getAttribute('help-button', 'image') ~= nil):next(loadState)
+        HUD.loaded():next(loadState)
     end
 end
 
@@ -42,7 +43,10 @@ function loadState()
         local name, region = obj.getName():lower(), Map:getRegion(obj)
         region = region and Map.regions[region]
         if region then
-            if name == 'hotspot' and not region.hotspot then region.hotspot = Hotspot(obj, region.id)
+            if name == 'hotspot' then
+                log('Restoring hotspot in ' .. region.id)
+                local hotspot = Hotspot(obj, region.id)
+                Map.regions[hotspot.region].hotspot = hotspot
             elseif name:match('flag') then region.flag = obj
             elseif name == 'cfighter' and obj.script_state ~= '' then
                 table.insert(Commands.cfighters, Command(obj, obj.script_state))
@@ -50,9 +54,9 @@ function loadState()
                 region.construction = Stack(obj):restoreUnits()
             elseif name == 'bomb_industry' and obj.is_face_down then
                 if region.bombs then table.insert(region.bombs, obj) else region.bombs = {obj} end
-            elseif obj.script_state == 'standing' then
-                region.flag = Stack(obj)
-                region.flag.nation = name:match('%b[](%w+)%b[]')
+            elseif name:match('standing army') then
+                log('Restoring standing army')
+                region.flag, Commands.standing[region.id] = obj, Standing(obj)
         end end
         if obj.name == 'Deck' then Cards.neutral = obj
         elseif obj.name == 'Card' then
@@ -71,20 +75,18 @@ function loadState()
     end end end end
     log('Initialized objects')
     Setup.initNations()
-    Hotspot:initAssets()
     for i, nation in turnOrder() do
         UI.setAttributes('tracker' .. i, {image = nation, active = true})
         UI.show('status' .. i)
-        for _, resource in ipairs{'oil', 'iron', 'osr'} do UI.show('frame-' .. resource .. i) end
+        for resource in Resources() do UI.show('frame-' .. resource .. i) end
     end
-    UI.setAttributes('resources-button', {visibility = Vis.all, active = true})
-    UI.setAttributes('resources', {visibility = Vis.none, active = true})
-    Wait.condition(function ()
+    Orders:loaded():next(function ()
         if state.scenario == 'global' and not state.pact_broken then
             Orders.japan.UI.show('pact')
             Orders.ussr.UI.show('pact')
         end
         for _, nation in turnOrder() do
+            Resources[nation]:loaded()
             local cards = Cards[nation]:sort()
             Cards[nation].first = cards[1]
             for i = 2, #cards do cards[i - 1].next, cards[i].prev = cards[i], cards[i - 1] end
@@ -92,8 +94,5 @@ function loadState()
         end
         Setup.zoneEvents()
         Round()
-    end, function ()
-        for _, orders in pairs(Orders) do if orders.UI.getXml() == '' then return false end end
-        return true
     end)
 end

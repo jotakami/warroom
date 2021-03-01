@@ -7,11 +7,11 @@ Morale = {Zones = {
     {name = 'Grey', label = 'Mass Desertions', color = 'abb2b9'}
 }}
 
-function Morale:initialize(obj, scenario)
-    setmetatable(getmetatable(self).__index, {__index = obj})
+function Morale:initialize(board, scenario)
+    setmetatable(getmetatable(self).__index, {__index = board})
     self.stacks, self.stress, self.medals, self.snaps = {}, {}, {}, {}
     local origin, flip = self.getPosition(), (scenario == 'europe' or scenario == 'pacific') and not self.is_face_down
-    local snaps, nations, nation, unit = self.getSnapPoints(), Nations:inOrder()
+    local snaps, nations, nation, unit = self.getSnapPoints(), Nations:moraleOrder()
     for i, snap in ipairs(snaps) do
         if (i - 1) % 11 == 0 then
             nation = table.remove(nations)

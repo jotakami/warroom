@@ -1,8 +1,20 @@
+Orders = {}
+setmetatable(Orders, {__pairs = function (T, k) return function (t, k)
+    local v
+    repeat k, v = next(t, k)
+    until v == nil or type(v) == 'table'
+    if v ~= nil then return k, v end
+end, T, nil end})
+
+function Orders:loaded() return Promise.condition(function ()
+    for _, orders in pairs(self) do if orders.UI.getXml() == '' then return false end end
+    return true
+end) end
+
 OrdersChart = Wrapper(function (t, nation)
     t.nation, t.not_china = nation, nation ~= 'china'
     return t
 end)
-OrdersChart.Assets = {'cancel', 'confirm', 'invalid', 'maximize', 'maximize-hover', 'neutral', 'pin'}
 
 function OrdersChart:initialize(scenario)
     log('Initializing ' .. self.nation .. ' orders')
@@ -28,6 +40,7 @@ function OrdersChart:initialize(scenario)
             if move.target then move.target = Map.regions[move.target] end
     end end
     self:loadUI(scenario)
+    return self
 end
 
 function OrdersChart:restore(state)
@@ -66,12 +79,10 @@ end
 -- INTERFACE FUNCTIONS --
 
 function OrdersChart:setResources(data)
-    debug('Updating ', self.nation, ' resources')
     self.resources.current = data
-    for resource, value in pairs(data) do if resource ~= 'oil' or self.nation ~= 'china' then
+    for resource, value in pairs(data) do if resource ~= 'oil' or self.not_china then
         self.UI.setValue('resources-' .. resource, value)
     end end
-    HUD.setResources(self.nation, data)
     self:updateTrade()
 end
 
@@ -112,11 +123,6 @@ end
 function OrdersChart:enableReady(callback)
     self.UI.setAttributes('ready', {color = '#ffffff', isOn = true, active = true})
     if callback then self.onReady = callback end
-end
-
-function OrdersChart:visibility()
-    if Nations[self.nation].side == 'axis' then return 'White|Green|Orange|Black'
-    else return 'Blue|Brown|Red|Yellow|Black' end
 end
 
 function OrdersChart:inputOK(id, value)

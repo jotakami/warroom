@@ -146,7 +146,7 @@ function Battle:assignHits(stage, side, roll, targets, fd)
             sub.next, stance.stacks.escaped, stance.stacks.damaged = stance.stacks.escaped, sub, nil
             pos = stance.snaps.escaped.position
             if rawget(sub, 'next') then pos = self.positionToLocal(sub.next.getPosition() + vector(0, 0.21, 0)) end
-            sub.memo = 'escaped'
+            sub.addTag('escaped')
             sub:clearUI()
             sub.setRotationSmooth(stance.snaps.escaped.rotation + self.getRotation())
             self:moveHitUnit(sub, pos, {})

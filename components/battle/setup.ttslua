@@ -62,7 +62,6 @@ function Battle:adjustSnaps()
     self.setSnapPoints(snaps)
 end
 
--- TODO: handle standing army stacks
 function Battle:placeUnits(sides)
     local battle, ps, mode = {axis = {nations = {}}, allies = {nations = {}}}, {}, self:mode()
     local region = Map.regions[self.combat.hotspot.region]
@@ -78,7 +77,7 @@ function Battle:placeUnits(sides)
                 command.origin = {pos = command.getPosition(), rot = command.getRotation()}
             else
                 t.command = t.command or {}
-                table.insert(t.command, force ~= 'air' and 1 or #t.command + 1, command)
+                if not command.hasTag('standing') then table.insert(t.command, force ~= 'air' and 1 or #t.command + 1, command) end
                 for i, unit in ipairs(command:detach()) do
                     t[unit.name] = t[unit.name] or {}
                     if unit.name == 'carrier' or unit.name == 'battleship' then battle[side].special = true end
@@ -109,8 +108,8 @@ function Battle:placeUnits(sides)
             table.insert(invaders, nation)
         end
         return invaders
-    elseif sides.axis.land or sides.allies.land then
-        return {axis = sides.axis.land, allies = sides.allies.land}
+    elseif sides.axis.army or sides.allies.army then
+        return {axis = sides.axis.army, allies = sides.allies.army}
     end
 end
 

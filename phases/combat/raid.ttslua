@@ -1,6 +1,7 @@
 Combat.Raid = Combat.Action()
 
 function Combat.Raid:main(commands)
+    -- TODO: Check if hotspots in convoy regions are currently being resolved, then wait until they are done to proceed
     local region = Map.regions[self.hotspot.region]
     local raiders, clusters, targets = {}, {}, {}
     local axis = commands.axis.fleet or commands.axis.air
@@ -13,9 +14,9 @@ function Combat.Raid:main(commands)
         local resources = {}
         for origin, values in pairs(cluster) do
             local owner = Map.regions[origin:match('^%w%d+')]:owner()
-            if origin:find('-') then for _, resource in ipairs{'oil', 'iron', 'osr'} do
+            if origin:find('-') then for resource in Resources() do
                 if values[resource] then resources[resource] = {[owner] = values[resource]} end
-            end else for _, resource in ipairs{'oil', 'iron', 'osr'} do if values[resource] then
+            end else for resource in Resources() do if values[resource] then
                 local loss = math.min(Map.regions[origin]:income()[resource] or 0, values[resource])
                 if loss > 0 then
                     resources[resource] = resources[resource] or {}
@@ -32,9 +33,9 @@ function Combat.Raid:main(commands)
             self.setTarget(command, targets, clusters)
             debug('Updated raid target for ', command.guid)
         end, |command| command.setVectorLines()) end
-        self.hotspot.obj.memo, self.hotspot.resume = 'raid', self.resume
+        self.hotspot.addTag('raid')
         coroutine.yield()
-        self.hotspot.obj.memo = 'busy'
+        self.hotspot.removeTag('raid')
         UI.setValue('combat-status' .. self.hotspot.hud, '♦')
         debug('Confirming convoy raid in ', region.id)
         for _, pid in pairs(pids) do Wait.stop(pid) end
@@ -98,24 +99,22 @@ function Combat.Raid:rollConvoyCluster(cluster)
     end
     if #hits.wild > 0 then
         local missed = {}
-        for _, res in ipairs{'oil', 'iron', 'osr'} do if cluster.resources[res] and not hits[res] then
-            table.insert(missed, res)
+        for resource in Resources() do if cluster.resources[resource] and not hits[resource] then
+            table.insert(missed, resource)
         end end
         if #hits.wild < #missed then
             debug('Need to assign black dice')
-            local obj, buttons = cluster.raiders[1], {}
-            for _, res in ipairs(missed) do table.insert(buttons, {{id = res, image = res}}) end
-            local offset = anchor - obj.getPosition() + vector(0, 0.75, 0)
-            self:createHitButtons(buttons, obj, offset)
+            local offset = anchor - self.hotspot.getPosition()
+            self.hotspot:raidButtons(missed, offset)
             for _, die in ipairs(hits.wild) do
                 setGlow(die)
-                local res = coroutine.yield()
+                local id = coroutine.yield()
                 stopGlow(die)
-                hits[res] = die
-                die:setColor(res == 'oil' and 'red' or res == 'iron' and 'blue' or 'yellow')
-                obj.UI.hide(res)
+                hits[id:match('%-(%a+)')] = die
+                die:setColor(id:match('(%a+)%-'))
+                self.hotspot.UI.hide(id)
             end
-            obj.UI.setXml('')
+            self.hotspot:regionLabel()
         else
             debug('Black dice assigned automatically')
             for i, die in ipairs(hits.wild) do if i <= #missed then
@@ -128,13 +127,16 @@ function Combat.Raid:rollConvoyCluster(cluster)
     if count > 0 then self:assessHits(count, hits, cluster, anchor) end
 end
 
+function Combat.Raid:hitButtons()
+end
+
 function Combat.Raid:assessHits(count, hits, cluster, pos)
     debug('Assessing convoy hits')
     local offset = Map:radialVector(pos):rotateOver('y', 90) * math.sqrt(2)
-    pos = pos + offset * 0.5 * (count - 1)
-    for _, res in ipairs{'oil', 'iron', 'osr'} do if hits[res] then
-        hits[res].setPositionSmooth(pos)
-        pos = pos - offset
+    pos = pos - offset * 0.5 * (count - 1)
+    for resource in Resources do if hits[resource] then
+        hits[resource].setPositionSmooth(pos)
+        pos = pos + offset
     end end
     Promise.condition(function ()
         for _, die in pairs(hits) do if die.isSmoothMoving() then return false end end
@@ -149,7 +151,7 @@ function Combat.Raid:assessHits(count, hits, cluster, pos)
             losses[nation].resources[res], losses[nation].total = -value, losses[nation].total + value
     end end
     for nation, loss in pairs(losses) do
-        Resources[nation]:addResources(loss.resources)
+        Resources[nation]:add(loss.resources)
         if state.options and state.options.take_her_down then Morale:sunkConvoys(nation, loss.total) end
         local msg = Nations[nation]:colorized() .. ' lost'
         for res, value in pairs(loss.resources) do msg = string.format('%s %s %s,', msg, string.colorize(-value, res), res) end

@@ -5,7 +5,7 @@ function Movement:main()
         state.phase, state.step = 3, 0
         for _, region in pairs(Map.regions) do if region.hotspot then
             region.hotspot.flip()
-            region.hotspot.state = 'initial'
+            region.hotspot.setTags({'active'})
         end end
         Commands:verifyStacks():delay(1):next(|| self.resume())
         coroutine.yield()
@@ -65,7 +65,7 @@ function Movement:evaluateMove(nation, command, target)
     if partial_pin then return 'partial' end
 end
 
-function Movement:fleetMovement(nation, region, target)
+function Movement:fleetMovement(nation, region, target, escaped)
     debug('Checking fleet pathing')
     return Map:search(region.id, |_, to| Map.regions[to:match('%a%d+')].is_sea ~= nil, function (d, from, to, v)
         local id, flag = to:match('(%a%d+)(.?)')
@@ -159,7 +159,7 @@ end
 
 function Movement.invadeNeutral(invader, region)
     debug('Neutral ', region.id, ' was invaded by ', invader)
-    local commands, anchor, other, min, defender = Commands:byRegion(), region.centroid or region.circle.c, Nations[invader].other, 8
+    local commands, other, min, defender = Commands:byRegion(), Nations[invader].other
     for _, nation in ipairs(Map:search(region.id, |_, to| to:match('%a%d+(.?)') ~= '^', function (d, _, to, v)
         local id = to:match('%a%d+')
         if v[id] or v.d and d > v.d then return false else v[id] = true end
@@ -171,38 +171,35 @@ function Movement.invadeNeutral(invader, region)
                 v.d = d
         end end end
         return true
-    end, {})) do if turnOrder[nation] < min then defender, min = nation, turnOrder[nation] end end
+    end, {})) do if turnOrder[nation] < (min or 8) then defender, min = nation, turnOrder[nation] end end
     debug(defender, ' assumes control of ', region.id)
     broadcastToAll(string.format('%s invades %s!\n%s has assumed control of the defense forces',
         Nations[invader]:colorized(), region:colorizedName(), Nations[defender]:colorized()))
     Morale:addStress(invader, 1)
-    local p = Promise()
-    local co = coroutine.wrap(function (resume)
-        local deck, units, flag = Cards.Neutrals
-        local pos, rot = Map.positionToWorld(anchor:copy():setAt('y', 0.6)), vector(0, Map:rotationToCenter(anchor), 0)
-        if data.army then
-            buildStack(data.army, pos, rot, true):next(function (units)
-                pos = pos + vector(0, 0.21 * #units, 0)
-                resume(units)
-            end)
-            units = coroutine.yield()
-        end
-        for _, card in ipairs(deck.getObjects()) do if card.name:find(region:displayID()) then deck.takeObject({
-            index = card.index, position = deck.getPosition() + vector(0, 2, 0),
-            callback_function = |card| Cards:give(card, defender)
-        }) break end end
-        Bags.flags[defender].takeObject({position = pos, rotation = rot, callback_function = |flag| resume(flag)})
-        region.flag = coroutine.yield()
-        p:resolve()
-        if units then
-            local army = Stack(region.flag)
-            army:attach(units)
-            army.setName(string.format('%s standing army (%s)', region.name, Nations[defender]:colorized()))
-            army.nation, army.obj.script_state = defender, 'standing'
-            Commands.standing[region] = army
-    end end)
-    co(co)
-    return p
+    local card_p, units_p, flag_p = Promise(), Promise(), Promise()
+    local deck = Cards.neutral
+    for _, card in ipairs(deck.getObjects()) do if card.name:find(region:displayID()) then deck.takeObject({
+        index = card.index, position = deck.getPosition() + vector(0, 3, 0),
+        callback_function = function (obj)
+            region.card = Card(obj, region.id)
+            Cards[region.id] = region.card
+            region.card:giveTo(defender):next(card_p)
+    end}) break end end
+    local pos = Map.positionToWorld((region.centroid or region.circle.c):copy():setAt('y', 0.6))
+    if region.army then Units:buildStack(region.army, pos):next(function (...)
+        pos = pos + vector(0, 0.21 * #{...}, 0)
+        units_p:resolve(...)
+    end) else units_p:resolve() end
+    units_p:next(function (...)
+        local units = {...}
+        Bags.flags[defender].takeObject({position = pos, callback_function = function (obj)
+            region.flag = obj
+            if #units == 0 then flag_p:resolve() else
+                local army = Standing(region.flag, true)
+                Commands.standing[region.id] = army
+                army:attach(units):next(flag_p)
+    end end}) end)
+    return Promise.all(card_p, flag_p)
 end
 
 function Movement:deployCarrierFighters()

@@ -1,4 +1,4 @@
-#include ../constants/map
+#include ../config/map
 
 function Map:initialize(obj)
     bind(obj, self)
@@ -208,10 +208,10 @@ function Map.Region:owner()
     local nation
     if self.flag ~= nil then
         local name = self.flag.getName()
-        if name:match('^Defense') then nation = name:match('%b[](%a+)%b[]'):lower()
+        if name:match('standing army') then nation = name:match('%b[](%a+)%b[]'):lower()
         else nation = name:match('^%a+'):lower() end
-    else nation = self.id:sub(1, 1) end
-    return Nations[nation]
+    else nation = Nations[self.id:sub(1, 1)] end
+    return nation
 end
 
 function Map.Region:side() return Nations[self:owner()].side end

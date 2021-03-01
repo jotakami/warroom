@@ -50,7 +50,7 @@ setmetatable(Units, {
 })
 
 function Units:buildStack(units, pos, rot, delay)
-    delay = delay or 5
+    rot, delay = rot or Map.getRotation(), delay or 5
     local queue, stack, ps = {}, {}, {}
     for unit, count in pairs(units) do for i = 1, count do table.insert(queue, unit) end end
     table.sort(queue, |a, b| self[a].order > self[b].order)

@@ -19,6 +19,8 @@ HUD = {Tooltips = {orders = 'movement orders', combat = 'hotspot details', produ
 
 #include ui/hud
 
+function HUD.loaded() return Promise.condition(|| UI.getAttribute('help-button', 'image') ~= nil) end
+
 function HUD.updateTracker(step, phase, help)
     if type(step) == 'table' then step, phase, help = table.unpack(step) end
     if phase then
@@ -52,7 +54,7 @@ end
 
 function HUD.setResources(nation, data)
     local id = turnOrder[nation]
-    for _, resource in pairs{'oil', 'iron', 'osr'} do UI.setValue(resource .. id, data[resource] or '') end
+    for resource in Resources() do UI.setValue(resource .. id, data[resource] or '') end
 end
 
 function HUD.open(id)

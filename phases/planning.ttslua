@@ -20,7 +20,7 @@ function Planning:main()
     self:setTurnOrder(self:revealBids())
     for i, nation in turnOrder() do
         UI.setAttribute('tracker' .. i, 'image', nation)
-        if nation ~= 'china' and Orders[nation].bid > 0 then Resources[nation].addResources({oil = -Orders[nation].bid})
+        if nation ~= 'china' and Orders[nation].bid > 0 then Resources[nation]:add({oil = -Orders[nation].bid})
         else Resources[nation].broadcastUpdate() end
     end
     HUD.updateTurn()

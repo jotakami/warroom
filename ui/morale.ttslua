@@ -3,7 +3,7 @@ function Morale:loadUI(scenario)
     local assets, children = {}, {}
     for _, asset in ipairs(UI.getCustomAssets()) do if asset.name:match('stress') then table.insert(assets, asset) end end
     local pos = |x, y| table.concat({x, sign * y, -10.1 * sign - 10}, ' ')
-    for nation, _ in pairs(Nations) do if not Scenarios[state.scenario].nations[nation] then
+    for _, nation in ipairs(Nations:moraleOrder()) do if not Scenarios[state.scenario].nations[nation] then
         table.insert(children, {tag = 'Panel'})
     else table.insert(children, {tag = 'Panel', attributes = {padding = '9 9 10 10'}, children = {
         {tag = 'VerticalLayout', attributes = {id = nation .. '-casualties'}, children = {
