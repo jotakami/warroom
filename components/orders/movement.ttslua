@@ -5,8 +5,8 @@ function OrdersChart:resolveMovement(n)
         self.UI.show('resolve')
         UI.setAttribute('movement-nation', 'image', self.nation)
         UI.setAttributes('orders-highlight', {offsetXY = i * 39 .. ' -39', color = Color[self.nation]:setAt('a', 0.2):toXml(true)})
-        UI.setAttribute('confirm-panel', 'visibility', Vis[Nations[self.nation].side])
-        UI.setAttribute('cancel-panel', 'visibility', Vis[Nations[self.nation].side])
+        UI.setAttributes('confirm-panel', {visibility = Vis[Nations[self.nation].side], active = true})
+        UI.setAttributes('cancel-panel', {visibility = Vis[Nations[self.nation].side], active = true})
     end
     for j, move in ipairs(self.moves) do if move.command and move.target then
         UI.setValue('command' .. i .. j, move.command.id)
@@ -15,7 +15,7 @@ function OrdersChart:resolveMovement(n)
             UI.show('slash' .. i .. j)
             self.UI.show('slash' .. j)
         else UI.hide('slash' .. i .. j) end
-        UI.show('order' .. i .. j)
+        UI.setAttribute('order' .. i .. j, 'active', true)
         if j > n and self.moves[j].command and self.moves[j].target then
             self.moves[j].command.obj.memo = self.moves[j].command:region()
     end end end

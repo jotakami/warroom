@@ -74,10 +74,13 @@ function Battle:losses()
         local units = zone.getObjects()
         for i = #units, 1, -1 do
             local unit = self.guids[units[i].guid]
+            if unit.getName() == 'cfighter' then unit.obj.memo = nil end
             if not unit or unit.hasTag('escaped') then table.remove(units, i)
             elseif unit.hasTag('free') then stash(table.remove(units, i))
-            else units[i] = unit end
-        end
+            else
+                units[i] = unit
+                unit.setLock(false)
+        end end
         if #units > 0 then table.insert(ps, Morale:casualties(units)) end
     end
     return #ps > 0 and Promise.all(ps) or Promise():resolve()

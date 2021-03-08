@@ -118,3 +118,5 @@ function Stack:updateContextMenu()
     self.clearContextMenu()
     return self
 end
+
+function Stack:region() return Map:getRegion(self) end

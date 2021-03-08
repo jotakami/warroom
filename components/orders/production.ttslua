@@ -125,7 +125,7 @@ function OrdersChart:updateResources(hidden)
             enable_ready = false
         else self:inputOK('remaining-' .. resource) end
     end
-    self.UI.setAttribute('ready', 'interactable', enable_ready)
+    if not hidden then self.UI.setAttribute('ready', 'interactable', enable_ready) end
 end
 
 function OrdersChart:revealPurchases()

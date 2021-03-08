@@ -47,30 +47,28 @@ function Combat.Battle:main(commands)
     Promise.all(board:replaceCommands(), board:losses()):next(function (data)
         local commands, extras = data.forces, data.extras
         stopGlow(self.hotspot)
-        if mode == 'sea' and aux_data then for side, force in pairs(aux_data) do
-            commands[side].army = force
-        end end
-        if not extras then self.resume(commands) else
-            if mode == 'sea' then
-                for _, unit in ipairs(extras) do
-                    unit.addContextMenuItem('Form dived command', || self.diveSub(region, unit, extras))
-                end
-                Wait.condition(|| self.resume(commands), function ()
-                    for i = #extras, 1, -1 do if extras[i].obj == nil then table.remove(extras, i) end end
-                    return #extras == 0
-                end)
-            else
-                region.flag.setPositionSmooth(region.flag.getPosition() + vector(0, #extras * 0.21, 0))
-                Promise.condition(|| not region.flag.isSmoothMoving()):next(function ()
-                    local army = Standing(region.flag)
-                    Commands.standing[region.id] = army
-                    return army:attach(extras)
-                end):next(|| self.resume(Commands:region(region.id)))
-    end end end)
+        for side, forces in pairs(commands) do if forces.air then for i = #forces.air, 1, -1 do
+            if forces.air[i].getName() == 'cfighter' and forces.air[i].memo == nil then table.remove(forces.air, i) end
+        end end end
+        if mode == 'sea' and aux_data then for side, force in pairs(aux_data) do commands[side].army = force end end
+        if not extras then self.resume(commands) else if mode == 'sea' then
+            for _, unit in ipairs(extras) do
+                unit.addContextMenuItem('Form dived command', || self.diveSub(region, unit, extras))
+            end
+            Wait.condition(|| self.resume(commands), function ()
+                for i = #extras, 1, -1 do if extras[i].obj == nil then table.remove(extras, i) end end
+                return #extras == 0
+        end) else
+            region.flag.setPositionSmooth(region.flag.getPosition() + vector(0, #extras * 0.21, 0))
+            Promise.condition(|| not region.flag.isSmoothMoving()):next(function ()
+                local army = Standing(region.flag)
+                Commands.standing[region.id] = army
+                return army:attach(extras)
+            end):next(|| self.resume(Commands:region(region.id)))
+    end end end):when(|| board.UI.getAttribute('status-panel', 'active') == 'false'):next(function ()
+        if #state.battle_queue > 0 then Map.regions[table.remove(state.battle_queue, 1)].hotspot.resume() end
+    end)
     board:reset()
-    Wait.condition(function () if #state.battle_queue > 0 then
-        Map.regions[table.remove(state.battle_queue, 1)].hotspot.resume()
-    end end, || board.UI.getAttribute('status-panel', 'active') == 'false')
     self:debrief(coroutine.yield(), mode == 'land' and aux_data or nil)
 end
 

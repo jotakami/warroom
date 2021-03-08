@@ -1,14 +1,12 @@
 function Battle:assignHits(stage, side, roll, targets, fd)
     debug('=== Assigning ', side, ' ', stage, ' dice ===')
     debug(tostring(roll))
-    local bombing, sets, t = stage == 'bomb', {}
     fd = fd and stage ~= 'air'
+    local sets, t = {}
     for _, die in ipairs(roll) do
         local value = die:getColor()
         if not t or value ~= t.color then
-            t = {die, color = value}
-            if bombing then t.active = value == 'black' or next(targets[value]) ~= nil
-            else t.active = (value == 'black' or value == 'white') and not fd or targets[value] end
+            t = {die, color = value, active = (value == 'black' or value == 'white') and not fd or targets[value]}
             table.insert(sets, t)
         else table.insert(t, die) end
         if not t.active then die.setColorTint(color(1, 1, 1, 0.4)) end
@@ -21,33 +19,24 @@ function Battle:assignHits(stage, side, roll, targets, fd)
         if targets.blue and targets.blue.escort then for stack, _ in pairs(targets.blue.escort.stacks) do
             if stack ~= 'casualty' then escorts = true break end
         end end
-        for clr, stances in pairs(targets) do if white and not bombing or wild or set.color == clr then
-            if not bombing then hp = hp + stances.hp end
+        for clr, stances in pairs(targets) do if white or wild or set.color == clr then
+            hp = hp + stances.hp
             for label, stance in pairs(stances) do if label ~= 'hp' then
-                if bombing then hp, eligible = hp + stance, eligible + stance
-                elseif stance.stacks.damaged or stance.stacks.sustained or stance.stacks.damaged2 then
+                if stance.stacks.damaged or stance.stacks.sustained or stance.stacks.damaged2 then
                     if not white or (not stance.stacks.sustained and label ~= 'dive') then eligible = eligible + 1 end
                     cap_ships = cap_ships or escorts and (clr == 'red' or clr == 'green')
                 elseif not white then for label, _ in pairs(stance.stacks) do if label ~= 'casualty' then
                     eligible = eligible + 1 debug('Adding eligible ', stance.unit)
                     cap_ships = cap_ships or escorts and (clr == 'red' or clr == 'green')
         end end end end end end end
-        if white and not bombing then autohit = #set >= eligible else autohit = hp > 0 and #set >= hp end
+        if white then autohit = #set >= eligible else autohit = hp > 0 and #set >= hp end
         autohit = autohit and not cap_ships
         for _, die in ipairs(set) do if eligible > 0 then
             debug('Assigning ', set.color, ' hit, ', eligible, ' targets remaining', autohit and ' (autohit active)' or '')
             local buttons, hit = {}
             for clr, stances in pairs(targets) do if white and not bombing or wild or clr == set.color then
                 for label, stance in pairs(stances) do
-                    if bombing then
-                        if stance > 0 then for i = 1, 8 do
-                            local id = Nations.other[side] .. '-target' .. i
-                            if self.UI.getAttribute(id, 'image') == label then
-                                if autohit then hit = {color = clr, target = label, id = id}
-                                else table.insert(buttons, id) end
-                                break
-                        end end end
-                    elseif label ~= 'hp' then
+                    if label ~= 'hp' then
                         local priority = nil
                         for stack, _ in pairs(stance.stacks) do if stack:match('ed2?$') then priority = stack break end end
                         if priority and (not white or label ~= 'dive' and priority ~= 'sustained') then
@@ -66,7 +55,7 @@ function Battle:assignHits(stage, side, roll, targets, fd)
                 end end
                 if hit then break end
             end end
-            if not bombing and hit_unit and (not hit or hit_unit.guid ~= hit.unit.guid) then
+            if hit_unit and (not hit or hit_unit.guid ~= hit.unit.guid) then
                 self:moveHitUnit(hit_unit, pos, pending)
                 hit_unit = nil
             end
@@ -153,20 +142,20 @@ function Battle:assignHits(stage, side, roll, targets, fd)
     end end
 end
 
-function Battle:getHitAssignment(die, buttons, side, bombing)
+function Battle:getHitAssignment(die, buttons, side)
     debug('Showing hit buttons')
     local player, hit
-    for _, unit in ipairs(buttons) do if not bombing then
+    for _, unit in ipairs(buttons) do
         setGlow(unit)
         unit.UI.show('hit')
-    else self.UI.setAttribute(unit, 'interactable', true) end end
+    end
     setGlow(die)
     self.UI.setAttributes(side .. '-confirm', {text = 'Assign hit', textColor = 'white'})
-    repeat player, hit = coroutine.yield() until Vis[side]:match(player.color)
-    for _, unit in ipairs(buttons) do if not bombing then
+    repeat player, hit = coroutine.yield() debug(player.color, ' clicked ', tostring(hit)) until Vis[side]:match(player.color)
+    for _, unit in ipairs(buttons) do
         stopGlow(unit)
         unit.UI.hide('hit')
-    else self.UI.setAttribute(unit, 'interactable', false) end end
+    end
     stopGlow(die)
     return hit
 end

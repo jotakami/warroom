@@ -29,8 +29,8 @@ HUD.XML = {Defaults = {
         hide = {image = 'minimize', highlightedSprite = 'minimize-hover', transition = 'SpriteSwap'},
         display = {transition = 'SpriteSwap', visibility = Vis.all},
         resolve = {fontSize = 8, position = '-156 0'},
-        scenario = {fontSize = 28, onClick = 'chooseScenario'},
-        combat = {icon = 'cancel', onClick = 'forceResolve'}
+        scenario = {fontSize = 28, onClick = 'Setup'}
+        --combat = {icon = 'cancel', onClick = 'forceResolve'}
     },
     Panel = {
         shade = {color = '#000000b0'},
@@ -325,7 +325,7 @@ function HUD.XML:scenario(scenario) return {
         }}
     }},
     {tag = 'Panel', attributes = {class = 'draggable', id = 'movement',
-        height = 41, width = 800, position = '0 400', color = '#000000b0', active = false
+        height = 41, width = 960, position = '0 400', color = '#000000b0', active = false
     }, children = {
         {tag = 'Image', attributes = {id = 'movement-nation', rectAlignment = 'MiddleLeft', offsetXY = '3 0', raycastTarget = false}},
         {tag = 'Text', attributes = {id = 'movement-order', fontSize = 32}}

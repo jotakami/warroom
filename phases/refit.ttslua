@@ -8,7 +8,7 @@ function Refit:main()
     if state.phase < 5 or state.step < 2 then
         state.phase, state.step = 5, 1
         HUD.close('combat')
-        for _, cfighter in ipairs(Commands.cfighters) do stash(cfighter) end
+        for _, cfighter in ipairs(Commands.cfighters) do if cfighter.obj.memo ~= nil then stash(cfighter) end end
         Commands.cfighters = {}
         debug('Removed remaining carrier fighters')
         for command in Commands:all() do if command.force == 'fleet' and #command.getJoints() > 0 then
@@ -32,13 +32,15 @@ function Refit:main()
             local invalid
             for _, command in pairs(Commands[nation]) do if command.memo then if ready then
                 local source, dest = Map.regions[command.memo], Map.regions[command:region()]
+                debug(command.nation, ' ', command.id, ' moves from ', source.id, ' to ', dest.id)
                 if dest.is_sea or not Movement:airMovement(command.nation, source, dest)
-                        or (dest:owner() == 'neutral' and (Nations[command.nation]:isAxis() or not dest.allied))
-                        or dest:side() ~= Nations[command.nation].side then
+                        or dest:side() ~= 'neutral' and dest:side() ~= Nations[command.nation].side
+                        or dest:side() == 'neutral' and (Nations[command.nation]:isAxis() or not dest.allied) then
                     invalid = true
                     setPulse(command, Color.red)
                     Wait.time(|| stopPulse(command), 6)
-                else stopGlow(command) end
+                end
+                stopGlow(command)
             else setGlow(command, Color[nation]) end end end
             if invalid then return false end
         end)
@@ -75,23 +77,23 @@ function Refit:main()
                 end end
                 table.insert(ps, Commands:getNew(
                     nation, force, pos:setAt('y', #stack * 0.21 + 7), stack[1].getRotation()
-                ):next(|command| command:form(nil, stack)):catch(function ()
+                ):next(|obj| Promise.condition(|| obj.resting, obj)):next(|command| command:form(nil, stack)):catch(function ()
                     for _, unit in ipairs(stack) do table.insert(units, unit) end
                     return Promise():reject('Failed to form new stack(s)')
                 end))
         end end
-        if #ps > 0 then
-            Promise.all(ps):next(|| self.resume(nation, ready), || Orders[nation]:toggleReady(false))
-            return false
-    end end end)
+        if #ps > 0 then Promise.all(ps):next(|| self.resume(nation, ready), || Orders[nation]:toggleReady(false)) end
+    end end)
+    self.resume = nil
 end
 
 function Refit:deployUnits(region)
-    while stack.units() > region:production() do
+    debug('Deploying units in ', region.id)
+    while region.construction.units() > region:production() do
         debug('Over production capacity!')
         -- deal with this later
     end
-    local nation, units = region:owner(), region.construction:removeAttachments()
+    local nation, units = region:owner(), region.construction.removeAttachments()
     for _, unit in ipairs(units) do setGlow(unit, Color[nation]) end
     return stash(region.construction):next(|| units)
 end

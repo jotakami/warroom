@@ -56,15 +56,12 @@ end
 
 -- Phase 1: Direct National Economy
 
-function OrdersChart:startRound(round)
-    self.UI.setValue('round', round)
-    if self.not_china then
-        self.UI.hide('bid')
-        for resource, _ in pairs(self.resources.current) do for _, label in ipairs{'trade', 'minus', 'plus'} do
-            self.UI.hide(label .. '-' .. resource)
-    end end end
-    for i = 1, #self.moves do self.UI[Morale.stressZone(self.nation) > 3 and #self.moves - i < 3 and 'show' or 'hide']('slash' .. i) end
-    self.UI.hide('production')
+function OrdersChart:newRound(round)
+    for i = 1, #self.moves do self.UI.setAttribute('slash' .. i, 'active', i > #self.moves - 3 and Morale.stressZone(self.nation) > 3) end
+    if round > 1 then
+        self:setProduction(true, true)
+        self.UI.hide('production')
+    end
 end
 
 -- Phase 2: Strategic Planning

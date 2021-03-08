@@ -10,23 +10,21 @@ end
 
 function Combat:checkTransports()
     debug('Checking for unescorted transports')
-    local sunk, guids = {}, {}
     for side, other in pairs(Nations.other) do if self.commands[side].army and not self.commands[side].air then
-        sunk = commands[side].army
-        if commands[other].air then
-            if commands[side].fleet then for _, fleet in ipairs(commands[side].fleet) do
-                if fleet.units() > fleet.units.submarine then sunk = {} break end
+        local sunk = self.commands[side].army
+        if self.commands[other].air then
+            if self.commands[side].fleet then for _, fleet in ipairs(self.commands[side].fleet) do
+                if fleet.units() > fleet.units.submarine then sunk = nil break end
             end end
-        elseif commands[side].fleet or commands[other].fleet == nil then sunk = {} end
-    end end
-    if #sunk > 0 then
-        debug('Destroying unescorted transports')
-        local ps = {}
-        for _, command in ipairs(sunk) do table.insert(ps, command:destroy()) end
-        Promise.all(ps):next(|| self.resume())
-        coroutine.yield()
-        self.commands = Commands:region(self.hotspot.region)
-    else return commands end
+        elseif self.commands[side].fleet or self.commands[other].fleet == nil then sunk = nil end
+        if sunk then
+            debug('Destroying unescorted transports')
+            self.commands[side].army = nil
+            local ps = {}
+            for _, command in ipairs(sunk) do table.insert(ps, command:destroy()) end
+            Promise.all(ps):next(|| self.resume())
+            coroutine.yield()
+    end end end
 end
 
 function Combat:checkAirCommands()
@@ -62,12 +60,13 @@ function Combat:checkControl(combatants)
                 remaining[command.nation] = true
             end
             if #remaining > 1 then
-                self.hotspot:nationButtons(remaining, 'Gains control')
+                self.hotspot:nationButtons(remaining, 'Gains control', 'control')
                 new_owner = coroutine.yield()
+                self.hotspot.UI.hide('control')
             else new_owner = remaining[1] end
         end
         debug(new_owner, ' gains control')
-        region.card:giveTo(new_owner)
+        local p = region.card:giveTo(new_owner)
         if region.flag then stash(region.flag) end
         if Nations[new_owner].prefix ~= region.id:sub(1, 1) then
             local pos = (region.flag or self.hotspot).getPosition()
@@ -77,18 +76,21 @@ function Combat:checkControl(combatants)
         else region.flag = nil end
         broadcastToAll(string.format('%s has taken control of %s from %s',
             Nations[new_owner]:colorized(), region:colorizedName(), Nations[owner]:colorized()))
-        Morale:addStress(owner, region.sv)
-        local medals, awardees = region.is_capital and 3 or 1, {}
+        if region.sv then Morale:addStress(owner, region.sv) end
+        local medals, awardees = region.capital and 3 or 1, {}
         debug('Awarding ', medals, ' medals to combatants: ', table.concat(combatants, ' '))
         for _, nation in ipairs(combatants) do
             if nation ~= state.pact_broken or owner ~= Nations[nation].pact then
                 table.insert(awardees, nation)
         end end
         if #awardees > 1 then
-            self.hotspot:nationButtons(awardees, '+1 medal')
+            self.hotspot:nationButtons(awardees, '+1 medal', 'medals')
             for i = 1, medals do Morale:addMedals(coroutine.yield(), 1) end
         elseif #awardees == 1 then Morale:addMedals(combatants[1], medals)
         else alert('No medals awarded due to breaking Soviet-Japanese non-aggression pact') end
-        self.hotspot.UI.hide('nations')
+        self.hotspot.UI.hide('medals')
+        if state.scenario == 'global' and (region.id == 'j1' or region.id == 'r1') then Movement.breakPact() end
+        p:next(|| self.resume())
+        coroutine.yield()
     else debug('No change of control') end
 end

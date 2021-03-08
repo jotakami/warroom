@@ -56,21 +56,25 @@ function Battle.XML.status(hand, naval)
     return children
 end
 
-function Battle.XML.targets(hand, side)
-    local targets = {tag = 'TableLayout', attributes = {
-        minWidth = 560, cellPadding = '5 5 5 5', cellBackgroundColor = 'clear'
-    }, children = {{tag = 'Row', children = {}}}}
-    for i = 1, 8 do table.insert(targets.children[1].children, {tag = 'Cell', children = {
-        {tag = 'Button', attributes = {id = side .. '-target' .. i,
-            fontSize = 36, textOutline = 'Black',
-            colors = '#ffffff|#ffffff|#c8c8c8|#ffffff40', onClick = 'Global/Battle(' .. hand .. ')'
-        }}
+function Battle.XML.targets(hand)
+    local children = {}
+    for side, params in pairs{
+        axis = {align = {'Left', 'Right'}, width = 566, sign = -1},
+        allies = {align = {'Right', 'Left'}, width = 568, sign = 1}
+    } do table.insert(children, {tag = 'Panel', attributes = {id = side .. '-targets',
+        rectAlignment = 'Middle' .. params.align[1], width = params.width, color = '#000000d8', active = false
+    }, children = {{tag = 'Panel', attributes = {
+        height = 25, width = 82, rectAlignment = 'Lower' .. params.align[2],
+        rotation = '0 0 ' .. 90 * params.sign, color = '#000000f0'
+    }, children = {{tag = 'Text', value = 'Targets', attributes = {
+        fontSize = 20, fontStyle = 'Bold', color = 'White', horizontalOverflow = 'Overflow'
+    }}}}}}) end
+    for i, t in ipairs(Combat.BombOrder) do table.insert(children, {tag = 'Button', attributes = {id = t.color .. '-' .. t.target,
+        height = 64, width = 64, rectAlignment = 'MiddleLeft', image = t.target, fontSize = 36, textOutline = 'black',
+        colors = '#f0f0f0c0|#ffffffff|' .. Color['_' .. t.color]:toXml() .. '|#606060c0',
+        onClick = 'Global/Battle(' .. hand .. ')', active = false
     }}) end
-    local label = {tag = 'Text', value = 'Targets', attributes = {
-        minWidth = 27, rotation = '0 0 ' .. (side == 'axis' and 90 or -90), fontSize = 20,
-        fontStyle = 'Bold', color = 'White', horizontalOverflow = 'Overflow'
-    }}
-    return side == 'axis' and {label, targets} or {targets, label}
+    return children
 end
 
 function Battle.XML:defaults()
@@ -90,16 +94,12 @@ function Battle.XML:setup(hand, naval)
             class = 'fadein', position = '0 104 ' .. (naval and 1 or -21),
             rotation = rot, scale = '0.15 0.15', height = 107, width = 2100,
             color = '#282020', active = false
-        }, children = self.status(hand, naval)}
+        }, children = self.status(hand, naval)},
+        {tag = 'Panel', attributes = {id = 'targets', class = 'fadein',
+            position = '0.2 -86.2 -21', rotation = '0 0 180', scale = '0.2 0.2', height = 82, width = 1390
+        }, children = self.targets(hand)}
     }
-    for _, side in ipairs{'axis', 'allies'} do
-        table.insert(xml, self.rollers(naval, side))
-        table.insert(xml, {tag = 'Panel', attributes = {id = side .. '-targets',
-            class = 'fadein', position = (side == 'axis' and '-79.5 -86' or '80.3 -86') .. ' -21',
-            rotation = '0 0 180', scale = '0.2 0.2', height = 80, width = 592, color = '#000000d8',
-            padding = (side == 'axis' and '0 5' or '5 0') .. ' 5 5', active = false
-        }, children = self.targets(hand, side)})
-    end
+    for side in pairs(Nations.other) do table.insert(xml, self.rollers(naval, side)) end
     return xml
 end
 
@@ -143,4 +143,9 @@ function Battle:flipUI()
         position = '0 104 ' .. (naval and 1 or -21),
         rotation = (naval and 180 or 0) .. ' 0 ' .. (naval and 0 or 180)
     })
+end
+
+function Battle:updateTarget(clr, target, attr)
+    attr.textColor = clr == 'white' and 'red' or 'white'
+    self.UI.setAttributes(clr .. '-' .. target, attr)
 end

@@ -12,7 +12,6 @@ function onLoad(saved_state)
         for _, guid in ipairs(data.territories) do table.insert(f_guids, guid) end
     end
     for _, guid in ipairs(f_guids) do getObjectFromGUID(guid).interactable = false end
-    Map:initialize(getObjectFromGUID(GUIDs.Map))
     Hotspot:initAssets()
     for label, guids in pairs(GUIDs.Battle) do Battle[label] = Battle(getObjectFromGUID(guids.board), label):initialize(guids) end
     Bags = {}
@@ -42,20 +41,20 @@ function loadState()
     for _, obj in ipairs(getAllObjects()) do
         local name, region = obj.getName():lower(), Map:getRegion(obj)
         region = region and Map.regions[region]
-        if region then
+        if #name > 0 and region then
+            log('Restoring ' .. name:match('^[^\n]+'))
             if name == 'hotspot' then
                 log('Restoring hotspot in ' .. region.id)
                 local hotspot = Hotspot(obj, region.id)
                 Map.regions[hotspot.region].hotspot = hotspot
             elseif name:match('flag') then region.flag = obj
-            elseif name == 'cfighter' and obj.script_state ~= '' then
-                table.insert(Commands.cfighters, Command(obj, obj.script_state))
+            elseif name == 'cfighter' and obj.memo ~= '' then
+                table.insert(Commands.cfighters, Command(obj, obj.memo))
             elseif name:match('construction') then
-                region.construction = Stack(obj):restoreUnits()
+                region.construction = Construction(obj):restoreUnits()
             elseif name == 'bomb_industry' and obj.is_face_down then
                 if region.bombs then table.insert(region.bombs, obj) else region.bombs = {obj} end
             elseif name:match('standing army') then
-                log('Restoring standing army')
                 region.flag, Commands.standing[region.id] = obj, Standing(obj)
         end end
         if obj.name == 'Deck' then Cards.neutral = obj

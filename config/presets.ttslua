@@ -1,0 +1,66 @@
+Presets = {
+    germany = {{
+        name = 'Cobra Kai',
+        description = 'A massive build-up in Ukraine, with the aim of crushing the USSR by round 4.',
+        credits = 'PainState'
+        moves = {
+            {command = 33, target = 'g6'},
+            {command = 38, target = 'g4'},
+            {command = 48, target = 'g4'},
+            {command = 56, target = 'g6'},
+            {command = 72, target = 'g4'},
+            {command = 11, target = 'g6'},
+            {command = 12, target = 'g6'},
+            {command = 13, target = 'g6'}
+    }}, {
+        name = 'Kriegsmarine',
+        description = 'Overlapping naval moves to isolate and eliminate the British fleet. Bid high to pin them before they can escape.',
+        credits = 'jotakami'
+        moves = {
+            {command = 1, target = 'a7'},
+            {command = 5, target = 'a3'},
+            {command = 3, target = 'a6'},
+            {command = 11, target = 'a7'},
+            {command = 12, target = 'a7'},
+            {command = 13, target = 'a6'},
+            {command = 14, target = 'a6'}
+    }}, {
+        name = 'Desert Fox',
+        description = 'A multi-headed assault on the British possessions in North Africa and beyond.',
+        credits = 'jotakami'
+        moves = {
+            {command = 3, target = 'a17'},
+            {command = 59, target = 't5'},
+            {command = 49, target = 'b5'},
+            {command = 72, target = 'm2'},
+            {command = 14, target = 'm3'},
+            {command = 15, target = 'm3'},
+            {command = 17, target = 'b5'}
+    }}},
+    uk = {{
+        name = 'London Calling',
+        description = 'Stop a potential German invasion of the British Isles, and prepare to liberate western Europe.',
+        credits = 'PainState/jotakami'
+        moves = {
+            {command = 6, target = 'a6'},
+            {command = 7, target = 'a7'},
+            {command = 45, target = 'a7'},
+            {command = 90, target = 'a2'},
+            {command = 11, target = 'a6'},
+            {command = 13, target = 'a7'},
+            {command = 14, target = 'a8'}
+    }}, {
+        name = 'Middle Earth',
+        description = 'An all-out defense of the oil-rich core of the British Empire.',
+        credits = 'PainState'
+        moves = {
+            {command = 3, target = 'i2'},
+            {command = 9, target = 'i5'},
+            {command = 60, target = 'j8'},
+            {command = 63, target = 'b5'},
+            {command = 75, target = 'b8'},
+            {command = 12, target = 'p14'},
+            {command = 13, target = 'm2'},
+            {command = 15, target = 'b17'}
+    }}}
+}

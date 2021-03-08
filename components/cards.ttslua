@@ -4,8 +4,8 @@ Card = Wrapper(function (card, id)
 end)
 
 function Card:compare(b, prefix)
-    local ap, an = self.id:match('^(%a)(%d+)')
-    local bp, bn = b.id:match('^(%a)(%d+)')
+    local ap, an = self.id:match('(%a)(%d+)')
+    local bp, bn = b.id:match('(%a)(%d+)')
     if ap == bp then return tonumber(an) < tonumber(bn)
     elseif ap == prefix then return true
     elseif bp == prefix then return false
@@ -16,6 +16,7 @@ function Card:displayName() return Map.regions[self.id]:displayName() end
 function Card:colorizedName() return Map.regions[self.id]:colorizedName() end
 
 function Card:embattled(flip)
+    flip = flip or Map.regions[self.id].collapsed ~= nil
     local cards = {this = self, next = rawget(self, 'next'), prev = rawget(self, 'prev')}
     if self.is_face_down ~= flip then return Promise.condition(function ()
         for _, card in pairs(cards) do if card.locked then return false end end
@@ -25,18 +26,20 @@ function Card:embattled(flip)
         self.setRotationSmooth(self.getRotation() + vector(0, 0, 180))
     end):when(|| not self.isSmoothMoving()):skip(1):next(function ()
         for _, card in pairs(cards) do card.setLock(false) end
-    end) end
+    end) else return Promise():resolve() end
 end
 
 function Card:giveTo(nation)
     local card = self
-    return Promise.condition(|| not (card.isSmoothMoving() or card.getLock()))
-        :next(|| card.setPositionSmooth(card.getPosition() + vector(0, 3, 0)))
-        :when(|| not card.isSmoothMoving()):next(function ()
-            card.setPositionSmooth(Cards[nation].getPosition() + vector(0, 3, 0))
-            card.setRotationSmooth(Cards[nation].getRotation())
-            return card
-        end):when(|| not card.isSmoothMoving())
+    return Promise.condition(|| not (card.isSmoothMoving() or card.getLock())):next(function ()
+        card.setPositionSmooth(card.getPosition() + vector(0, 3, 0))
+        if not Map.regions[card.id].collapsed then
+            card.setRotationSmooth(card.getRotation():setAt('z', 0))
+    end end):when(|| not card.isSmoothMoving()):next(function ()
+        card.setPositionSmooth(Cards[nation].getPosition() + vector(0, 3, 0))
+        card.setRotationSmooth(card.getRotation():setAt('y', Cards[nation].getRotation().y))
+        return card
+    end):when(|| not card.isSmoothMoving())
 end
 
 function Card.getId(card)
@@ -88,7 +91,7 @@ end
 function Cards:sort(prefix)
     local cards = self.type == 'Scripting' and {} or self
     if self.type == 'Scripting' then for i, card in self:cards() do cards[i] = card end end
-    prefix = prefix or self.nation:sub(1, 1)
+    prefix = prefix or Nations[self.nation].prefix
     table.sort(cards, |a, b| a:compare(b, prefix))
     return cards
 end
@@ -103,7 +106,7 @@ function Cards:add(card)
         if rawget(self, 'first') then
             local next, prev = self.first
             while next ~= nil do
-                if card:compare(next, self.nation:sub(1, 1)) then
+                if card:compare(next, Nations[self.nation].prefix) then
                     card.next, card.prev, next.prev = next, prev, card
                     if not prev then self.first = card
                     else prev.next = card end
@@ -133,8 +136,8 @@ function Cards:arrange()
     debug('Rearranging ', self.nation, ' cards')
     local card, count = rawget(self, 'first'), 0
     local pos, rot = self.origin.position, self.origin.rotation + vector(1, 0, 0)
-    local row_shift = self.getTransformForward() * 1.71
-    local col_shift = self.getTransformRight() * (Orders[self.nation].positionToLocal(self.getPosition()).x > 0 and -5.6 or 5.6)
+    local row_shift = self.getTransformForward() * -1.71
+    local col_shift = self.getTransformRight() * (Orders[self.nation].positionToLocal(self.getPosition()).x > 0 and 5.6 or -5.6)
     while card ~= nil do
         if not card.getLock() then card.setLock(true) end
         card.setPositionSmooth(pos)

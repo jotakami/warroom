@@ -9,6 +9,7 @@
 #include config/help
 #include config/nations
 #include config/scenario
+#include config/commands
 
 #include components/map
 #include components/dice

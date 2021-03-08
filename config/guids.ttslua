@@ -3,7 +3,6 @@ GUIDs = {
     Map = '047ba2',
     Bags = {
         dice = '1b2e9b',
-        pegs = '02ce83',
         stress = {'ef4903', nil, '36f9b1'},
         medal_goods = '0228ac',
         bomb_industry = '1ac8dd',

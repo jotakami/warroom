@@ -29,6 +29,7 @@ function Morale:initialize(board, scenario)
         Wait.condition(|| self.setLock(true), || self.resting)
     end
     self:loadUI(scenario)
+    log('Morale board initialized')
 end
 
 #include ../ui/morale
@@ -63,7 +64,13 @@ function Morale:sunkConvoys(nation, value)
 end
 
 function Morale:stackUnits(nation, name, units)
-    local p = self.stacks[nation][name] or Promise():resolve(self.positionToWorld(self.snaps[nation][name]) + vector(0, 0.05, 0))
+    local p = self.stacks[nation][name]
+    if not p then
+        local stack = self:getStack(nation, name)
+        p = Promise():resolve(#stack > 0
+            and table.remove(stack).getPosition() + vector(0, 0.21, 0)
+            or self.positionToWorld(self.snaps[nation][name]))
+    end
     return p:next(function (pos)
         local q = Promise()
         for i, unit in ipairs(units) do Wait.frames(function ()
@@ -71,7 +78,7 @@ function Morale:stackUnits(nation, name, units)
                 unit.setPositionSmooth(pos + vector(0, unit.is_face_down and 0.21 or 0, 0))
                 unit.setRotationSmooth(unit.getRotation():setAt('x', 0):setAt('y', self.getRotation().y))
                 if i == #units then Wait.condition(|| q:resolve(pos), || not unit.isSmoothMoving()) end
-            else debug('Stacking casualty from bag') Bags[unit].takeObject({
+            else Bags[unit].takeObject({
                 position = pos, rotation = vector(0, self.getRotation().y, 0),
                 callback_function = i == #units and (|| q:resolve(pos)) or nil
             }) end
@@ -85,7 +92,9 @@ function Morale:getStack(nation, name)
     local objs = {}
     for _, obj in ipairs(Physics.cast({
         origin = self.positionToWorld(self.snaps[nation][name]) - vector(0, 0.1, 0), direction = {0, 1, 0}, max_distance = 5
-    })) do if obj.hit_object.getName():match(name) then table.insert(objs, obj.hit_object) end end
+    })) do if obj.hit_object.getName():match(name) or name == 'submarine' and obj.hit_object.getName() == 'convoy_dive' then
+        table.insert(objs, obj.hit_object)
+    end end
     table.sort(objs, function (a, b)
         local ay, by = a.getPosition().y, b.getPosition().y
         if name ~= 'medal_goods' then
@@ -101,7 +110,8 @@ end
 function Morale:addGoods(nation, value) self:addMedals(nation, value, true) end
 function Morale:addMedals(nation, value, is_goods)
     debug('Giving ', value, ' ', is_goods and 'consumer goods' or 'medals', ' to ', nation)
-    alert(string.format('%s was awarded %s medal', Nations[nation]:colorized(), string.colorize(value, 'medal')) .. (value > 1 and 's' or ''))
+    if not is_goods then alert(string.format('%s was awarded %s medal',
+        Nations[nation]:colorized(), string.colorize(value, 'medal')) .. (value > 1 and 's' or '')) end
     self.medals[nation] = self.medals[nation] or Promise():resolve(self.positionToWorld(self.snaps[nation].medal_goods))
     for i = 1, value do self.medals[nation] = self.medals[nation]:next(function (target)
         local p = Promise()

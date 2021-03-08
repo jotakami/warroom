@@ -38,13 +38,16 @@ function OrdersChart:setOrders(lock, clear)
         if clear then self:setState({}, 'moves', i) end
         for _, label in ipairs{'command', 'target'} do
             self.UI.setAttribute(label .. i, 'interactable', not lock)
-            if clear then self.UI.setAttribute(label .. i, 'text', '') end
-    end end
+            if clear then
+                self.UI.setAttribute(label .. i, 'text', '')
+                UI.setAttribute(self.nation .. '-' .. label .. i, 'text', '')
+    end end end
     if self.not_china then
         self.UI.setAttribute('bid', 'interactable', not lock)
         if clear then
             self:setState(0, 'bid')
             self.UI.setAttribute('bid', 'text', '')
+            UI.setAttribute(self.nation .. '-' .. 'bid', 'text', '')
     end end
     self.UI.setAttribute('maximize', 'active', not lock)
 end

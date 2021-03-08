@@ -49,7 +49,7 @@ function Combat.Uncontested:garrison(army)
     local pos, max_y = self.hotspot.getPosition(), 0
     for _, hit_object in ipairs(Physics.cast({
         origin = pos + vector(0, 5, 0), direction = {0, -1, 0}, max_distance = 5, type = 3,
-        size = {2, 1, 1}, orientation = {0, Map:rotationToCenter(pos) + 180, 0}
+        size = {2.5, 1, 1.5}, orientation = {0, Map:rotationToCenter(pos) + 180, 0}
     })) do max_y = math.max(max_y, hit_object.point.y) end
     local anchor = pos:setAt('y', max_y + math.sqrt(2) / 2)
     Bags.dice:roll(Dice.positions(2, anchor, Map:radialVector(anchor))):delay(1):next(|dice| self.resume(dice))
@@ -60,7 +60,8 @@ function Combat.Uncontested:garrison(army)
     if pair then
         local p, targets, unique = Promise(), {}
         for _, command in ipairs(army) do for unit, t in pairs(Units) do
-            if t.force == 'army' and command.units(unit) > 0 and (pair == 'black' or pair == t.color) then
+            if t.force == 'army' and command.units[unit] > 0 and (pair == 'black' or pair == t.color) then
+                debug('Found target: ', command.nation, ' ', unit)
                 targets[unit] = targets[unit] or {}
                 targets[unit][command.nation] = command
                 if unique == nil then unique = {command = command, unit = unit}

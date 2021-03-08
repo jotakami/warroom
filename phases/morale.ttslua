@@ -13,6 +13,7 @@ function Morale:main()
     if state.step < 4 then self:cancel() end
     if state.step < 5 then self:homeland() end
     self:penalties()
+    self.resume = nil
 end
 
 function Morale:convert()
@@ -113,11 +114,13 @@ function Morale:homeland()
         local total = 0
         for _, obj in ipairs(self.stress[nation]) do total = total + tonumber(obj.getName():match('%d')) end
         debug(nation, ' has ', total, ' total stress')
-        total = total - total % thresholds[nation]
+        total, penalty = total - total % thresholds[nation], 1
+        for _, command in pairs(Commands[nation]) do if command.units() > 0 then penalty = 0 break end end
         if total > 0 then table.insert(ps, self:removeStress(self.stress[nation], total):next(function ()
             self.stress[nation] = nil
-            return self.updateZone(nation, total / thresholds[nation])
-        end)) else self.stress[nation] = nil end
+            return self.updateZone(nation, total / thresholds[nation] + penalty)
+        end)) elseif penalty > 0 then table.insert(ps, self.updateZone(nation, penalty))
+        else self.stress[nation] = nil end
     end
     if #ps > 0 then
         Promise.all(ps):next(|| self.resume())
@@ -153,11 +156,11 @@ function Morale:penalties()
         for _, nation in turnOrder() do if self.stressZone(nation) > 1 then
             debug(nation, ' loses 3 resources')
             local total = 0
-            for _, value in pairs(Orders[nation].resources.current) do total = total + value end
+            for _, value in pairs(Resources[nation]:totals()) do total = total + value end
             table.insert(ps, Promise.condition(function ()
                 local current = 0
-                for _, value in pairs(Orders[nation].resources.current) do current = current + value end
-                return total - current == 3
+                for _, value in pairs(Resources[nation]:totals()) do current = current + value end
+                return math.max(total - 3, 0) == current
             end):next(|| HUD.updateStatus(nation, true)))
         else HUD.updateStatus(nation, true) end end
         if #ps > 0 then
@@ -168,16 +171,14 @@ function Morale:penalties()
     end
     HUD.updateTracker('Apply penalties: Mass desertions', nil, 'desertions')
     HUD.resetStatus()
-    local ps = {}
+    local readied = {}
     for _, nation in turnOrder() do if self.stressZone(nation) == 6 then
+        -- count up stress first
         debug(nation, ' suffers mass desertions')
-        -- to be implemented
-        -- use ready buttons
+        HUD.updateStatus(nation, false)
+        Orders[nation]:enableReady(|...| self.resume(...))
     else HUD.updateStatus(nation, true) end end
-    if #ps > 0 then
-        Promise.all(ps):next(|| self.resume())
-        coroutine.yield()
-    end
+    Phase.readyLoop(readied, next(readied) == nil)
 end
 
 function Morale:countCasualties(casualties)

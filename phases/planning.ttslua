@@ -3,7 +3,7 @@ Planning = Phase()
 function Planning:main()
     if state.phase >= 2 then
         for nation, orders in pairs(Orders) do orders:restoreOrders() end
-        if state.phase > 2 then return end
+        if state.phase > 2 then self.resume = nil return end
     else state.phase, state.step = 2, 0 end
     HUD.updateTracker('Write orders and bids', '2 - Strategic Planning', 'orders')
     HUD.resetStatus()
@@ -21,10 +21,11 @@ function Planning:main()
     for i, nation in turnOrder() do
         UI.setAttribute('tracker' .. i, 'image', nation)
         if nation ~= 'china' and Orders[nation].bid > 0 then Resources[nation]:add({oil = -Orders[nation].bid})
-        else Resources[nation].broadcastUpdate() end
+        else Resources[nation]:updateUI() end
     end
     HUD.updateTurn()
     HUD.resetStatus()
+    self.resume = nil
 end
 
 function Planning:revealBids()

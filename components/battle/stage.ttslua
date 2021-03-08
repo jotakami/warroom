@@ -12,7 +12,7 @@ function Battle:stage(stage, turn)
             local counter, remaining = table.remove(counters[turn]), 0
             debug(turn:proper(), ' rolling ', counter.value, ' dice')
             if stage == 'bomb' then
-                self.UI.show(Nations.other[turn] .. '-bomb-targets')
+                if self.UI.getAttribute('targets', 'active') == 'false' then self.UI.show('targets') end
                 for color, targets in pairs(targets[turn]) do for _, count in pairs(targets) do
                     remaining = remaining + count
                 end end
@@ -28,14 +28,18 @@ function Battle:stage(stage, turn)
                     local right = self.bags.allies.getPosition() + vector(0, 0.6, 0)
                     return roll:arrange(left:lerp(right, 0.53 - #roll * 0.03), right:lerp(left, 0.53 - #roll * 0.03))
                 end):next(|roll| self.combat.resume(roll))
-                self:assignHits(stage, turn, coroutine.yield(), targets[turn], self.advantage[Nations.other[turn]].force)
+                if stage ~= 'bomb' then
+                    self:assignHits(stage, turn, coroutine.yield(), targets[turn], self.advantage[Nations.other[turn]].force)
+                else self.combat:assignBombs(coroutine.yield(), targets[turn], self.UI) end
                 self.UI.hide(id)
         end end
         turn = Nations.other[turn]
     end
-    self.UI.hide('allies-confirm-panel')
-    self.UI.hide('axis-confirm-panel')
-    if stage == 'bomb' then self.UI.hide(turn .. '-bomb-targets') end
+    for side in pairs(Nations.other) do
+        self.UI.hide(side .. '-confirm-panel')
+        if stage == 'bomb' then self.UI.hide(side .. '-targets') end
+    end
+    if stage == 'bomb' then self.UI.hide('targets') end
 end
 
 function Battle:setupStage(stage)
@@ -71,23 +75,23 @@ function Battle:setHotspotCounters(side, dice, bomb)
     local z_min = self.positionToLocal(self.stances.land[side].bomber.strategic.getPosition()).z
     local start = self.commands.snaps[side == 'axis' and 'italy' or 'uk'].position + vector(0.5 * x_sign, 0.1, 0)
     while dice > 0 do if bomb then
-        table.insert(counters, {value = 4, obj = self:setHotspotCounter(start, vector(x, y, self.stances.land[side].armor.offensive.getPosition().z))})
+        table.insert(counters, self:setHotspotCounter(start, vector(x, y, 6 * 0.173 + z_min), 4))
         dice, y = dice - 4, y + y_inc
     else
         local value = (dice - 1) % 10 + 1
-        table.insert(counters, self:setHotspotCounter(start, vector(x, y, (30 - dice) % 10 * 0.173 + z_min)):next(|obj| {value = value, obj = obj}))
+        table.insert(counters, self:setHotspotCounter(start, vector(x, y, (30 - dice) % 10 * 0.173 + z_min), value))
         if dice % 10 == 0 then dice, y = dice - 10, y + y_inc else dice = dice - dice % 10 end
     end end
     return Promise.all(counters)
 end
 
-function Battle:setHotspotCounter(start, position)
+function Battle:setHotspotCounter(start, position, value)
     local p = Promise()
     Bags.hotspot.takeObject({
         position = self.positionToWorld(start), smooth = false,
         callback_function = function (obj)
             obj.setPositionSmooth(self.positionToWorld(position), false, true)
-            Wait.condition(|| p:resolve(obj), || not obj.isSmoothMoving())
+            Wait.condition(|| p:resolve({value = value, obj = obj}), || not obj.isSmoothMoving())
     end})
     return p
 end
@@ -122,15 +126,17 @@ function Battle:getTargets(side, force)
                     self.XML:repairs(side == 'axis' and 'Right' or 'Left', repair_fun)
                 }}})
     end end end end end else
-        targets = self.combat:getBombTargets()
-        local id, i = side .. '-bomb-targets', 0
-        for _, t in ipairs(Combat.BombOrder) do if targets[t.color][t.target] then
-            i = i + 1
-            self.UI.setAttributes(side .. '-target' .. i, {
-                text = targets[t.color][t.target], textColor = t.color == 'white' and 'red' or 'white',
+        debug('Determining bomb targets')
+        self.UI.show(side .. '-targets')
+        targets = Map.regions[self.combat.hotspot.region]:bombTargets()
+        local x, delta = side == 'axis' and 500 or 824, side == 'axis' and -70 or 70
+        for _, t in ipairs(Combat.BombOrder) do if targets[t.color] and targets[t.color][t.target] then
+            self:updateTarget(t.color, t.target, {
+                offsetXY = x .. ' 0', text = targets[t.color][t.target],
                 image = t.target, active = true, interactable = false
-        }) end end
-        for j = i + 1, 8 do self.UI.hide(side .. '-target' .. j) end
+            })
+            x = x + delta
+        else self.UI.setAttribute(t.color .. '-' .. t.target, 'active', false) end end
     end
     return targets
 end

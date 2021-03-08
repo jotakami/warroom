@@ -109,8 +109,6 @@ setmetatable(Command, {__call = function (t, obj, nation)
     return c
 end})
 
-function Command:region() return Map:getRegion(self) end
-
 function Command:form(player, units)
     debug('Forming ', Nations[self.nation]:shortName(), ' command stack')
     units = units or player and Player[player].getSelectedObjects() or {}
@@ -236,6 +234,28 @@ setmetatable(Construction, {__call = function (T, obj)
 end})
 
 function Construction:displayName() return 'Units under construction' end
+
+function Construction:stash()
+    Map.regions[self:region()].construction = nil
+    return stash(self)
+end
+
+function Construction:detach()
+    local units, nation = {}, Map.regions[self:region()]:owner()
+    for _, obj in ipairs(self.removeAttachments()) do
+        unit = Unit(obj)
+        unit.nation = nation
+        table.insert(units, unit)
+    end
+    for unit, _ in pairs(self.units) do self.units[unit] = nil end
+    return units
+end
+
+function Construction:destroyUnit(name)
+    local unit_p, command_p = self:remove(name)
+    unit_p.nation = Map.regions[self:region()]:owner()
+    return Promise.all(command_p, unit_p:next(|unit| Morale:casualties(unit)))
+end
 
 Standing = {}
 setmetatable(Standing, {__call = function (T, obj, free)

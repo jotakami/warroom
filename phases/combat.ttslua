@@ -1,3 +1,7 @@
+-- TODO:
+---- 1. Dependencies between combats: raids spawning or canceling, change in port advantage, etc.
+---- 2. Multiple battles due to pact, or due to ownership reversion
+
 Combat = Phase()
 
 function Combat:main()
@@ -53,7 +57,7 @@ function Combat:main()
         if #ps > 0 then
             Promise.all(ps):next(|| self.resume())
             coroutine.yield()
-    end end
+    end else state.step = state.step == 1 and #turnOrder.get() or state.step - 1 end
     debug('Setting up combat HUD')
     local regions = {}
     for id, region in pairs(Map.regions) do if region.hotspot then
@@ -101,7 +105,7 @@ function Combat:main()
             all_clear = false break
         end end
     until all_clear or coroutine.yield()
-    state.battle_queue, tryObjectRandomize = nil
+    self.resume, state.battle_queue, tryObjectRandomize = nil
 end
 
 function Combat:tryRandomize(obj, player, resume)
@@ -235,7 +239,7 @@ function Combat:assignBombs(dice, targets, ui)
                     if bombs then table.insert(bombs, bomb) else region.bombs = {bomb} end
                     alert('Infrastructure was destroyed in ' .. region:colorizedName())
                 else
-                    Promise.all(region.construction:destroyUnit(hit_id)):next(|| self.resume())
+                    region.construction:destroyUnit(hit_id):next(|| self.resume())
                     alert(string.format('%s under construction was destroyed by bombing in %s',
                         hit_id:proper():colorize(hit_id), region:colorizedName()))
                 end

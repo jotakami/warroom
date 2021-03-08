@@ -1,14 +1,11 @@
 #include ../config/map
 
-function Map:initialize(obj)
+function Map:initialize(obj, scenario)
     bind(obj, self)
     self.position, self.rotation, self.snaps = obj.getPosition(), obj.getRotation(), obj.getSnapPoints()
-end
-
-function Map:setupRegions(filter)
     local Y, lines = 0.585, {}
     self.quadrants = {{{}, {}}, {{}, {}}}
-    for id, data in pairs(self.regions) do if not filter or filter[id:sub(1, 1)](tonumber(id:sub(2))) then
+    for id, data in pairs(self.regions) do if data.scenarios[scenario] ~= false then
         data.is_sea = id:match('^[aimp]') ~= nil
         if data.points then
             data.centroid, data.box = vector(0, 0, 0), {
@@ -49,9 +46,18 @@ function Map:setupRegions(filter)
         end
         self.regions[id] = Map.Region(id, data)
     else self.regions[id] = nil end end
-    for _, region in ipairs(Scenarios[state.scenario].capitals) do self.regions[region].capital = true end
+    -- for _, region in pairs(self.regions) do
+    --     while #region.adjacent > 0 do
+    --         local id, flag = table.remove(region.adjacent):match('(%a%d+)(.?)')
+    --         if self.regions[id] then if flag ~= nil then
+    --             local t = {port = flag == '$' and {} or nil, canal = flag == '@' and {} or nil}
+    --             setmetatable(t, {__index = self.regions[id]})
+    --         else region.adjacent[id] = self.regions[id] end end
+    -- end end
+    for _, id in ipairs(Scenarios[state.scenario].capitals) do self.regions[id].capital = true end
     self.setTable('Lines', lines)
     self.setVar('enabled', true)
+    log('Map initialized')
 end
 
 function Map:getRegion(obj)
@@ -223,9 +229,9 @@ function Map.Region:income()
     if self.resources then
         for resource, value in pairs(self.resources) do income[resource] = value end
         if self.card.is_face_down then
-            if income.oil then totals.oil = totals.oil - 1
-            elseif income.iron then totals.iron = totals.iron - 1
-            elseif income.osr then totals.osr = totals.osr - 1 end
+            if income.oil then income.oil = income.oil - 1
+            elseif income.iron then income.iron = income.iron - 1
+            elseif income.osr then income.osr = income.osr - 1 end
     end end
     return income
 end
@@ -258,12 +264,13 @@ function Map.Region:activeConvoys()
 end
 
 function Map.Region:bombTargets()
+    debug('Getting bomb targets for ', self.id)
     local targets = {}
     local resources = self:income()
     if resources.osr then targets.yellow = {osr = resources.osr} end
     if resources.iron then targets.blue = {iron = resources.iron} end
     if resources.oil then targets.red = {oil = resources.oil} end
-    if self.construction then for unit_type, num in self.construction.units do
+    if self.construction then for unit_type, num in pairs(self.construction.units) do
         targets[Units[unit_type].color] = targets[Units[unit_type].color] or {}
         targets[Units[unit_type].color][unit_type] = num
     end end

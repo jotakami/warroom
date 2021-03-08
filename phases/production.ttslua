@@ -70,7 +70,7 @@ function Production:main()
     if #ps > 0 then
         Promise.all(ps):next(|| self.resume())
         coroutine.yield()
-        for nation, orders in pairs(Orders) do Resources[nation]:setResources(orders.resources.remaining) end
+        for nation, orders in pairs(Orders) do Resources[nation]:set(orders.resources.remaining) end
     end
     HUD.updateTracker('Transfer new units to industries', nil, 'transfer')
     state.step, ps = 2, {}
@@ -79,10 +79,12 @@ function Production:main()
         readied[nation] = false
         HUD.updateStatus(nation, false)
         orders:enableReady(|...| self.resume(...))
+        orders.UI.setAttribute('ready', 'interactable', true)
         for _, unit in ipairs(new_units[nation]) do
             setGlow(unit, Color[nation])
             unit.memo = nation
     end else HUD.updateStatus(nation, true) end end
+    local clearMemo = |t| table.each(t, function (i) i.memo = nil end)
     Phase.readyLoop(readied, next(readied) == nil, function (nation, ready) if ready then
         debug('Checking production placements for ', nation)
         local units, by_region, invalid = new_units[nation], {}, {}
@@ -110,20 +112,20 @@ function Production:main()
                     for i = #produced, 1, -1 do if (command.getPosition() - produced[i].getPosition()):setAt('y', 0):magnitude() < 0.5 then
                         table.insert(merge, table.remove(produced, i))
                     end end
-                    if command.units() + #merge < 9 then debug('Merging mobilized units into existing command')
-                        table.each(merge, function (u) u.memo = nil end)
+                    if #merge > 0 then if command.units() + #merge < 9 then debug('Merging ', #merge, ' mobilized infantry into ', tostring(command))
+                        clearMemo(merge)
                         table.insert(ps, command:combine(merge))
-                    else debug('Unable to merge, too many units') for _, unit in ipairs(merge) do table.insert(invalid, unit) end end
+                    else debug('Unable to merge, too many units') for _, unit in ipairs(merge) do table.insert(invalid, unit) end end end
                 elseif not (command:region() or command.isSmoothMoving()) then new_command = command end end
                 if #produced > 0 then if new_command then debug('Forming new command')
-                    table.each(produced, function (u) u.memo = nil end)
+                    clearMemo(produced)
                     new_command.setPositionSmooth(produced[1].getPosition() + vector(0, 1, 0))
                     table.insert(ps, new_command:notMoving():next(|c| c:attach(produced)))
                 else debug('No new commands available') for _, unit in ipairs(merge) do table.insert(invalid, unit) end end end
             else debug('Forming construction stack in ', id)
                 local p = Promise()
                 table.insert(ps, p)
-                table.each(produced, function (u) u.memo = nil end)
+                clearMemo(produced)
                 Bags.bomb_industry.takeObject({
                     position = produced[1].getPosition() + vector(0, 2, 0),
                     callback_function = function (obj) Construction(obj):attach(produced):next(function (c)
@@ -138,5 +140,5 @@ function Production:main()
         Promise.all(ps):next(|| self.resume())
         coroutine.yield()
     end
-    Wait.time(|| Round(), 1)
+    self.resume = nil
 end

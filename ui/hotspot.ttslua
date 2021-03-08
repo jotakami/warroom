@@ -5,13 +5,13 @@ function Hotspot.XML.xmlAngle(obj, offset)
     return '0 0 ' .. obj.getRotation().y - Map.rotation.y - Map:rotationToCenter(Map.positionToLocal(obj.getPosition() + offset))
 end
 
-function Hotspot.XML.nationButtons(nations, label, region)
+function Hotspot.XML.nationButtons(nations, label, region, id)
     local buttons = {}
     for _, nation in ipairs(nations) do table.insert(buttons, {tag = 'Button', attributes = {id = nation,
         text = label, icon = nation, fontSize = 30, onClick = 'Global/Hotspot(' .. region .. ')',
-        colors = table.concat({Color[nation]:setAt('a', 0.75):toXml(), Color[nation]:toXml(), 'white', 'clear'}, '|')
+        colors = table.concat({Color[nation]:setAt('a', 0.75):toXml(true), Color[nation]:toXml(), 'white', 'clear'}, '|')
     }}) end
-    return {tag = 'VerticalLayout', attributes = {id = 'nations', height = #nations * 120, width = 216}, children = buttons}
+    return {tag = 'VerticalLayout', attributes = {id = id or 'nations', height = #nations * 120, width = 216}, children = buttons}
 end
 
 function Hotspot.XML.targetButtons(targets, region, active)
@@ -48,9 +48,9 @@ function Hotspot:regionLabel()
     }}})
 end
 
-function Hotspot:nationButtons(nations, label)
+function Hotspot:nationButtons(nations, label, id)
     local xml = self.UI.getXmlTable()
-    local buttons = self.UI.nationButtons(nations, label, self.region)
+    local buttons = self.XML.nationButtons(nations, label, self.region, id)
     buttons.attributes.position = '0 0 -85'
     buttons.attributes.rotation = self.XML.xmlAngle(self)
     table.insert(xml, buttons)
@@ -60,7 +60,7 @@ end
 
 function Hotspot:raidButtons(resources, offset)
     local xml, targets = self.UI.getXmlTable(), {}
-    for _, res in ipairs(resources) do targets[res == 'oil' and 'red' or res == 'iron' and 'blue' or 'yellow'] = {[res] = ''} end
+    for res in Resources() do targets[res == 'oil' and 'red' or res == 'iron' and 'blue' or 'yellow'] = {[res] = ''} end
     local buttons = self.XML.targetButtons(targets, self.region, true)
     buttons.attributes.height, buttons.attributes.width = 120, #resources * 120
     buttons.attributes.rotation = self.XML.xmlAngle(self, offset)

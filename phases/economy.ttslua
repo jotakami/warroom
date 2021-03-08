@@ -13,6 +13,7 @@ function Economy:main()
         Wait.time(|| self.resume(), 0.5)
         coroutine.yield()
     end end
+    self.resume = nil
 end
 
 function Economy:resourceIncome(nation)

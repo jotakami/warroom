@@ -1,4 +1,4 @@
-Resources = {}
+Resources = {Colors = {oil = 'red', iron = 'blue', osr = 'yellow'}}
 setmetatable(Resources, {
     __pairs = function (T, k) return function (t, k)
         local v
@@ -6,7 +6,7 @@ setmetatable(Resources, {
         until v == nil or type(v) == 'table'
         if v ~= nil then return k, v end
     end, T, nil end,
-    __call = || pairs{oil = 'red', iron = 'blue', osr = 'yellow'}
+    __call = |t| pairs(t.Colors)
 })
 
 ResourceChart = Wrapper(function (t, nation)
@@ -29,11 +29,11 @@ end
 function ResourceChart:loaded() self.setVar('loaded', true) end
 
 function ResourceChart:add(data)
-    data.oil = self.not_china and data.oil or nil
+    totals = {oil = self.not_china and data.oil or nil}
     for resource, value in pairs(self:totals()) do if data[resource] then
-        data[resource] = data[resource] + value
+        totals[resource] = math.max(data[resource] + value, 0)
     end end
-    self:set(data)
+    self:set(totals)
 end
 
 function ResourceChart:set(data)

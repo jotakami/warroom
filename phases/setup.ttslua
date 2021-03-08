@@ -1,6 +1,7 @@
 -- Game and Scenario Setup
 
-function chooseScenario(_, value, id)
+Setup = {}
+setmetatable(Setup, {__call = function (self, _, value, id)
     local options = {take_her_down = true}
     if id ~= 'global' then Global.setDecals({{
         name = 'mask', url = 'http://cloud-3.steamusercontent.com/ugc/' .. Scenarios[id].decal .. '/',
@@ -9,27 +10,25 @@ function chooseScenario(_, value, id)
     UI.setXmlTable(HUD.XML:scenario(id))
     HUD.loaded():next(function ()
         state = {scenario = id or 'global', options = options, round = 0, phase = 0, orders = {}}
-        Setup.initialize()
-        Setup.initNations()
+        self.initialize()
+        self.initNations()
         HUD.updateTracker('Unpacking components', 'Game setup', 'setup')
-        return Setup.unpack(id)
+        return self.unpack(id)
     end):next(function ()
-        Setup.hotspots()
+        self.hotspots()
         if state.scenario == 'global' then
             Orders.japan.UI.show('pact')
             Orders.ussr.UI.show('pact')
         end
-        Setup.zoneEvents()
+        self.zoneEvents()
         Round()
     end)
-end
-
-Setup = {}
+end})
 
 function Setup.initialize()
     UI.setValue('scenario', Scenarios[state.scenario].label)
     UI.setValue('round', state.round == 0 and '-' or state.round)
-    Map:setupRegions(state.scenario ~= 'global' and Scenarios[state.scenario].regions)
+    Map:initialize(getObjectFromGUID(GUIDs.Map), state.scenario)
     Morale:initialize(getObjectFromGUID(GUIDs.Morale), state.scenario)
     Tokens = {homeland = {}, turn = {}}
 end
@@ -226,9 +225,9 @@ function Setup.neutrals()
     end):when(function ()
         for _, card in ipairs(cards) do if card ~= nil then return false end end
         return true
-    end):skip(10):next(function () log('Casting to find neutral card deck') for _, hit in ipairs(Physics.cast({
+    end):skip(10):next(function () for _, hit in ipairs(Physics.cast({
         origin = pos, direction = {0, -1, 0}, max_distance = 5
-    })) do if hit.hit_object.name == 'Deck' then log('Found neutral deck')
+    })) do if hit.hit_object.name == 'Deck' then log('Setup neutral territory deck')
         Cards.neutral = hit.hit_object
         Cards.neutral.setName('Neutral territory cards')
     end end end)

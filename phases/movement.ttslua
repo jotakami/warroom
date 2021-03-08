@@ -12,11 +12,9 @@ function Movement:main()
     end
     if state.phase == 3 then
         HUD.updateTracker('Resolve movement orders', '3 - Movement Operations', 'movement')
-        if state.step < 70 then -- TODO: Change this to reflect number of players for scenarios
+        if state.step < #turnOrder.get() * 10 then
             debug('Step is less than 70, showing movement confirmation panels')
             UI.show('movement')
-            UI.show('confirm-panel')
-            UI.show('cancel-panel')
             UI.show('orders-highlight')
         end
         for i = 1, 7 do for j = 1, 9 do UI.setAttribute('order' .. i .. j, 'active', false) end end
@@ -31,6 +29,7 @@ function Movement:main()
     UI.hide('cancel-panel')
     UI.hide('orders-highlight')
     if state.phase == 3 then self:deployCarrierFighters() end
+    self.resume = nil
 end
 
 function Movement:evaluateMove(nation, command, target)
@@ -47,10 +46,11 @@ function Movement:evaluateMove(nation, command, target)
         local free = self.netPin(nation, region:commands(), 'fleet')
         if free <= 0 then return 'pinned' elseif free < command.units() then partial_pin = true end
     elseif command.id > 19 then
-        if not region.is_sea or Nations[nation].side == Nations[target:owner()].side then
+        if not region.is_sea then
             local free = self.netPin(nation, region:commands(), 'army')
             if free <= 0 then return 'pinned' elseif free < command.units() then partial_pin = true end
-        else if self.netPin(nation, region:commands(), 'fleet') < 0 then return 'pinned' end
+        elseif target.is_sea or Nations[nation].side ~= Nations[target:owner()].side then
+            if self.netPin(nation, region:commands(), 'fleet') < 0 then return 'pinned' end
     end end
     if not state.pact_broken and command.id > 9 then
         local ally, other, has_path = is_axis and 'japan' or 'ussr', is_axis and 'ussr' or 'japan', false
@@ -98,7 +98,7 @@ function Movement:armyMovement(nation, region, target)
     debug('Checking army pathing')
     local rail_status = {}
     for _, nation in turnOrder() do rail_status[nation] = Morale.stressZone(nation) < 3 end
-    local rail_ok = self.railCheck(nation, region.id, rail_status)
+    local rail_ok = not region.is_sea and self.railCheck(nation, region.id, rail_status)
     debug('Rail movement', rail_ok and ' ' or ' in', 'eligible')
     return Map:search(region.id, function (d, to)
         local flag = to:match('%a%d+(.?)')
@@ -205,7 +205,7 @@ end
 function Movement:deployCarrierFighters()
     HUD.updateTracker('Carrier fighter movement', nil, 'cfighters')
     local readied = {}
-    if state.step == 70 then
+    if state.step == #turnOrder.get() * 10 then
         for nation, commands in pairs(Commands) do for i = 1, 9 do
             if not commands[i] then break elseif commands[i].units.carrier > 0 then
                 local rotation, bump = commands[i].getRotation(), 0
@@ -219,10 +219,10 @@ function Movement:deployCarrierFighters()
                         rotation = rotation,
                         callback_function = function (obj)
                             setGlow(obj, Color[nation])
-                            obj.script_state = nation
+                            obj.memo = nation
                             table.insert(Commands.cfighters, Command(obj, nation))
         end}) end end end end
-        state.step = 71
+        state.step = state.step + 1
     else for _, cfighter in ipairs(Commands.cfighters) do
         readied[cfighter.nation] = false
         setGlow(cfighter, Color[cfighter.nation])
