@@ -203,6 +203,11 @@ setmetatable(Map.Region, {__call = function (t, id, data)
     return r
 end})
 
+function Map.Region:center()
+    if self.centroid then return Map.positionToWorld(self.centroid:copy():setAt('y', 0.585))
+    else return Map.positionToWorld({self.center[1], 0.585, self.center[2]}) end
+end
+
 function Map.Region:displayID() return self.id:gsub('[aimp]', '%0-'):upper() end
 function Map.Region:displayName() return self:displayID() .. (self.is_sea and '' or ' - ' .. self.name) end
 function Map.Region:colorizedName()
@@ -245,16 +250,16 @@ function Map.Region:activeConvoys()
     local clusters = {}
     if self.convoys then for _, cluster in ipairs(self.convoys) do
         local t = {}
-        for origin, convoy in pairs(cluster) do
-            if not origin:find('%-') then
+        for origin, convoy in pairs(cluster) do if not origin:find('%-') then
+            if not Map.regions[origin].collapsed or Map.regions[origin]:owner() ~= Nations[origin:sub(1, 1)] then
                 local side = Map.regions[origin]:side()
                 t[side] = t[side] or {}
                 t[side][origin] = convoy
-            else
-                local side = Map.regions[origin:match('(%w+)%-')]:side()
-                if side == Map.regions[origin:match('%-(%w+)')]:side() then
-                    t[side] = t[side] or {}
-                    t[side][origin] = convoy
+        end else
+            local side = Map.regions[origin:match('(%w+)%-')]:side()
+            if side == Map.regions[origin:match('%-(%w+)')]:side() then
+                t[side] = t[side] or {}
+                t[side][origin] = convoy
         end end end
         for side, convoys in pairs(t) do
             clusters[side] = clusters[side] or {}
@@ -265,8 +270,7 @@ end
 
 function Map.Region:bombTargets()
     debug('Getting bomb targets for ', self.id)
-    local targets = {}
-    local resources = self:income()
+    local resources, targets = self:income(), {}
     if resources.osr then targets.yellow = {osr = resources.osr} end
     if resources.iron then targets.blue = {iron = resources.iron} end
     if resources.oil then targets.red = {oil = resources.oil} end

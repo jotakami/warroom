@@ -5,7 +5,6 @@ function Economy:main()
     HUD.updateTracker('Tallying resource income', '1 - Direct National Economy')
     HUD.resetStatus()
     HUD.open('resources')
-    -- TODO: verify that all territory cards are placed correctly
     for i, nation in turnOrder() do if i > state.step then
         state.step = i
         self:resourceIncome(nation)

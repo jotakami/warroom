@@ -1,20 +1,22 @@
 Battle = {}
-setmetatable(Battle, {__call = function (T, ...)
+setmetatable(Battle, {__call = function (self, ...)
     if select('#', ...) == 3 then
         local player, value, id = ...
         if id == 'hit' then
             local hand, clr, stance, stack = value:match('(%w+)%-(%w+)%-(%w+)%-(%w+)')
-            T[hand].combat.resume(player, {color = clr, stance = stance, stack = stack})
+            self[hand].combat.resume(player, {color = clr, stance = stance, stack = stack})
         elseif value ~= 'left' and value ~= 'right' then
             local hand, key = value:match('(%w+)%-([%w%-]+)')
-            T[hand].combat.resume(player, id, key)
-        elseif id:match('confirm') then T[value].combat.resume(id:match('^%a+'))
-        elseif not id:match('%d$') then T[value].combat.resume(id)
-        else T[value].combat.resume(id:match('^(%a+)%-%a+(%d)$')) end
+            self[hand].combat.resume(player, id, key)
+        elseif id:match('confirm') then
+            local side = id:match('^%a+')
+            if Vis[side]:match(player.color) then self[value].combat.resume(side) end
+        elseif not id:match('%d$') then self[value].combat.resume(id)
+        else self[value].combat.resume(id:match('^(%a+)%-%a+(%d)$')) end
     else
         local board, hand = ...
         local b = {board = board, hand = hand, zones_active = false}
-        setmetatable(b, {__index = |t, k| T[k] or t.board[k]})
+        setmetatable(b, {__index = |t, k| self[k] or t.board[k]})
         return b
 end end})
 

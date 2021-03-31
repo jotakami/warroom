@@ -102,7 +102,7 @@ function Cards:unlocked()
 end
 
 function Cards:add(card)
-    if not (rawget(card, 'next') or rawget(card, 'prev') or card.getLock()) then
+    if not (card == rawget(self, 'first') or rawget(card, 'next') or rawget(card, 'prev') or card.getLock()) then
         if rawget(self, 'first') then
             local next, prev = self.first
             while next ~= nil do
@@ -124,8 +124,10 @@ end
 function Cards:remove(card)
     if not (card.getLock() or self:inside(card)) then
         if rawget(card, 'next') then card.next.prev, arrange = rawget(card, 'prev'), true end
-        if rawget(card, 'prev') then card.prev.next, arrange = rawget(card, 'next'), true
-        else self.first = rawget(card, 'next') end
+        if not rawget(card, 'prev') then
+            self.first = rawget(card, 'next')
+            if rawget(self, 'first') then self.first.prev = nil end
+        else card.prev.next, arrange = rawget(card, 'next'), true end
         card.next, card.prev = nil
         debug('Removed ', card.id, ' from ', self.nation, ' card zone')
         self:arrange()

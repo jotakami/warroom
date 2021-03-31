@@ -31,15 +31,16 @@ function Refit:main()
         Phase.readyLoop(readied, next(readied) == nil, function (nation, ready)
             local invalid
             for _, command in pairs(Commands[nation]) do if command.memo then if ready then
-                local source, dest = Map.regions[command.memo], Map.regions[command:region()]
-                debug(command.nation, ' ', command.id, ' moves from ', source.id, ' to ', dest.id)
-                if dest.is_sea or not Movement:airMovement(command.nation, source, dest)
-                        or dest:side() ~= 'neutral' and dest:side() ~= Nations[command.nation].side
-                        or dest:side() == 'neutral' and (Nations[command.nation]:isAxis() or not dest.allied) then
-                    invalid = true
-                    setPulse(command, Color.red)
-                    Wait.time(|| stopPulse(command), 6)
-                end
+                if not command:region() then command.obj.memo = nil else
+                    local source, dest = Map.regions[command.memo], Map.regions[command:region()]
+                    debug(command.nation, ' ', command.id, ' moves from ', source.id, ' to ', dest.id)
+                    if dest.is_sea or not Movement:airMovement(command.nation, source, dest)
+                            or dest:side() ~= 'neutral' and dest:side() ~= Nations[command.nation].side
+                            or dest:side() == 'neutral' and (Nations[command.nation]:isAxis() or not dest.allied) then
+                        invalid = true
+                        setPulse(command, Color.red)
+                        Wait.time(|| stopPulse(command), 6)
+                end end
                 stopGlow(command)
             else setGlow(command, Color[nation]) end end end
             if invalid then return false end

@@ -13,14 +13,16 @@ function Movement:main()
     if state.phase == 3 then
         HUD.updateTracker('Resolve movement orders', '3 - Movement Operations', 'movement')
         if state.step < #turnOrder.get() * 10 then
-            debug('Step is less than 70, showing movement confirmation panels')
             UI.show('movement')
             UI.show('orders-highlight')
         end
         for i = 1, 7 do for j = 1, 9 do UI.setAttribute('order' .. i .. j, 'active', false) end end
         HUD.open('orders')
+        self.rails = {}
+        for _, nation in turnOrder() do self.rails[nation] = Morale.stressZone(nation) < 3 end
     end
     for i, nation in turnOrder() do if state.phase == 3 and state.step < i * 10 then
+        self.commands = Commands:byRegion()
         Orders[nation]:resolveMovement(state.step % 10)
         state.step = i * 10
     else Orders[nation]:resolveMovement(9) end end
@@ -37,9 +39,10 @@ function Movement:evaluateMove(nation, command, target)
     if command.memo == 'landing' or command.memo == nil then return 'invalid' end
     local region = Map.regions[command.memo]
     debug('Checking for valid path from ', region.id, ' to ', target.id)
-    if command.id < 10 then paths = self:fleetMovement(nation, region, target)
-    elseif command.id < 20 then paths = self:airMovement(nation, region, target)
-    else paths = self:armyMovement(nation, region, target) end
+    if command.id > 19 and not (region.is_sea and target.is_sea) then
+        paths = self:armyMovement(nation, region, target)
+    elseif command.id > 9 then paths = self:airMovement(nation, region, target)
+    else paths = self:fleetMovement(nation, region, target) end
     debug('Found ', #paths, ' valid path(s)')
     if #paths == 0 then return 'invalid' end
     if command.id < 10 then
@@ -52,7 +55,7 @@ function Movement:evaluateMove(nation, command, target)
         elseif target.is_sea or Nations[nation].side ~= Nations[target:owner()].side then
             if self.netPin(nation, region:commands(), 'fleet') < 0 then return 'pinned' end
     end end
-    if not state.pact_broken and command.id > 9 then
+    if state.scenario == 'global' and not state.pact_broken and command.id > 9 then
         local ally, other, has_path = is_axis and 'japan' or 'ussr', is_axis and 'ussr' or 'japan', false
         for _, path in ipairs(paths) do
             local blocked = false
@@ -96,36 +99,33 @@ end
 
 function Movement:armyMovement(nation, region, target)
     debug('Checking army pathing')
-    local rail_status = {}
-    for _, nation in turnOrder() do rail_status[nation] = Morale.stressZone(nation) < 3 end
-    local rail_ok = not region.is_sea and self.railCheck(nation, region.id, rail_status)
+    local rail_ok = not region.is_sea and Nations[nation].side == region:side()
     debug('Rail movement', rail_ok and ' ' or ' in', 'eligible')
     return Map:search(region.id, function (d, to)
         local flag = to:match('%a%d+(.?)')
         if flag == '^' then return false else return flag == '#' or d < 2 end
     end, function (d, from, to, v)
+        debug('Checking path step ', from, ' --> ', to)
         local id, flag = to:match('(%a%d+)(.?)')
-        local from_sea, to_sea = Map.regions[from].is_sea, Map.regions[id].is_sea
-        if v[id] then return false
-        elseif from_sea and d == 1 then
-            if id == target.id then table.insert(v.result, {id}) end
-            return to_sea
-        elseif from_sea then if to_sea and id == target.id then table.insert(v.result, {from, id}) end
-    elseif to_sea and d == 1 or rail_ok and flag == '#' and not v[target.id] and self.railCheck(nation, id, rail_status) then
-            if id == target.id then table.insert(v.result, {id}) else v[id] = true end
-            return id ~= target.id
+        if v[id] or d > 1 and (Map.regions[from].is_sea ~= Map.regions[id].is_sea) then return false
         elseif id == target.id and d == 1 then
             table.insert(v.result, {id})
             v[id] = true
+        elseif Map.regions[id].is_sea or rail_ok and flag == '#'
+        and not v[target.id] and self:railCheck(nation, Map.regions[id]) then
+            if id == target.id then
+                table.insert(v.result, Map.regions[id].is_sea and {from, id} or {id})
+            else v[id] = true end
+            return id ~= target.id
         end
         return false
     end, {})
 end
 
-function Movement.railCheck(nation, region, status)
-    region = Map.regions[region]
-    return Nations[nation].side == Nations[region:owner()].side
-        and status[nation] and Commands:region(region.id)[Nations[nation].other].army == nil
+function Movement:railCheck(nation, region) return
+    region:owner() ~= 'neutral' and Morale.stressZone(region:owner()) < 3
+    and not region.bombs and Nations[nation].side == region:side()
+    and not (self.commands[region.id] and self.commands[region.id][Nations[nation].other].army)
 end
 
 function Movement.netPin(nation, commands, force)
@@ -138,7 +138,7 @@ function Movement.netPin(nation, commands, force)
         else totals[side] = totals[side] + count end
     end end
     debug('Unit counts: axis ', totals.axis, ', allies ', totals.allies, ', japan ', totals.japan, ', ussr ', totals.ussr)
-    if state.pact_broken or nation == 'japan' or nation == 'ussr' then
+    if state.scenario ~= 'global' or state.pact_broken or nation == 'japan' or nation == 'ussr' then
         return (totals[nation] or 0) + (totals.allies - totals.axis) * (is_axis and -1 or 1)
     elseif is_axis then return math.min(totals.japan - totals.allies, 0) + totals.axis - totals.ussr
     else return math.min(totals.ussr - totals.axis, 0) + totals.allies - totals.japan end
@@ -173,7 +173,7 @@ function Movement.invadeNeutral(invader, region)
         return true
     end, {})) do if turnOrder[nation] < (min or 8) then defender, min = nation, turnOrder[nation] end end
     debug(defender, ' assumes control of ', region.id)
-    broadcastToAll(string.format('%s invades %s!\n%s has assumed control of the defense forces',
+    broadcastToAll(string.format('%s invades %s! (+1 stress)\n%s has assumed control of the defense forces',
         Nations[invader]:colorized(), region:colorizedName(), Nations[defender]:colorized()))
     Morale:addStress(invader, 1)
     local card_p, units_p, flag_p = Promise(), Promise(), Promise()

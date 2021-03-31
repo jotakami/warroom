@@ -9,10 +9,10 @@ function Planning:main()
     HUD.resetStatus()
     if state.step < 2 then
         local readied = {}
-        for nation, orders in pairs(Orders) do
+        for _, nation in turnOrder() do
             readied[nation] = false
-            orders:writeOrders(|...| self.resume(...), Morale.stressZone(nation) > 3, state.step == 1)
-            if state.scenario == 'global' and not state.pact_broken then orders.UI.setAttribute('pact', 'interactable', true) end
+            Orders[nation]:writeOrders(|...| self.resume(...), Morale.stressZone(nation) > 3, state.step == 1)
+            if state.scenario == 'global' and not state.pact_broken then Orders[nation].UI.setAttribute('pact', 'interactable', true) end
         end
         state.step = 1
         Phase.readyLoop(readied)
@@ -32,10 +32,10 @@ function Planning:revealBids()
     HUD.updateTracker('Reveal bids')
     HUD.resetStatus()
     local bids = {}
-    for nation, orders in pairs(Orders) do
-        if orders.not_china then
-            orders.UI.setAttribute('bid', 'visibility', '')
-            bids[nation] = orders.bid
+    for _, nation in turnOrder() do
+        if nation ~= 'china' then
+            Orders[nation].UI.setAttribute('bid', 'visibility', '')
+            bids[nation] = Orders[nation].bid
             broadcastToAll(string.format('%s bid %s oil', Nations[nation]:colorized(), string.colorize(bids[nation], 'oil')))
         else bids[nation] = 0 end
         HUD.updateStatus(nation, bids[nation], Color.oil)
@@ -48,7 +48,7 @@ end
 function Planning:setTurnOrder(bids)
     state.step = 2
     HUD.updateTracker('Establish turn order', nil, 'turn_order')
-    local order, spots, ps, total, token = {}, {}, {}, 0
+    local order, spots, total, token = {}, {}, 0
     for nation, bid in pairs(bids) do
         Tokens.turn[nation].setLock(true)
         table.insert(order, {bid = bid + math.random(), nation = nation, turn = turnOrder[nation]})
@@ -56,7 +56,7 @@ function Planning:setTurnOrder(bids)
     end
     table.sort(order, |a, b| a.bid < b.bid)
     for i = 1, #order do spots[i] = Map.positionToWorld(Map.snaps[i].position) end
-    onObjectDrop = function (_, obj) if obj.guid == token.guid then Wait.frames(function () for i = 1, 7 do
+    onObjectDrop = function (_, obj) if obj.guid == token.guid then Wait.frames(function () for i = 1, total do
         if spots[i] and obj.getPosition():setAt('y', spots[i].y) == spots[i] then self.resume(i) break end
     end end, 5) end end
     while #order > 0 do

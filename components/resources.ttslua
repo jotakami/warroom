@@ -43,11 +43,11 @@ function ResourceChart:set(data)
         if current[resource] < 20 or value < 20 then self:adjustPeg(resource) end
         if value > 20 then
             if current[resource] < 21 then
-                self[resource].more.peg = self[resource].peg.clone({position = self.snaps[resource][self[resource].more.value]})
+                self[resource].more.peg = self[resource].peg.clone({position = self.snaps[resource][self[resource].more.value + 1]})
                 self[resource].more.peg.setColorTint(Color.white)
                 self[resource].more.peg.setName('more')
             else self:adjustPeg(resource, true) end
-        elseif self[resource].value > 20 then self[resource].more.peg.destruct() end
+        elseif current[resource] > 20 then self[resource].more.peg.destruct() end
     end
     for resource, value in pairs(current) do data[resource] = data[resource] or value end
     self:updateUI(data)

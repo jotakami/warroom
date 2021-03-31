@@ -31,7 +31,6 @@ function Battle:repairs()
     end end
     while next(repairs) do
         local player, resource, key = coroutine.yield()
-        debug(resource, ' button clicked for ', key)
         if repairs[key] then if resource == 'casualty' then
             repairs[key].promise:reject()
             repairs[key] = nil
@@ -100,6 +99,7 @@ function Battle:replaceCommands()
         end end
         for _, obj in ipairs(units) do
             local unit = self.guids[obj.guid]
+            unit:clearUI()
             if unit then if unit.getName() == 'cfighter' then
                 unit.setPositionSmooth(unit.origin.pos)
                 unit.setRotationSmooth(unit.origin.rot)

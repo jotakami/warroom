@@ -50,6 +50,7 @@ function Battle:setupStage(stage)
     self.UI.setValue(mode .. '-status', stage:gsub('^%l', string.upper) .. ' stage')
     for side, dice in pairs(self.dice[stage]) do
         self.UI.hide(table.concat({mode, side, stage}, '-'))
+        if stage == 'surface' and self.advantage[side].port then dice = dice + 2 end
         if dice > 0 and (stage == 'bomb' or self:countUnits({side = Nations.other[side], force = force}) > 0) then
             counters[side] = self:setHotspotCounters(side, math.min(dice, 30), stage == 'bomb')
         else counters[side] = Promise():resolve() end

@@ -145,7 +145,7 @@ function Combat.Raid:assessHits(count, hits, cluster, pos)
         die.destruct()
         for nation, value in pairs(cluster.resources[res]) do
             local current, t = Resources[nation]:totals(), losses[nation] or {resources = {}, total = 0}
-            t.resources[res] = -math.max(value, current[res])
+            t.resources[res] = -math.min(value, current[res])
             losses[nation], t.total = t, t.total - t.resources[res]
     end end
     for nation, loss in pairs(losses) do if loss.total > 0 then

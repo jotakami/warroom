@@ -92,16 +92,13 @@ function Morale:getStack(nation, name)
     local objs = {}
     for _, obj in ipairs(Physics.cast({
         origin = self.positionToWorld(self.snaps[nation][name]) - vector(0, 0.1, 0), direction = {0, 1, 0}, max_distance = 5
-    })) do if obj.hit_object.getName():match(name) or name == 'submarine' and obj.hit_object.getName() == 'convoy_dive' then
+    })) do if not obj.hit_object.isSmoothMoving() and (obj.hit_object.getName():match(name)
+            or name == 'submarine' and obj.hit_object.getName() == 'convoy_dive') then
         table.insert(objs, obj.hit_object)
     end end
     table.sort(objs, function (a, b)
-        local ay, by = a.getPosition().y, b.getPosition().y
-        if name ~= 'medal_goods' then
-            if a.is_face_down then ay = ay - 0.21 end
-            if b.is_face_down then by = by - 0.21 end
-        end
-        return ay < by
+        return a.getPosition().y + a.getBounds().size.y * (a.is_face_down and -0.5 or 0.5)
+            < b.getPosition().y + b.getBounds().size.y * (b.is_face_down and -0.5 or 0.5)
     end)
     debug('Found ', #objs, ' ', nation, ' ', name)
     return objs
@@ -112,58 +109,56 @@ function Morale:addMedals(nation, value, is_goods)
     debug('Giving ', value, ' ', is_goods and 'consumer goods' or 'medals', ' to ', nation)
     if not is_goods then alert(string.format('%s was awarded %s medal',
         Nations[nation]:colorized(), string.colorize(value, 'medal')) .. (value > 1 and 's' or '')) end
-    self.medals[nation] = self.medals[nation] or Promise():resolve(self.positionToWorld(self.snaps[nation].medal_goods))
-    for i = 1, value do self.medals[nation] = self.medals[nation]:next(function (target)
-        local p = Promise()
-        Bags.medal_goods.takeObject({
-            position = self.positionToWorld(self.snaps[nation].medal_goods + vector(0, 2.5, 0)),
-            rotation = vector(0, self.getRotation().y, is_goods and 180 or 0),
-            callback_function = function (obj) Wait.condition(
-                || p:resolve(obj.getPosition() + vector(0, 0.105, 0)),
-                || target:between(obj.getPosition()).y < 0.2 and obj.getVelocity():magnitude() == 0
-        ) end})
-        return p
-    end) end
+    if not self.medals[nation] or coroutine.status(self.medals[nation]) == 'dead' then
+        self.medals[nation] = coroutine.create(function (stack, remaining) repeat
+            remaining = remaining - 1
+            Bags.medal_goods.takeObject({
+                position = self.positionToWorld(self.snaps[nation].medal_goods + vector(0, 2.5, 0)),
+                rotation = vector(0, self.getRotation().y, is_goods and 180 or 0),
+                callback_function = function (obj)
+                    obj.addTag(nation)
+                    obj.registerCollisions()
+            end})
+            repeat
+                value = coroutine.yield()
+                if value then remaining = remaining + value end
+            until value == nil
+        until remaining == 0 end)
+        coroutine.resume(self.medals[nation], self:getStack(nation, 'medal_goods'), value)
+    else coroutine.resume(self.medals[nation], value) end
 end
 
 function Morale:addStress(nation, value)
     debug('Giving ', value, ' stress to ', nation)
-    if not Promise.isPromise(self.stress[nation]) then
-        local stress, pos, singles = self:getStack(nation, 'stress'), self.positionToWorld(self.snaps[nation].stress), {}
-        if #stress > 0 then pos = stress[#stress].getPosition() + vector(0, stress[#stress].is_face_down and 0 or 0.21, 0) end
-        for i = #stress, 1, -1 do if stress[i]:getName():match('1') then table.insert(singles, 1, stress[i]) else break end end
-        self.stress[nation] = self:stackStress(value, nation, pos, singles)
-    else
-        local resolved = self.stress[nation].resolved ~= nil
-        self.stress[nation] = self.stress[nation]:next(function (count, ...) return count + value, ... end)
-        if resolved then self:moreStress(nation) end
-    end
+    if not self.stress[nation] or coroutine.status(self.stress[nation]) == 'dead' then
+        self.stress[nation] = coroutine.create(function (stack, remaining) repeat
+            local size, value, first, second = 1, 1
+            for i, obj in ipairs(stack) do if obj.getName():match('1') then
+                first, second = first or i, first and i
+                if first and second then
+                    fadeOut(table.remove(stack, second), 0.5)
+                    fadeOut(table.remove(stack, first), 0.5)
+                    size = 3 break
+            end end end
+            if not first and remaining > 2 then size, value = 3, 3 end
+            debug('Stacking ', value, ' stress on ', nation)
+            remaining = remaining - value
+            table.insert(stack, Bags.stress[size].takeObject({
+                position = self.positionToWorld(self.snaps[nation].stress) + vector(0, 2.5, 0),
+                rotation = vector(0, self.getRotation().y, 0),
+                callback_function = function (obj)
+                    obj.addTag(nation)
+                    obj.registerCollisions()
+            end}))
+            repeat
+                value = coroutine.yield()
+                if value then debug('Added an additional ', value, ' stress to ', nation) remaining = remaining + value end
+            until value == nil
+            debug('Stress token landed on ', nation, ' stack')
+        until remaining == 0 end)
+        coroutine.resume(self.stress[nation], self:getStack(nation, 'stress'), value)
+    else debug('Adding stress to ', nation, ' coroutine') coroutine.resume(self.stress[nation], value) end
 end
-
-function Morale:stackStress(count, nation, target, singles)
-    if count == 0 then return Promise():resolve(0, target, singles) end
-    local p, size, value = Promise(), 1, 1
-    if #singles == 2 then
-        for _, single in ipairs(singles) do single.destruct() end
-        size, singles = 3, {}
-    elseif #singles == 0 and count > 2 then size, value = 3, 3 end
-    debug('Stacking ', value, ' stress on ', nation)
-    Bags.stress[size].takeObject({
-        position = self.positionToWorld(self.snaps[nation].stress + vector(0, 2.5, 0)),
-        rotation = vector(0, self.getRotation().y, 0),
-        callback_function = function (obj) Wait.condition(function ()
-            if size == 1 then table.insert(singles, obj) end
-            debug('Stacked stress on ', nation, ', resolving promise with ', count - value, ' remaining')
-            p:resolve(count - value, obj.getPosition() + vector(0, 0.21, 0), singles)
-            self:moreStress(nation)
-        end, || target:between(obj.getPosition()).y < 0.1 and obj.getVelocity():magnitude() < 0.1) end
-    })
-    return p
-end
-
-function Morale:moreStress(nation) self.stress[nation] = self.stress[nation]:next(
-    |count, pos, singles| self:stackStress(count, nation, pos, singles)
-) end
 
 function Morale:removeStress(stress, total)
     local ps = {}
@@ -177,6 +172,17 @@ function Morale:removeStress(stress, total)
         total = total - value
     end
     return Promise.all(ps)
+end
+
+function Morale:collisionHandler(obj, collider)
+    for _, label in ipairs{'medal', 'stres'} do if obj.getName():match(label) then
+        if (collider.getName():match(label) or collider.guid == self.guid) then
+            for nation, co in pairs(self[label .. 's']) do if obj.hasTag(nation) then
+                obj.unregisterCollisions()
+                obj.removeTag(nation)
+                coroutine.resume(co)
+                break
+    end end end end end
 end
 
 function Morale.stressZone(nation)

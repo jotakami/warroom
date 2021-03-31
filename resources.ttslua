@@ -5,9 +5,9 @@ function onLoad()
 end
 
 function onCollisionEnter(collision_info)
-    if loaded and collision_info.collision_object.hasTag('peg') then
+    if collision_info.collision_object.hasTag('peg') then if loaded then
         Resources:pegDown(collision_info.collision_object, collision_info.contact_points[1])
-    else Wait.condition(|| onCollisionEnter(collision_info), || loaded == true) end
+    else Wait.condition(|| onCollisionEnter(collision_info), || loaded == true) end end
 end
 
 function onCollisionExit(collision_info)

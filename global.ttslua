@@ -42,3 +42,8 @@ function stash(obj)
     obj.setPositionSmooth(obj.getPosition() + vector(0, 3, 0))
     return Promise.condition(|| not obj.isSmoothMoving()):next(|| obj.destruct())
 end
+
+function onObjectCollisionEnter(obj, info)
+    local name = obj.getName()
+    if name:match('stress') or name == 'medal_goods' then Morale:collisionHandler(obj, info.collision_object) end
+end

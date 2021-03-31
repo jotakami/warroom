@@ -48,10 +48,10 @@ function Morale:convert()
     end) end
     onUpdate = function () if self:countCasualties(casualties) then
         onUpdate = nil
-        local ps = {}
-        for _, p in pairs(self.stress) do table.insert(ps, p) end
-        Promise.all(ps):next(|| self.resume())
-    end end
+        Wait.condition(|| self.resume(), function ()
+            for _, co in pairs(self.stress) do if co and coroutine.status(co) ~= 'dead' then return false end end
+            return true
+    end) end end
     coroutine.yield()
     state.step = 2
 end
@@ -82,8 +82,7 @@ function Morale:cancel()
     Promise.all(done):next(|| self.resume('done'))
     while true do
         local nation, id = coroutine.yield()
-        if nation == 'done' then break
-        elseif id ~= 'done' then nation = id end
+        if nation == 'done' then break elseif id ~= 'done' then nation = id end
         local medals, stress = self.medals[nation], self.stress[nation]
         if id == 'done' then
             medals[#medals].UI.setXml('')
@@ -111,17 +110,16 @@ function Morale:homeland()
         self.medals[nation] = self.medals[nation] or self:getStack(nation, 'medal_goods')
         self.stress[nation] = self.stress[nation] or self:getStack(nation, 'stress')
         thresholds[nation] = Nations[nation].morale[self.is_face_down and 2 or 1]
-        local total = 0
-        for _, obj in ipairs(self.stress[nation]) do total = total + tonumber(obj.getName():match('%d')) end
-        debug(nation, ' has ', total, ' total stress')
-        total, penalty = total - total % thresholds[nation], 1
-        for _, command in pairs(Commands[nation]) do if command.units() > 0 then penalty = 0 break end end
-        if total > 0 then table.insert(ps, self:removeStress(self.stress[nation], total):next(function ()
-            self.stress[nation] = nil
-            return self.updateZone(nation, total / thresholds[nation] + penalty)
-        end)) elseif penalty > 0 then table.insert(ps, self.updateZone(nation, penalty))
-        else self.stress[nation] = nil end
-    end
+        if self.stressZone(nation) < 6 then
+            local total, penalty = 0, 1
+            for _, obj in ipairs(self.stress[nation]) do total = total + tonumber(obj.getName():match('%d')) end
+            debug(nation, ' has ', total, ' total stress')
+            total = total - total % thresholds[nation]
+            for _, command in pairs(Commands[nation]) do if command.units() > 0 then penalty = 0 break end end
+            if total + penalty > 0 then
+                local p = total > 0 and self:removeStress(self.stress[nation], total) or Promise():resolve()
+                table.insert(ps, p:next(|| self.updateZone(nation, total / thresholds[nation] + penalty)))
+    end end end
     if #ps > 0 then
         Promise.all(ps):next(|| self.resume())
         coroutine.yield()
@@ -135,10 +133,11 @@ function Morale:homeland()
         local nation, spent = coroutine.yield()
         if spent ~= 'done' then nation = spent end
         local medals = self.medals[nation]
+        medals[#medals].UI.setXml('')
         if spent ~= 'done' then
             for i = 1, thresholds[nation] do fadeOut(medals[#medals - i + 1]) end
             table.insert(ps, self.updateZone(nation, -1))
-        else medals[#medals].UI.setXml('') end
+        end
         self.medals[nation] = nil
     until next(self.medals) == nil end
     if #ps > 0 then
@@ -172,13 +171,16 @@ function Morale:penalties()
     HUD.updateTracker('Apply penalties: Mass desertions', nil, 'desertions')
     HUD.resetStatus()
     local readied = {}
-    for _, nation in turnOrder() do if self.stressZone(nation) == 6 then
-        -- count up stress first
+    for _, nation in turnOrder() do if self.stressZone(nation) == 6 and #self.stress[nation] > 0 then
         debug(nation, ' suffers mass desertions')
+        readied[nation] = false
         HUD.updateStatus(nation, false)
         Orders[nation]:enableReady(|...| self.resume(...))
-    else HUD.updateStatus(nation, true) end end
-    Phase.readyLoop(readied, next(readied) == nil)
+    else
+        self.stress[nation] = nil
+        HUD.updateStatus(nation, true)
+    end end
+    Phase.readyLoop(readied, next(readied) == nil, function (nation) self.stress[nation] = nil end)
 end
 
 function Morale:countCasualties(casualties)

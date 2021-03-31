@@ -1,9 +1,14 @@
 Object = {}
-setmetatable(Object, {__call = function (T, obj)
-    local t = {}
-    setmetatable(t, {__index = |_, k| T[k] or obj[k]})
+Object.__meta = {__index = |t, k| Object[k] or t.obj[k]}
+setmetatable(Object, {__call = function (T, obj) if obj == nil then
+    C = {}
+    C.__meta = {__index = C}
+    setmetatable(C, {__index = T, __call = function ()  end})
+else
+    local t = {obj = obj}
+    setmetatable(t, T.__meta)
     return t
-end})
+end end})
 
 function Object:stash()
     self.highlightOff()

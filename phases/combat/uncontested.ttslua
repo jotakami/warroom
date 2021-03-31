@@ -2,7 +2,15 @@ Combat.Uncontested = Combat.Action()
 
 function Combat.Uncontested:main(commands)
     local region, combatants = Map.regions[self.hotspot.region]
-    if not region.is_sea then
+    if region.collapsed and region:owner() == Nations[region.id:sub(1, 1)] then
+        for side, forces in pairs(commands) do if forces.army then
+            combatants = {}
+            for _, command in ipairs(forces.army) do
+                local nation = command.nation
+                if not combatants[nation] then table.insert(combatants, nation) end
+                combatants[nation] = true
+        end break end end
+    elseif not region.is_sea then
         self.hotspot.resume = self.resume
         local side = Nations[region:owner()].other
         if commands[side].air then
@@ -14,7 +22,6 @@ function Combat.Uncontested:main(commands)
         end end
         if commands[side].army then
             combatants = {}
-            log(commands[side])
             for _, force in pairs(commands[side]) do for _, command in ipairs(force) do
                 local nation = command.nation
                 if not combatants[nation] then table.insert(combatants, nation) end

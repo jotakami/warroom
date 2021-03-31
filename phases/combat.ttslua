@@ -10,7 +10,7 @@ function Combat:main()
     local combatants = {}
     if state.phase < 4 then
         HUD.close('orders')
-        if not state.pact_broken then
+        if state.scenario == 'global' and not state.pact_broken then
             debug('Checking for Article 4 violations')
             local destroyed = {}
             for nation, other in pairs{japan = 'ussr', ussr = 'japan'} do for id, command in pairs(Commands[nation]) do if id > 19 then

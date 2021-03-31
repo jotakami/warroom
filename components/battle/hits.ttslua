@@ -25,7 +25,7 @@ function Battle:assignHits(stage, side, roll, targets, fd)
                 if stance.stacks.damaged or stance.stacks.sustained or stance.stacks.damaged2 then
                     if not white or (not stance.stacks.sustained and label ~= 'dive') then eligible = eligible + 1 end
                     cap_ships = cap_ships or escorts and (clr == 'red' or clr == 'green')
-                elseif not white then for label, _ in pairs(stance.stacks) do if label ~= 'casualty' then
+                elseif not white then for stack, _ in pairs(stance.stacks) do if stack ~= 'casualty' and stack ~= 'escaped' then
                     eligible = eligible + 1 debug('Adding eligible ', stance.unit)
                     cap_ships = cap_ships or escorts and (clr == 'red' or clr == 'green')
         end end end end end end end
@@ -38,7 +38,7 @@ function Battle:assignHits(stage, side, roll, targets, fd)
                 for label, stance in pairs(stances) do
                     if label ~= 'hp' then
                         local priority = nil
-                        for stack, _ in pairs(stance.stacks) do if stack:match('ed2?$') then priority = stack break end end
+                        for stack, _ in pairs(stance.stacks) do if stack:match('[^p]ed2?$') then priority = stack break end end
                         if priority and (not white or label ~= 'dive' and priority ~= 'sustained') then
                             if not autohit and eligible > 1 then table.insert(buttons, stance.stacks[priority]) debug('Eligible target: ', priority, ' ', stance.unit, ' in ', label, ' stance')
                             else hit = {color = clr, stance = label, stack = priority, unit = stance.stacks[priority]} break end
@@ -49,7 +49,7 @@ function Battle:assignHits(stage, side, roll, targets, fd)
                             else for stack, unit in pairs(stance.stacks) do
                                 if stack ~= 'casualty' then table.insert(buttons, unit) debug('Eligible target: ', stack, ' ', stance.unit, ' in ', label, ' stance') end
                     end end end end
-                    if hit then
+                    if hit and hit.stack then
                         self.UI.setAttributes(side .. '-confirm', {text = 'Assigning hits', textColor = 'white'})
                         break
                 end end

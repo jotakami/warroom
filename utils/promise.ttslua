@@ -5,6 +5,7 @@ setmetatable(Promise, {__call = function (t, arg)
     setmetatable(p, {__index = t, __tostring = || s})
     if type(arg) ~= 'nil' then return p:resolve(arg) else return p end
 end})
+PIDs = 0
 
 function Promise.time(t, ...)
     local p, args = Promise(), table.pack(...)

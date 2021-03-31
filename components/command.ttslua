@@ -43,14 +43,14 @@ end, self, nil end
 function Commands:region(region)
     debug('Getting commands for region ', region)
     local forces, force = self.Forces()
-    for command in self:all() do if command:region() == region then
+    for command in self:all() do if command:region() == region and not command.hasTag('escaped') then
         forces:add(command)
     end end
     for _, cfighter in ipairs(self.cfighters) do
         if cfighter ~= nil and Map:getRegion(cfighter) == region then
             forces:add(cfighter, Nations[cfighter.nation].side, 'air')
     end end
-    if self.standing[region] then forces:add(self.standing[region], Nations[self.standing[region].nation].side, 'army') end
+    if self.standing[region] then forces:add(self.standing[region]) end
     return forces
 end
 
@@ -59,7 +59,7 @@ function Commands:byRegion()
     local forces = {}
     for command in self:all() do
         local id = Map:getRegion(command)
-        if id then
+        if id and not command.hasTag('escaped') then
             forces[id] = forces[id] or Commands.Forces()
             forces[id]:add(command)
     end end
@@ -71,7 +71,7 @@ function Commands:byRegion()
     end end
     for id, command in pairs(self.standing) do
         forces[id] = forces[id] or Commands.Forces()
-        forces[id]:add(command, Nations[command.nation].side, 'army')
+        forces[id]:add(command)
     end
     return forces
 end
@@ -179,7 +179,7 @@ function Command:stash()
     if self.getName() == 'cfighter' then for i, cfighter in ipairs(Commands.cfighters) do
         if cfighter.guid == self.guid then return stash(table.remove(Commands.cfighters, i)) end
     end end
-    local offset = vector(math.random() * 3 - 1.5, math.random() * 2 + 1, math.random() * 3 - 1.5)
+    local offset = vector(math.random() * 3 - 1.5, math.random() * 2 + 4, math.random() * 3 - 1.5)
     self.setPositionSmooth(self.getPosition() + vector(0, 3, 0))
     return self:notMoving():next(|| self.setPositionSmooth(Commands.trays[self.nation][self.force].getPosition() + offset))
 end
@@ -215,6 +215,10 @@ function Command:updateContextMenu()
     self.clearContextMenu()
     if self.units() > 0 then
         self.addContextMenuItem('Break stack', || self:detach())
+        if self.units() > 1 then self.addContextMenuItem('Split stack', function ()
+            Commands:getNew(self.nation, self.force, self.getPosition() + vector(0, 0.25, 0), self.getRotation())
+            self:detach()
+        end) end
         self.addContextMenuItem('Combine stacks', |player| self:combine(player))
     else self.addContextMenuItem('Form stack', |player| self:form(player)) end
     return self
@@ -263,14 +267,15 @@ setmetatable(Standing, {__call = function (T, obj, free)
     if obj.getName():match('standing army') then
         s:restoreUnits()
         c.nation = obj.getName():lower():match('%b[](%a+)%b[]')
-        c.force = s.units.fighter == s.units() and 'air' or 'army'
     else
-        c = {nation = obj.getName():lower():match('^%a+'), force = 'army'}
+        c = {nation = obj.getName():lower():match('^%a+')}
         obj.tooltip = true
         obj.addTag('standing')
         if free then obj.addTag('free') end
     end
-    setmetatable(c, {__index = |_, k| T[k] or s[k]})
+    setmetatable(c, {__index = function (self, k) if k == 'force' then
+        return self.units.fighter == self.units() and 'air' or 'army'
+    else return T[k] or s[k] end end})
     return c
 end})
 
@@ -296,6 +301,7 @@ function Standing:detach(reform)
     self.obj.tooltip = false
     self.setTags({})
     self.setName(Nations[self.nation]:shortName() .. ' flag')
+    self.setDescription()
     if reform then
         local pid = Wait.condition(|| self.clearContextMenu(), function ()
             for i = #units, 1, -1 do if units[i].obj == nil then table.remove(units, i) end end
@@ -305,8 +311,21 @@ function Standing:detach(reform)
         self.addContextMenuItem('Form standing army', function ()
             Wait.stop(pid)
             self:attach(units)
+            self.obj.tooltip = true
             Commands.standing[Map:getRegion(self)] = self
         end)
     end
     return units
+end
+
+function Standing:convert()
+    local region, nation, force = Map:getRegion(self), self.nation, self.force
+    local units = self.removeAttachments()
+    Commands.standing[region] = nil
+    self.obj.tooltip = false
+    self.setTags({})
+    self.setName(Nations[nation]:shortName() .. ' flag')
+    self.setDescription()
+    self.translate((Map.regions[region]:center() - self.getPosition()):setAt('y', 0):normalize())
+    return Commands:getNew(nation, force, self.getPosition(), self.getRotation()):next(|c| c:attach(units))
 end

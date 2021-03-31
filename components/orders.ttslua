@@ -97,7 +97,7 @@ function OrdersChart:breakPact(color)
                 '%1' .. Color[self.nation]:lerp(Color.white, r):toXml(false) .. '%2')) end
         end, 0.1, 20)
         broadcastToColor('Press again within 2 seconds to break the pact', color)
-    else breakPact(self.nation) end
+    else Movement.breakPact(self.nation) end
 end
 
 -- HELPER FUNCTIONS --

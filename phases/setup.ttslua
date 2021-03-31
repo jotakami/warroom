@@ -35,7 +35,6 @@ end
 
 function Setup.initNations()
     for nation, _ in pairs(Scenarios[state.scenario].nations) do
-        log('Initializing ' .. nation .. ' components')
         local guids = GUIDs.Nations[nation]
         Orders[nation] = OrdersChart(getObjectFromGUID(guids.orders), nation):initialize(state.scenario)
         Resources[nation] = ResourceChart(getObjectFromGUID(guids.resources), nation):initialize()
@@ -50,7 +49,6 @@ function Setup.unpack(scenario)
     Setup.neutrals()
     local delay, ready, i = Promise.frames(1), {}, 1
     for _, nation in ipairs(Nations:inOrder()) do if Scenarios[scenario].nations[nation] then
-        log('Unpacking ' .. nation .. ' components')
         local turn = i
         for resource in Resources() do UI.show('frame-' .. resource .. i) end
         local guids = GUIDs.Nations[nation]
@@ -67,7 +65,10 @@ end
 function Setup.unpackNation(nation, components, turn)
     Setup.resourcePegs(components, Resources[nation], nation == 'china')
     local p = Promise.all(Setup.cards(components, nation), Setup.commands(components, nation))
-    Wait.condition(|| components.destruct(), || #components.getObjects() == 0)
+    Wait.condition(function ()
+        components.interactable = false
+        components.setPositionSmooth(components.getPosition():setAt('y', 3))
+    end, || #components.getObjects() == 0)
     UI.setAttributes('tracker' .. turn, {image = nation, active = true})
     UI.show('status' .. turn)
     p:next(|| HUD.updateStatus(nation, true))
@@ -153,7 +154,6 @@ function Setup.filterCards(deck, prefix)
 end
 
 function Setup.commands(components, nation)
-    log('Initializing ' .. nation .. ' commands')
     local forward, right = components.getTransformForward(), components.getTransformRight() * 1.273
     local position = components.getPosition() - forward + right * 5.5 + vector(0, 1, 0)
     local commands, ps, co = {}, {}
@@ -227,7 +227,7 @@ function Setup.neutrals()
         return true
     end):skip(10):next(function () for _, hit in ipairs(Physics.cast({
         origin = pos, direction = {0, -1, 0}, max_distance = 5
-    })) do if hit.hit_object.name == 'Deck' then log('Setup neutral territory deck')
+    })) do if hit.hit_object.name == 'Deck' then
         Cards.neutral = hit.hit_object
         Cards.neutral.setName('Neutral territory cards')
     end end end)

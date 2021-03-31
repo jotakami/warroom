@@ -53,12 +53,17 @@ function Combat.Battle:main(commands)
         if mode == 'sea' and aux_data then for side, force in pairs(aux_data) do commands[side].army = force end end
         if not extras then self.resume(commands) else if mode == 'sea' then
             for _, unit in ipairs(extras) do
+                unit.removeTag('escaped')
                 unit.addContextMenuItem('Form dived command', || self.diveSub(region, unit, extras))
             end
-            Wait.condition(|| self.resume(commands), function ()
+            Wait.condition(|| self.resume(Commands:region(region.id)), function ()
                 for i = #extras, 1, -1 do if extras[i].obj == nil then table.remove(extras, i) end end
                 return #extras == 0
-        end) else
+        end) elseif #extras == 1 and extras[1].getName() == 'fighter' then
+            Commands:getNew(
+                extras[1].nation, 'air', extras[1].getPosition() + vector(0, 0.21, 0), extras[1].getRotation()
+            ):skip(3):next(|c| c:attach(extras)):next(|| self.resume(Commands:region(region.id)))
+        else
             region.flag.setPositionSmooth(region.flag.getPosition() + vector(0, #extras * 0.21, 0))
             Promise.condition(|| not region.flag.isSmoothMoving()):next(function ()
                 local army = Standing(region.flag)
@@ -78,10 +83,7 @@ function Combat.Battle.diveSub(source, sub, subs)
         if adj:match(dest.id) and (adj:sub(-1) ~= '@' or Movement.canalCheck(nation, source.id, dest.id)) then
             local units = {}
             for i = #subs, 1, -1 do if subs[i].obj == nil then table.remove(subs, i)
-            elseif subs[i].nation == sub.nation and Map:getRegion(subs[i]) == dest.id then
-                subs[i].removeTag('escaped')
-                table.insert(units, subs[i])
-            end end
+            elseif subs[i].nation == sub.nation and Map:getRegion(subs[i]) == dest.id then table.insert(units, subs[i]) end end
             local pos, rot = sub.getPosition() + vector(0, #units * 0.21, 0), sub.getRotation()
             local command_p, dive_p = Commands:getNew(sub.nation, 'fleet', pos, rot), Promise()
             Bags.convoy_dive.takeObject({
@@ -89,9 +91,9 @@ function Combat.Battle.diveSub(source, sub, subs)
                 callback_function = |obj| dive_p:resolve(obj)
             })
             Promise.all(command_p, dive_p):skip(10):next(function (command, token)
+                command.addTag('escaped')
                 command.jointTo(token, {type = 'Fixed'})
                 token.interactable = false
                 command:attach(units)
-            end)
-    end end end
+    end) end end end
 end

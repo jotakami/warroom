@@ -10,6 +10,7 @@ function onLoad(saved_state)
         table.insert(f_guids, data.resources)
         for _, guid in pairs(data.trays) do table.insert(f_guids, guid) end
         for _, guid in ipairs(data.territories) do table.insert(f_guids, guid) end
+        if #getObjectFromGUID(data.components).getObjects() == 0 then table.insert(f_guids, data.components) end
     end
     for _, guid in ipairs(f_guids) do getObjectFromGUID(guid).interactable = false end
     Hotspot:initAssets()
@@ -34,17 +35,13 @@ function onLoad(saved_state)
 end
 
 function loadState()
-    log('Loading saved state')
     Setup.initialize()
-    log('Initialized map and morale board')
     -- Identify tokens, commands, construction stacks, cfighters, and hotspots
     for _, obj in ipairs(getAllObjects()) do
         local name, region = obj.getName():lower(), Map:getRegion(obj)
         region = region and Map.regions[region]
         if #name > 0 and region then
-            log('Restoring ' .. name:match('^[^\n]+'))
             if name == 'hotspot' then
-                log('Restoring hotspot in ' .. region.id)
                 local hotspot = Hotspot(obj, region.id)
                 Map.regions[hotspot.region].hotspot = hotspot
             elseif name:match('flag') then region.flag = obj
@@ -72,7 +69,9 @@ function loadState()
                 if #obj.getJoints() > 0 then
                     getObjectFromGUID(obj.getJoints()[1].joint_object_guid).interactable = false
     end end end end
-    log('Initialized objects')
+    for id, region in pairs(Map.regions) do if not id:match('^n') and not Tokens.turn[Nations[id:sub(1, 1)]] then
+        region.collapsed = true
+    end end
     Setup.initNations()
     for i, nation in turnOrder() do
         UI.setAttributes('tracker' .. i, {image = nation, active = true})
@@ -84,12 +83,14 @@ function loadState()
             Orders.japan.UI.show('pact')
             Orders.ussr.UI.show('pact')
         end
-        for _, nation in turnOrder() do
+        for nation, _ in pairs(Orders) do
             Resources[nation]:loaded()
             local cards = Cards[nation]:sort()
             Cards[nation].first = cards[1]
             for i = 2, #cards do cards[i - 1].next, cards[i].prev = cards[i], cards[i - 1] end
-            Cards[nation].origin = {position = cards[1].getPosition(), rotation = cards[1].getRotation():setAt('z', 0)}
+            if cards[1] then Cards[nation].origin = {
+                position = cards[1].getPosition(), rotation = cards[1].getRotation():setAt('z', 0)
+            } end
         end
         Setup.zoneEvents()
         Round()

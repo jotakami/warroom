@@ -65,9 +65,10 @@ function Hotspot:action(commands)
             not (japan_only and Combat.nationOnly('ussr', commands.allies.army)) and
             not (ussr_only and Combat.nationOnly('japan', commands.axis.army))) then return 'uncontested' end
     else
-        local owner = Nations[region:owner()].side
+        local owner = region:side()
         if japan_only and ussr_only then if owner == 'axis' then side, other = 'allies', 'axis' end end
-        if owner == other then if commands[side].army then return 'uncontested'
+        if region.collapsed and region:owner() == Nations[region.id:sub(1, 1)] then return commands[side].army and 'uncontested'
+        elseif owner == other then if commands[side].army then return 'uncontested'
         else for _, command in ipairs(commands[side].air) do if command.units.bomber > 0 then return 'uncontested' end
     end end end end end
     return nil
