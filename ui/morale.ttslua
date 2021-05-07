@@ -2,25 +2,26 @@ function Morale:loadUI(scenario)
     local sign = (scenario == 'europe' or scenario == 'pacific') and -1 or 1
     local assets, children = {}, {}
     for _, asset in ipairs(UI.getCustomAssets()) do if asset.name:match('stress') then table.insert(assets, asset) end end
-    local pos = |x, y| table.concat({x, sign * y, -10.1 * sign - 10}, ' ')
-    for _, nation in ipairs(Nations:moraleOrder()) do if not Scenarios[state.scenario].nations[nation] then
-        table.insert(children, {tag = 'Panel'})
-    else table.insert(children, {tag = 'Panel', attributes = {padding = '9 9 10 10'}, children = {
-        {tag = 'VerticalLayout', attributes = {id = nation .. '-casualties'}, children = {
-            {tag = 'Image', attributes = {id = nation .. '-level'}},
-            {tag = 'Text', value = 0, attributes = {id = nation .. '-count',
-                verticalOverflow = 'Overflow', outline = '#600000', color = '#d06040', fontSize = 36
-        }}}},
-        {tag = 'Text', value = '/', attributes = {id = nation .. '-stress',
-            ignoreLayout = true, alignment = 'MiddleRight', offsetXY = '10 -3', horizontalOverflow = 'Overflow',
-            color = '#ffe0d0', fontSize = 60, fontStyle = 'Bold', outline = 'black'
-    }}}}) end end
+    local pos = |x, y| table.concat({x * sign, y, -10.1 * sign - 10}, ' ')
+    local rot = '180 ' .. 90 * (1 + sign) .. ' 0'
+    for _, nation in ipairs(Nations:moraleOrder()) do
+        local active = Scenarios[state.scenario].nations[nation]
+        table.insert(children, {tag = 'Panel', attributes = {padding = '9 9 10 10'}, children = {
+            {tag = 'VerticalLayout', attributes = {id = nation .. '-casualties'}, children = {
+                {tag = 'Image', attributes = active and {id = nation .. '-level'} or {color = 'clear'}},
+                {tag = 'Text', value = active and 0 or ' ', attributes = {id = nation .. '-count',
+                    verticalOverflow = 'Overflow', outline = '#600000', color = '#d06040', fontSize = 36
+            }}}},
+            {tag = 'Text', value = active and '/' or ' ', attributes = {id = nation .. '-stress',
+                ignoreLayout = true, alignment = 'MiddleRight', offsetXY = '10 -3', horizontalOverflow = 'Overflow',
+                color = '#ffe0d0', fontSize = 60, fontStyle = 'Bold', outline = 'black'
+    }}}}) end
     self.UI.setCustomAssets(assets)
     self.UI.setXmlTable({
         {tag = 'Defaults', children = {
             {tag = 'Image', attributes = {image = 'stress-level0', color = '#ffffffc0'}},
             {tag = 'Text', attributes = {shadow = '#00000080', shadowDistance = '-2 -2'}},
-            {tag = 'Button', attributes = {rotation = '0 0 180', scale = '0.2 0.2', color = '#ffffff33', onClick = 'click', active = false}}
+            {tag = 'Button', attributes = {rotation = rot, scale = '0.2 0.2', color = '#ffffff33', onClick = 'click', active = false}}
         }},
         {tag = 'Button', attributes = {id = 'convert',
             height = 118, width = 178, position = pos(11.4, -86.3), colors = 'white|red|black|clear'
@@ -29,7 +30,7 @@ function Morale:loadUI(scenario)
             height = 96, width = 115, position = pos(140.5, -65), colors = 'white|green|black|clear'
         }},
         {tag = 'VerticalLayout', attributes = {id = 'casualties',
-            height = 770, width = 80, scale = '0.2 0.2', position = pos(120, 20.5), rotation = '180 180 0', active = false
+            height = 770, width = 80, scale = '0.2 0.2', position = pos(120, 20.5), rotation = rot, active = false
         }, children = children}
     })
 end

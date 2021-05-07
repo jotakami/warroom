@@ -46,6 +46,9 @@ function Map:initialize(obj, scenario)
         end
         self.regions[id] = Map.Region(id, data)
     else self.regions[id] = nil end end
+    for _, region in pairs(self.regions) do for i = #region.adjacent, 1, -1 do
+        if not Map.regions[region.adjacent[i]:match('^%a%d+')] then table.remove(region.adjacent, i) end
+    end end
     -- for _, region in pairs(self.regions) do
     --     while #region.adjacent > 0 do
     --         local id, flag = table.remove(region.adjacent):match('(%a%d+)(.?)')
@@ -250,14 +253,16 @@ function Map.Region:activeConvoys()
     local clusters = {}
     if self.convoys then for _, cluster in ipairs(self.convoys) do
         local t = {}
-        for origin, convoy in pairs(cluster) do if not origin:find('%-') then
-            if not Map.regions[origin].collapsed or Map.regions[origin]:owner() ~= Nations[origin:sub(1, 1)] then
-                local side = Map.regions[origin]:side()
+        for origin, convoy in pairs(cluster) do if origin:find('%-') then
+            local from, to = origin:match('(%w+)%-(%w+)')
+            if Map.regions[from] and Map.regions[to] and Map.regions[from]:side() == Map.regions[to]:side() then
+                local side = Map.regions[from]:side()
                 t[side] = t[side] or {}
                 t[side][origin] = convoy
-        end else
-            local side = Map.regions[origin:match('(%w+)%-')]:side()
-            if side == Map.regions[origin:match('%-(%w+)')]:side() then
+            end
+        elseif Map.regions[origin] then
+            if not Map.regions[origin].collapsed or Map.regions[origin]:owner() ~= Nations[origin:sub(1, 1)] then
+                local side = Map.regions[origin]:side()
                 t[side] = t[side] or {}
                 t[side][origin] = convoy
         end end end

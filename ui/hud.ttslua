@@ -30,7 +30,6 @@ HUD.XML = {Defaults = {
         display = {transition = 'SpriteSwap', visibility = Vis.all},
         resolve = {fontSize = 8, position = '-156 0'},
         scenario = {fontSize = 28, onClick = 'Setup'}
-        --combat = {icon = 'cancel', onClick = 'forceResolve'}
     },
     Panel = {
         shade = {color = '#000000b0'},
@@ -270,9 +269,9 @@ function HUD.XML:initial() return {
         {tag = 'Text', value = 'Choose a scenario:', attributes = {minHeight = 80, fontSize = 48, outline = 'black', outlineSize = '1.5 1.5'}},
         {tag = 'HorizontalLayout', attributes = {minHeight = 100, spacing = 20}, children = {
             {tag = 'Button', value = 'Global War', attributes = {class = 'scenario', id = 'global'}},
-            {tag = 'Button', value = 'Eastern Front', attributes = {class = 'scenario', id = 'eastern', interactable = false}},
-            {tag = 'Button', value = 'War in Europe', attributes = {class = 'scenario', id = 'europe', interactable = false}},
-            {tag = 'Button', value = 'War in the Pacific', attributes = {class = 'scenario', id = 'pacific', interactable = false}}
+            {tag = 'Button', value = 'Eastern Front', attributes = {class = 'scenario', id = 'eastern'}},
+            {tag = 'Button', value = 'War in Europe', attributes = {class = 'scenario', id = 'europe'}},
+            {tag = 'Button', value = 'War in the Pacific', attributes = {class = 'scenario', id = 'pacific'}}
     }}}}
 } end
 

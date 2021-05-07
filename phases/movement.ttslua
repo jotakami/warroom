@@ -79,9 +79,10 @@ function Movement:fleetMovement(nation, region, target, escaped)
 end
 
 function Movement.canalCheck(nation, from, to)
-    for _, region in ipairs(Map.regions[from].canals[to]) do
-        local owner = Map.regions[region]:owner()
-        if owner == 'neutral' then if Nations[nation]:isAxis() or not Map.regions[region].allied then return false end
+    for _, id in ipairs(Map.regions[from].canals[to]) do
+        local region = Map.regions[id]
+        local owner = region and region:owner() or Nations[id:sub(1,1)]
+        if owner == 'neutral' then if Nations[nation]:isAxis() or not region.allied then return false end
         elseif Nations[owner].side ~= Nations[nation].side then return false end
     end
     return true

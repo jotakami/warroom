@@ -47,7 +47,9 @@ function Combat:checkControl(combatants)
     local region = Map.regions[self.hotspot.region]
     debug('Checking for change of control in ', region.id)
     local owner, new_owner = region:owner()
+    local collapsed = region.collapsed and owner == Nations[region.id:sub(1, 1)]
     local defender, invader = Nations[owner].side, Nations[owner].other
+    if collapsed and not self.commands[invader].army then defender, invader = invader, defender end
     if self.commands[invader].army and not self.commands[defender].army then
         if region.occupied and Nations[region.occupied].side == invader then
             new_owner = region.occupied
@@ -78,10 +80,10 @@ function Combat:checkControl(combatants)
             Nations[new_owner]:colorized(), region:colorizedName(), Nations[owner]:colorized()))
         if region.sv and not (region.collapsed and region:owner() == Nations[region.id:sub(1, 1)]) then Morale:addStress(owner, region.sv) end
         local medals, awardees = region.capital and 3 or 1, {}
-        for _, nation in ipairs(combatants) do
+        if not collapsed then for _, nation in ipairs(combatants) do
             if nation ~= state.pact_broken or owner ~= Nations[nation].pact then
                 table.insert(awardees, nation)
-        end end
+        end end else table.insert(awardees, new_owner) end
         if not region.id:find('n') then if #awardees > 1 then
             self.hotspot:nationButtons(awardees, '+1 medal', 'medals')
             for i = 1, medals do Morale:addMedals(coroutine.yield(), 1) end
@@ -91,5 +93,5 @@ function Combat:checkControl(combatants)
         if state.scenario == 'global' and (region.id == 'g1' or region.id == 'r1') then Movement.breakPact() end
         p:next(|| self.resume())
         coroutine.yield()
-    else debug('No change of control') end
+    end
 end

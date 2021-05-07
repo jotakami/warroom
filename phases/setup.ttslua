@@ -34,7 +34,7 @@ function Setup.initialize()
 end
 
 function Setup.initNations()
-    for nation, _ in pairs(Scenarios[state.scenario].nations) do
+    for nation in pairs(Scenarios[state.scenario].nations) do
         local guids = GUIDs.Nations[nation]
         Orders[nation] = OrdersChart(getObjectFromGUID(guids.orders), nation):initialize(state.scenario)
         Resources[nation] = ResourceChart(getObjectFromGUID(guids.resources), nation):initialize()
@@ -45,7 +45,6 @@ function Setup.initNations()
 end
 
 function Setup.unpack(scenario)
-    if scenario == 'europe' or scenario == 'pacific' then Morale:flipBoard() end
     Setup.neutrals()
     local delay, ready, i = Promise.frames(1), {}, 1
     for _, nation in ipairs(Nations:inOrder()) do if Scenarios[scenario].nations[nation] then
@@ -187,10 +186,12 @@ function Setup.commands(components, nation)
         end) end})
         if entry.stash then loaded:next(|command| command:updateContextMenu()):next(p) else
             Wait.frames(|| coroutine.resume(resume), nation == 'japan' and 20 or 25)
-            Promise.all(loaded, Units:buildStack(entry.data.units, pos:setAt('y', 6.74), components.getRotation())):next(function (command, ...)
-                    command.setLock(false)
-                    return command, ...
-                end):skip(20):next(|command, ...| command:attach({...})):next(p)
+            Promise.all(loaded,
+                Units:buildStack(entry.data.units, pos:setAt('y', 6.74), components.getRotation())
+            ):next(function (command, ...)
+                command.setLock(false)
+                return command, ...
+            end):skip(20):next(|command, ...| command:attach({...})):next(p)
             coroutine.yield()
     end end end))
     return Promise.all(ps)
@@ -234,7 +235,7 @@ function Setup.neutrals()
 end
 
 function Setup.hotspots()
-    if state.scenario == 'global' or Scenarios[state.scenario].regions['j'](25) then Bags.hotspot.takeObject({
+    if Map.regions.j25 then Bags.hotspot.takeObject({
         position = Map.positionToWorld({-6.58, 0.7, -2.22}), rotation = {0, 270, 180},
         callback_function = function (obj) Map.regions.j25.hotspot = Hotspot(obj, 'j25') end
     }) end

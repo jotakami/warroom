@@ -11,24 +11,20 @@ function Production:main()
     end
     if state.phase < 7 or state.step < 2 then
         local readied, trades = {}, {axis = {}, allies = {}}
-        for _, region in pairs(Map.regions) do if region.trade then
+        if state.scenario == 'global' then for _, region in pairs(Map.regions) do if region.trade then
             local owner = region:owner()
-            debug('Checking ', region.id, ' for valid ', region.trade, ' trade routes')
-            if owner ~= 'neutral' then debug(Nations[owner].side, ' owns the territory and can trade by land') trades[Nations[owner].side][region.trade] = 'land'
+            if owner ~= 'neutral' then trades[Nations[owner].side][region.trade] = 'land'
             else for _, link in ipairs(region.adjacent) do
                 local id, flag = link:match('(%a%d+)(.?)')
-                debug('Checking adjacent region ', id)
                 owner = Map.regions[id]:owner()
                 if flag == '$' then
-                    debug('Checking for naval units outside port')
                     local commands, side = Commands:region(id)
-                    if not commands.axis.fleet then debug('Axis not present, allies can trade by sea') trades.allies[region.trade] = trades.allies[region.trade] or 'sea'
-                    elseif commands.axis.fleet and not commands.allies.fleet and not region.allied then debug('Axis present and can trade by sea')
+                    if not commands.axis.fleet then trades.allies[region.trade] = trades.allies[region.trade] or 'sea'
+                    elseif commands.axis.fleet and not commands.allies.fleet and not region.allied then
                         trades.axis[region.trade] = trades.axis[region.trade] or 'sea'
-                    end
-                elseif owner and owner ~= 'neutral' and not Cards[id].is_face_down then debug(Nations[owner].side, ' can trade by land')
+                end elseif owner and owner ~= 'neutral' and not Cards[id].is_face_down then
                     trades[Nations[owner].side][region.trade] = 'land'
-        end end end end end
+        end end end end end end
         for nation, orders in pairs(Orders) do
             readied[nation] = false
             local routes = {}

@@ -101,6 +101,8 @@ function Cards:unlocked()
     return true
 end
 
+function Cards:unlockAll() for _, card in self:cards() do card.setLock(false) end end
+
 function Cards:add(card)
     if not (card == rawget(self, 'first') or rawget(card, 'next') or rawget(card, 'prev') or card.getLock()) then
         if rawget(self, 'first') then
@@ -136,22 +138,26 @@ end
 
 function Cards:arrange()
     debug('Rearranging ', self.nation, ' cards')
-    local card, count = rawget(self, 'first'), 0
-    local pos, rot = self.origin.position, self.origin.rotation + vector(1, 0, 0)
-    local row_shift = self.getTransformForward() * -1.71
-    local col_shift = self.getTransformRight() * (Orders[self.nation].positionToLocal(self.getPosition()).x > 0 and 5.6 or -5.6)
-    while card ~= nil do
+    local cols, total, card, snaps = #GUIDs.Nations[self.nation].territories, 0, rawget(self, 'first'), {}
+    local rot, col_height = self.origin.rotation + vector(3, 0, 0), self.getTransformForward() * -20.52
+    local col_shift = self.getTransformRight() * (getObjectFromGUID(GUIDs.Nations[self.nation].orders).positionToLocal(self.getPosition()).x > 0 and 5.6 or -5.6)
+    while card ~= nil do card, total = rawget(card, 'next'), total + 1 end
+    for i = 1, cols do
+        local rows = math.max(math.floor(total / (cols - i + 1)), 12)
+        total = math.max(total - rows, 0)
+        for j = 1, rows do
+            table.insert(snaps, self.origin.position + col_shift * (i - 1) + col_height * ((j - 1) / rows))
+    end end
+    card = rawget(self, 'first')
+    for _, pos in ipairs(snaps) do
         if not card.getLock() then card.setLock(true) end
         card.setPositionSmooth(pos)
         card.setRotation(rot:copy():setAt('z', card.getRotation().z))
-        if count % 12 == 11 then pos = pos + col_shift - row_shift * 11
-        else pos = pos + row_shift end
-        card, count = rawget(card, 'next'), count + 1
+        card = rawget(card, 'next')
+        if not card then break end
     end
     Promise.condition(function ()
         for _, card in self:cards() do if card.isSmoothMoving() then return false end end
         return true
     end):skip(3):next(|| self:unlockAll())
 end
-
-function Cards:unlockAll() for _, card in self:cards() do card.setLock(false) end end

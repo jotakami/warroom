@@ -19,7 +19,7 @@ function Morale:initialize(board, scenario)
         elseif unit ~= 'medal_goods' then
             unit = next(Units, unit ~= 'stress' and unit:gsub('fighter', 'c%0') or nil)
         else unit = 'stress' end
-        if flip then snap.position, snap.rotation.x = snap.position:rotateOver('x', 180) + vector(0, 0.2, 0), (snap.rotation.x + 180) % 360 end
+        if flip then snap.position, snap.rotation.z = snap.position:rotateOver('z', 180) + vector(0, 0.2, 0), (snap.rotation.z + 180) % 360 end
         self.snaps[nation][unit] = snap.position
     end
     if flip then
@@ -113,7 +113,7 @@ function Morale:addMedals(nation, value, is_goods)
         self.medals[nation] = coroutine.create(function (stack, remaining) repeat
             remaining = remaining - 1
             Bags.medal_goods.takeObject({
-                position = self.positionToWorld(self.snaps[nation].medal_goods + vector(0, 2.5, 0)),
+                position = self.positionToWorld(self.snaps[nation].medal_goods) + vector(0, 2.5, 0),
                 rotation = vector(0, self.getRotation().y, is_goods and 180 or 0),
                 callback_function = function (obj)
                     obj.addTag(nation)

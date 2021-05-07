@@ -66,8 +66,8 @@ function Round:main()
                     components.putObject(Resources[nation][resource].peg)
                 end end
                 for _, command in pairs(Commands[nation]) do components.putObject(command.obj) end
-                Tokens.turn[nation], Tokens.homeland[nation], Commands[nation] = nil
                 Orders[nation].UI.setXml()
+                Tokens.turn[nation], Tokens.homeland[nation], Order[nation], Commands[nation] = nil
             end):when(|| not Tokens.turn[turns[#turns]].isSmoothMoving()):next(|| self.resume())
             coroutine.yield()
             for id, region in pairs(Map.regions) do
