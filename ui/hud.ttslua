@@ -187,8 +187,9 @@ function HUD.XML.combat()
                 {tag = 'image', attributes = {id = 'combatants' .. i .. '-allies3'}}
             }}}}
         }},
-        {tag = 'Cell', children = {{tag = 'Text', attributes = {id = 'combat-status' .. i, fontSize = 15}}}},
-        {tag = 'Cell', children = {{tag = 'Button', attributes = {class = 'combat', id = 'combat-clear' .. i}}}}
+        {tag = 'Cell', attributes = {columnSpan = 2}, children = {{tag = 'Panel', attributes = {id = 'combat-status' .. i}, children = {
+            {tag = 'Text', attributes = {id = 'combat-status-label' .. i, fontSize = 12}}
+        }}}}
     }}) end
     return rows
 end
@@ -215,7 +216,7 @@ end
 function HUD.XML.popouts(scenario)
     local popouts = {}
     for nation, _ in pairs(Scenarios[scenario].nations or CommandSetup) do
-        local row_count, guid = 3, GUIDs.Nations[nation].orders
+        local row_count, guid = 3, getObjectsWithAllTags({nation, 'orders'})[1].guid
         if nation == 'china' or nation == 'italy' or scenario ~= 'global' and (nation == 'usa' or nation == 'uk') then row_count = 2 end
         local rows = {{tag = 'HorizontalLayout', attributes = {minHeight = 40}, children = {
             {tag = 'TableLayout', attributes = {class = 'orders', minWidth = 170}, children = {{tag = 'Row', children = {{tag = 'Cell', children = {

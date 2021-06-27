@@ -4,26 +4,26 @@ function onSave()
 end
 
 function onLoad(saved_state)
-    local f_guids = {GUIDs.Map}
-    for _, guid in ipairs(GUIDs.Furniture) do table.insert(f_guids, guid) end
-    for _, data in pairs(GUIDs.Nations) do
-        table.insert(f_guids, data.resources)
-        for _, guid in pairs(data.trays) do table.insert(f_guids, guid) end
-        for _, guid in ipairs(data.territories) do table.insert(f_guids, guid) end
-        if #getObjectFromGUID(data.components).getObjects() == 0 then table.insert(f_guids, data.components) end
+    for _, obj in Tags.forAllObjects('components') do if #obj.getObjects() == 0 then obj.interactable = false end end
+    for _, obj in Tags.forAllObjects('static') do obj.interactable = false end
+    for _, label in ipairs{'left', 'right'} do
+        Battle[label] = Battle(Tags.getObject({'Battle', label}), label):initialize()
     end
-    for _, guid in ipairs(f_guids) do getObjectFromGUID(guid).interactable = false end
-    Hotspot:initAssets()
-    for label, guids in pairs(GUIDs.Battle) do Battle[label] = Battle(getObjectFromGUID(guids.board), label):initialize(guids) end
     Bags = {}
-    for piece, guids in pairs(GUIDs.Bags) do
-        if piece == 'units' then for unit, guid in pairs(guids) do Bags[unit] = getObjectFromGUID(guid) end
-        elseif piece == 'stress' or piece == 'flags' then
-            Bags[piece] = {}
-            for i, guid in pairs(guids) do Bags[piece][i] = getObjectFromGUID(guid) end
-        elseif piece == 'dice' then Bags.dice = Dice(getObjectFromGUID(guids))
-        else Bags[piece] = getObjectFromGUID(guids) end
+    for _, obj in Tags.forAllObjects('supply') do
+        local item, key = nil
+        for _, tag in ipairs(obj.getTags()) do
+            if Nations[tag] then key = tag
+            elseif tag == 'stress' then item, key = tag, obj.value
+            elseif tag ~= 'supply' then item = tag
+        end end
+        if key then
+            Bags[item] = Bags[item] or {}
+            Bags[item][key] = obj
+        elseif item == 'dice' then Bags[item] = Dice(obj)
+        else Bags[item] = obj end
     end
+    Hotspot:initAssets()
     if saved_state == '' then
         state = {}
         UI.setXmlTable(HUD.XML:initial())
@@ -54,8 +54,7 @@ function loadState()
             elseif name:match('standing army') then
                 region.flag, Commands.standing[region.id] = obj, Standing(obj)
         end end
-        if obj.name == 'Deck' then Cards.neutral = obj
-        elseif obj.name == 'Card' then
+        if obj.name == 'Card' then
             local card = Card(obj, name:match('^%b[](%a%d+)%b[]'))
             Cards[card.id] = card
             Map.regions[card.id].card = card
@@ -78,17 +77,14 @@ function loadState()
     end
     Orders:loaded():next(function ()
         for nation in pairs(Scenarios[state.scenario].nations) do
-            local cards = Cards[nation]:sort()
+            local cards, rack = Cards[nation]:sort()
             if #cards > 0 then
                 Cards[nation].first = cards[1]
                 for i = 2, #cards do cards[i - 1].next, cards[i].prev = cards[i], cards[i - 1] end
                 Cards[nation].origin = {position = cards[1].getPosition(), rotation = cards[1].getRotation():setAt('z', 0)}
             else
-                local rack = getObjectFromGUID(GUIDs.Nations[nation].territories[1])
-                Cards[nation].origin = {
-                    position = rack.positionToWorld(rack.getSnapPoints()[1].position),
-                    rotation = rack.getRotation()
-                }
+                for _, obj in Tags.forAllObjects({nation, 'cardholder'}) do if obj.value == 1 then rack = obj break end end
+                Cards[nation].origin = {position = rack.positionToWorld({0, 0, 0.7075}), rotation = rack.getRotation()}
             end
             if not Tokens.turn[nation] then
                 Orders[nation].UI.setXml('')

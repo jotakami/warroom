@@ -28,6 +28,7 @@ function Combat.Uncontested:main(commands)
                 combatants[nation] = true
             end end
             self:garrison(commands[side].army)
+            if #commands[side].army == 0 then commands[side].army = nil end
     end end
     self:debrief(commands, combatants)
 end

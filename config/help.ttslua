@@ -35,6 +35,8 @@ Once you have finished deploying carrier fighters, click the 'Ready' button on y
 
 BATTLES: All units will automatically move to an open battle board. Most aspects of combat are fully automated and self-explanatory--just click the 'Ready' buttons when done choosing stances, and click 'Roll' to start throwing dice.
 
+After naval combat, any escaped subs will be highlighted in blue and must be given orders. To dive in an adjacent region, move the sub(s) to that region and select 'Form dived command' from the right-click menu. If the sub will remain in the original region, just merge it into a new or existing command.
+
 RAIDS: Convoy raids and undefended strategic bombing are rolled directly on the map. If multiple convoys are available to raid, then orange lines will be drawn to indicate the closest raid target for each command. To change targets, just move the command close to the desired target. Hover over the hotspot and press 'R' again to confirm your choices and start rolling.
 
 BOMBING: Resources and units under construction in the target region will automatically be detected and buttons will appear to assign each die to an eligible target. When bombing undefended territories, the dice will be rolled directly on the map.
@@ -47,9 +49,11 @@ Once the final hotspot has been resolved, the game will automatically proceed to
 
 Click the 'Ready' button on your orders chart when you have finished.]],
     deploy =
-[[Newly deployed units should be added to existing or new command stacks. Also, commands may be combined or split at this time.
+[[Newly deployed units should be added to existing or new command stacks at this time. As a shortcut, new commands will be automatically be created for any loose unit stacks when you click 'Ready'.
 
-To split a command stack, right-click it and select 'Break stack'. To form a new stack, simply place a command token on top of a stack of units, or select a group of units and a command token. Then, right click the command token and select 'Form stack'. To combine two or more stacks (with a maximum of 8 units), select all of them and then right-click one and select 'Combine stacks'.]],
+If the number of new units exceeds the production capacity in a region (due to recent bombing), then the stack will be highlighted in red. To proceed, right-click the stack and choose the menu options to destroy units, one at a time, until the production capacity is no longed exceeded.
+
+Also, commands may be combined or split at this time. To split a command stack, right-click it and select 'Break stack'. To form a new stack, simply place a command token on top of a stack of units, or select a group of units and a command token. Then, right click the command token and select 'Form stack'. To combine two or more stacks (with a maximum of 8 units), select all of them and then right-click one and select 'Combine stacks'.]],
     casualties =
 [[Click the 'Casualty to Stress Conversion' button on the Morale Board to automatically count casualties and apply stress.
 Each nation will receive a number of stress points that corresponds to the total casualty value of their destroyed units.
@@ -81,5 +85,5 @@ Click the 'Ready' button to lock in your production orders once ready. You may c
 [[Each nation places all new units in industrial territories they control. Newly purchased units will be highlighted in their owner's color to avoid confusion.
 The units need not be stacked, and there is no need to place industry tokens.
 
-Once you are satisfied with your placement, click the 'Ready' button. If you exceed production limits or otherwise place units incorrectly, the units will flash red to indicate there is a problem. Otherwise, the units will be collected into stacks and topped with an industry token. For China, infantry placed in mobilization territories will automatically be merged directly into existing commands (or newly created commands).]]
+Once you are satisfied with your placement, click the 'Ready' button. If you exceed production limits or otherwise place units incorrectly, the units will flash red to indicate there is a problem. Otherwise, the units will be collected into stacks and topped with an industry token. For China, infantry placed in mobilization territories will automatically be formed into new commands (if placed on the map), or merged directly into existing commands if placed on top of them.]]
 }

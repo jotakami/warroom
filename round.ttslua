@@ -32,72 +32,7 @@ function Round:main()
     if state.phase < 6 then Refit(self.resume) end
     if state.phase < 7 then Morale(self.resume) end
     Production(self.resume)
-    local turns, commands = turnOrder.get(), Commands:byRegion()
-    for i = #turns, 1, -1 do if Morale.stressZone(turns[i]) == 6 then
-        local nation, collapsed = turns[i], true
-        for _, command in pairs(Commands[nation]) do if command.units() > 0 then collapsed = false break end end
-        for _, region in pairs(Map.regions) do if region.construction and region:owner() == nation then collapsed = false break end end
-        if collapsed then
-            broadcastToAll(Nations[nation].name:colorize(nation) .. ' has collapsed!', Color._red)
-            if state.scenario == 'global' and (nation == 'ussr' or nation == 'japan') then Movement.breakPact() end
-            for _, medal in ipairs(Morale:getStack(nation, 'medal_goods')) do medal.destruct() end
-            for _, stress in ipairs(Morale:getStack(nation, 'stress')) do stress.destruct() end
-            Orders[nation].setDecals({{
-                name = 'collapsed', position = {0, 0.61, 0}, rotation = {90, 150, 0}, scale = {16.8, 4.25, 1},
-                url = 'http://cloud-3.steamusercontent.com/ugc/1722038301663788671/DD247A5BB08A873579425E621346DDC86E13213F/'
-            }})
-            Morale.setDecals(table.insert(Morale.getDecals() or {}, {
-                name = 'collapsed-' .. nation, rotation = {90, 180, 0}, scale = {0.72, 0.18, 1},
-                position = Morale.snaps[nation].medal_goods:lerp(Morale.snaps[nation].stress, 0.5) + vector(0, Morale.is_face_down and -0.01 or 0.01, 0),
-                url = 'http://cloud-3.steamusercontent.com/ugc/1722038301663788671/DD247A5BB08A873579425E621346DDC86E13213F/'
-            }))
-            Resources[nation]:set({oil = 0, iron = 0, osr = 0})
-            local components = getObjectFromGUID(GUIDs.Nations[nation].components)
-            components.interactable = true
-            components.setPositionSmooth(components.getPosition():setAt('y', 6.53))
-            Promise.condition(|| not components.isSmoothMoving()):next(function ()
-                if i < #turns then for j = #turns, i + 1, -1 do
-                    Tokens.turn[turns[j]].setPositionSmooth(Tokens.turn[turns[j-1]].getPosition())
-                    Tokens.turn[turns[j]].setRotationSmooth(Tokens.turn[turns[j-1]].getRotation())
-                end end
-                table.remove(turns, i)
-                components.putObject(Tokens.turn[nation])
-                for resource in Resources() do if resource ~= 'oil' or nation ~= 'china' then
-                    components.putObject(Resources[nation][resource].peg)
-                end end
-                for _, command in pairs(Commands[nation]) do components.putObject(command.obj) end
-                Orders[nation].UI.setXml()
-                Tokens.turn[nation], Tokens.homeland[nation], Order[nation], Commands[nation] = nil
-            end):when(|| not Tokens.turn[turns[#turns]].isSmoothMoving()):next(|| self.resume())
-            coroutine.yield()
-            for id, region in pairs(Map.regions) do
-                if id:match('^' .. Nations[nation].prefix) then
-                    region.collapsed = true
-                    region.card:embattled(true)
-                end
-                if region:owner() == nation and commands[id] then
-                    local claimants = {}
-                    for _, force in pairs(commands[id][region:side()]) do for _, command in ipairs(force) do
-                        if not claimants[command.nation] then table.insert(claimants, command.nation) end
-                        claimants[command.nation] = true
-                    end end
-                    if #claimants > 1 then
-                        -- TODO: show buttons to choose new owner
-                        debug('Multiple nations can claim ', id)
-                    elseif #claimants == 1 then
-                        debug(claimants[1], ' has claimed ', id)
-                        Morale:addMedals(claimants[1], region.capital and 3 or 1)
-                        region.flag = Bags.flags[claimants[1]].takeObject({
-                            position = region:center(), rotation = {0, math.random(360), 0}
-                        })
-                        region.card:giveTo(claimants[1]):next(|| self.resume())
-                        coroutine.yield()
-    end end end end end end
-    for i = 1, 7 do if not turnOrder[i] then
-        UI.hide('tracker' .. i)
-        UI.hide('status' .. i)
-        for resource in Resources() do UI.setAttribute('frame-' .. resource .. i, 'active', false) end
-    else UI.setAttribute('tracker' .. i, 'image', turnOrder[i]) end end
+    Cleanup(self.resume)
     state.phase, self.resume = 0, nil
     Wait.time(|| Round(), 1)
 end

@@ -109,6 +109,26 @@ function HUD.hideElement(player, id)
     end))
 end
 
+-- Combat HUD
+HUD.Combat = {}
+function HUD.Combat.setStatus(i, label, textColor, cellColor)
+    UI.setValue('combat-status-label' .. i, label)
+    UI.setAttribute('combat-status-label' .. i, 'color', textColor)
+    UI.setAttribute('combat-status' .. i, 'color', cellColor)
+end
+
+function HUD.Combat:active(i)
+    self.setStatus(i, 'ACTIVE', Color.white:toXml(), Color.orange:setAt('a', 0.5):toXml(true))
+end
+
+function HUD.Combat:done(i)
+    self.setStatus(i, 'DONE', Color.grey:toXml(), '#000000b0')
+end
+
+function HUD.Combat:passive(i)
+    self.setStatus(i, '', Color.white:toXml(), '#00000000')
+end
+
 -- Button receiver functions
 function showHUD(player, value, id) HUD.show(player.color, value, id) end
 function hideHUD(player, value) HUD.hide(player.color, value) end

@@ -1,3 +1,13 @@
+CardZones = {
+    china = '7f5b64',
+    germany = '3a283f',
+    italy = '2c9afd',
+    japan = 'a79084',
+    uk = 'd6e8f6',
+    usa = '1f06b0',
+    ussr = 'f08468'
+}
+
 Card = Wrapper(function (card, id)
     card.id = id
     return card
@@ -138,9 +148,9 @@ end
 
 function Cards:arrange()
     debug('Rearranging ', self.nation, ' cards')
-    local cols, total, card, snaps = #GUIDs.Nations[self.nation].territories, 0, rawget(self, 'first'), {}
+    local cols, total, card, snaps = #getObjectsWithAllTags({self.nation, 'cardholder'}), 0, rawget(self, 'first'), {}
     local rot, col_height = self.origin.rotation + vector(3, 0, 0), self.getTransformForward() * -20.52
-    local col_shift = self.getTransformRight() * (getObjectFromGUID(GUIDs.Nations[self.nation].orders).positionToLocal(self.getPosition()).x > 0 and 5.6 or -5.6)
+    local col_shift = self.getTransformRight() * (getObjectsWithAllTags({self.nation, 'orders'})[1].positionToLocal(self.getPosition()).x > 0 and 5.6 or -5.6)
     while card ~= nil do card, total = rawget(card, 'next'), total + 1 end
     for i = 1, cols do
         local rows = math.max(math.floor(total / (cols - i + 1)), 12)
@@ -160,4 +170,8 @@ function Cards:arrange()
         for _, card in self:cards() do if card.isSmoothMoving() then return false end end
         return true
     end):skip(3):next(|| self:unlockAll())
+end
+
+function Cards:getSnaps()
+    getObjectsWithAllTags({self.nation})
 end

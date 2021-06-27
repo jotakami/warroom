@@ -1,0 +1,9 @@
+Tags = {}
+
+function Tags.getAllObjects(tags)
+    if type(tags) == 'table' then return getObjectsWithAllTags(tags)
+    else return getObjectsWithTag(tags) end
+end
+
+function Tags.getObject(tags) return Tags.getAllObjects(tags)[1] end
+function Tags.forAllObjects(tags) return ipairs(Tags.getAllObjects(tags)) end

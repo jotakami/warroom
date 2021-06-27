@@ -193,7 +193,7 @@ function Movement.invadeNeutral(invader, region)
     end) else units_p:resolve() end
     units_p:next(function (...)
         local units = {...}
-        Bags.flags[defender].takeObject({position = pos, callback_function = function (obj)
+        Bags.flag[defender].takeObject({position = pos, callback_function = function (obj)
             region.flag = obj
             if #units == 0 then flag_p:resolve() else
                 local army = Standing(region.flag, true)

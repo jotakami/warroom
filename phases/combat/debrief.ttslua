@@ -72,7 +72,7 @@ function Combat:checkControl(combatants)
         if region.flag then stash(region.flag) end
         if Nations[new_owner].prefix ~= region.id:sub(1, 1) then
             local pos = (region.flag or self.hotspot).getPosition()
-            Wait.condition(function () region.flag = Bags.flags[new_owner].takeObject({
+            Wait.condition(function () region.flag = Bags.flag[new_owner].takeObject({
                 position = pos, rotation = {0, math.random(360), 0}
             }) end, || self.hotspot.isSmoothMoving())
         else region.flag = nil end

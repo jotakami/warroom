@@ -1,15 +1,15 @@
-function Battle.diceHandler(zone, obj, value)
-    if Battle.left.zones_active and Battle.left.zones[zone.guid] then
-        Battle.left:updateDice(zone, obj, value)
-    elseif Battle.right.zones_active and Battle.right.zones[zone.guid] then
-        Battle.right:updateDice(zone, obj, value)
+function Battle.diceHandler(zone, value)
+    if Battle.left.zones_active and zone.hasTag('left') then
+        Battle.left:updateDice(zone, value)
+    elseif Battle.right.zones_active and zone.hasTag('right') then
+        Battle.right:updateDice(zone, value)
     end
 end
 
-function Battle:initialize(guids)
+function Battle:initialize()
     self.bags = {}
-    for side, guid in pairs(guids.dice) do self.bags[side] = Dice(getObjectFromGUID(guid)) end
-    self:setupZones(guids.zones)
+    for side in pairs(Nations.other) do self.bags[side] = Dice(Tags.getObject({self.hand, side, 'dice'})) end
+    self:setupZones()
     self:loadUI()
     self.RepairAssets = {}
     for _, asset in ipairs(UI.getCustomAssets()) do
@@ -19,44 +19,45 @@ function Battle:initialize(guids)
     return self
 end
 
-function Battle:setupZones(guids)
+function Battle:setupZones()
     log('Initializing battle zones')
-    self.commands = Battle.Zone(getObjectFromGUID(guids.commands), {z = 0.178})
-    self.commands.setTags({'command'})
-    self.zones, self.casualties = {[guids.commands] = self.commands}, {}
-    for side, guid in pairs(guids.casualties) do
-        self.casualties[side] = Battle.Zone(getObjectFromGUID(guid), {z = 0.01})
-        self.zones[guid] = self.casualties[side]
-    end
-    self.stances = {land = {}, sea = {}}
-    for mode, t in pairs(self.stances) do
-        local y = mode == 'land' and 0.2 or 0
-        for side, zones in pairs(guids.units) do
-            local active, snaps, i = self:mode() == mode, Battle.Snaps[mode][side], 1
-            local flat, tilt = vector(0, 0, mode == 'land' and 0 or -180), vector(0, 33 * (side == 'axis' and 1 or -1), 0)
-            if active then
-                local v = self.positionToLocal(self.commands.getPosition()):setAt('y', y)
-                for nation, x in pairs(snaps.nations) do
-                    self.commands.snaps[nation] = {position = v:copy():setAt('x', x), rotation = mode == 'sea' and flat + tilt or flat}
-            end end
+    self.commands = Battle.Zone(Tags.getObject({self.hand, 'command'}), {z = 0.178})
+    self.casualties, self.stances = {}, {land = {}, sea = {}}
+    local naval = self:mode() == 'sea'
+    local v = self.positionToLocal(self.commands.getPosition()):setAt('y', naval and 0 or 0.2)
+    for side, params in pairs{
+        axis = {tilt = 33, x = -0.008},
+        allies = {tilt = -33, x = 0.011}
+    } do
+        self.casualties[side] = Battle.Zone(Tags.getObject({self.hand, side, 'casualty'}), {z = 0.01})
+        for nation, x in pairs(Battle.Snaps[self:mode()][side].nations) do self.commands.snaps[nation] = {
+            position = v:copy():setAt('x', x),
+            rotation = vector(0, naval and params.tilt or 0, naval and -180 or 0)
+        } end
+        for mode, t in pairs(self.stances) do
             t[side] = {}
-            setmetatable(t[side], {__index = {x = side == 'axis' and -0.008 or 0.011}})
-            for u, unit in ipairs(Battle.Stance.Order[mode]) do
-                local name, rotation = unit[1], mode == 'sea' and u < 5 and flat + tilt or flat
-                t[side][name] = {}
-                for _, stance in ipairs(unit[2]) do
-                    local zone = Battle.Stance(getObjectFromGUID(zones[i]), Units[name].stances[stance])
-                    if active then zone.setTags({name}) end
-                    zone.side, zone.unit = side, name
-                    local z, xs = self.positionToLocal(zone.getPosition()).z - (active and 0 or zone.z), {casualty = snaps.casualty}
-                    for nation, x in pairs(snaps.nations) do if nation ~= 'china' or u < 3 then xs[nation] = x end end
-                    if zone.hp == 3 then xs.sustained, xs.damaged2 = snaps.sustained, snaps.damaged2
-                    elseif zone.hp == 2 then xs.damaged = snaps.damaged end
-                    for label, x in pairs(xs) do zone.snaps[label] = {position = vector(x, y, z), rotation = rotation} end
-                    if name == 'submarine' then zone.snaps.escaped = {position = vector(side == 'axis' and -1.275 or 1.27, y, -0.365), rotation = flat} end
-                    if active then self.zones[zones[i]] = zone end
-                    t[side][name][stance], i = zone, i + 1
-    end end end end
+            setmetatable(t[side], {__index = {x = params.x}})
+        end
+        for unit, specs in pairs(Units) do for stance, data in pairs(specs.stances or {}) do
+            local mode, zone = self:mode(), Tags.getObject({self.hand, side, unit, stance})
+            if not zone then for _, obj in Tags.forAllObjects({self.hand, side}) do
+                if obj.memo == unit .. '-' .. stance then zone, mode = obj, naval and 'land' or 'sea' break end
+            end end
+            local rotation = specs.force == 'fleet' and vector(0, params.tilt, -180) or vector(0, 0, mode == 'land' and 0 or -180)
+            local y = mode == 'land' and 0.2 or 0
+            local snaps, xs = Battle.Snaps[mode][side], {casualty = Battle.Snaps[mode][side].casualty}
+            zone = Battle.Stance(zone, data)
+            zone.side, zone.unit = side, unit
+            local z = self.positionToLocal(zone.getPosition()).z - (mode == self:mode() and 0 or zone.z)
+            for nation, x in pairs(snaps.nations) do if nation ~= 'china' or specs.force == 'army' then xs[nation] = x end end
+            if zone.hp == 3 then xs.sustained, xs.damaged2 = snaps.sustained, snaps.damaged2
+            elseif zone.hp == 2 then xs.damaged = snaps.damaged end
+            for label, x in pairs(xs) do zone.snaps[label] = {position = vector(x, y, z), rotation = rotation} end
+            if unit == 'submarine' then zone.snaps.escaped = {position = vector(side == 'axis' and -1.275 or 1.27, y, -0.365), rotation = vector(0, 0, -180)} end
+            self.stances[mode][side][unit] = self.stances[mode][side][unit] or {}
+            self.stances[mode][side][unit][stance] = zone
+        end end
+    end
 end
 
 Battle.Zone = {}
@@ -68,22 +69,8 @@ setmetatable(Battle.Zone, {__call = function (T, obj, z)
 end})
 
 Battle.Stance = {}
-Battle.Stance.Order = {land = {
-    {'infantry', {'offensive', 'defensive'}},
-    {'artillery', {'ground', 'antiair'}},
-    {'armor', {'offensive', 'defensive'}},
-    {'fighter', {'ground', 'air'}},
-    {'bomber', {'ground', 'strategic'}}
-}, sea = {
-    {'submarine', {'dive'}},
-    {'cruiser', {'offensive', 'escort'}},
-    {'carrier', {'offensive', 'antiair'}},
-    {'battleship', {'offensive', 'antiair'}},
-    {'fighter', {'surface', 'guard'}},
-    {'bomber', {'surface'}}
-}}
-setmetatable(Battle.Stance, {__call = function (T, zone, params)
-    local t, z = {}, Battle.Zone(zone)
+setmetatable(Battle.Stance, {__call = function (T, obj, params)
+    local t, z = {}, Battle.Zone(obj)
     setmetatable(t, {__index = |_, k| params[k] or T[k] or z[k]})
     return t
 end})

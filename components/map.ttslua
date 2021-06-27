@@ -208,8 +208,10 @@ end})
 
 function Map.Region:center()
     if self.centroid then return Map.positionToWorld(self.centroid:copy():setAt('y', 0.585))
-    else return Map.positionToWorld({self.center[1], 0.585, self.center[2]}) end
+    else return Map.positionToWorld({self.circle.c[1], 0.585, self.circle.c[2]}) end
 end
+
+function Map.Region:angle() return Map:rotationToCenter(self:center()) end
 
 function Map.Region:displayID() return self.id:gsub('[aimp]', '%0-'):upper() end
 function Map.Region:displayName() return self:displayID() .. (self.is_sea and '' or ' - ' .. self.name) end
@@ -288,4 +290,21 @@ function Map.Region:bombTargets()
         if targets.white.bomb == 0 then targets.white = nil end
     elseif not self.bombs then targets.white = {bomb = 1} end
     return targets
+end
+
+function Map.Region:placeHotspot()
+    local p = Promise()
+    Bags.hotspot.takeObject({
+        position = self:center() + vector(0, 4, 0),
+        callback_function = function (obj)
+            self.hotspot = Hotspot(obj, self.id)
+            p:resolve(obj)
+    end})
+    return p
+end
+
+function Map.Region:removeHotspot()
+    local p = self.hotspot:stash()
+    self.hotspot = nil
+    return p
 end

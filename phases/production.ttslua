@@ -18,8 +18,8 @@ function Production:main()
                 local id, flag = link:match('(%a%d+)(.?)')
                 owner = Map.regions[id]:owner()
                 if flag == '$' then
-                    local commands, side = Commands:region(id)
-                    if not commands.axis.fleet then trades.allies[region.trade] = trades.allies[region.trade] or 'sea'
+                    local commands = Commands:region(id)
+                    if not commands.axis.fleet then debug('Allies can trade by port') trades.allies[region.trade] = trades.allies[region.trade] or 'sea'
                     elseif commands.axis.fleet and not commands.allies.fleet and not region.allied then
                         trades.axis[region.trade] = trades.axis[region.trade] or 'sea'
                 end elseif owner and owner ~= 'neutral' and not Cards[id].is_face_down then

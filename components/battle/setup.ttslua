@@ -36,17 +36,22 @@ function Battle:adjustZones()
         zone.translate(vector(0, 0, zone.z) * self.getScale() * sign)
     end
     for side, units in pairs(self.stances[self.is_face_down and 'land' or 'sea']) do
-        for unit, stances in pairs(units) do for _, stance in pairs(stances) do
-            stance.translate(vector(sign * units.x, 0, stance.z) * self.getScale())
-            stance.setTags({unit})
-            self.zones[stance.guid] = stance
+        for unit, stances in pairs(units) do for stance, zone in pairs(stances) do
+            zone.translate(vector(sign * units.x, 0, zone.z) * self.getScale())
+            local old_unit, old_stance
+            for _, tag in ipairs(zone.getTags()) do
+                if Units[tag] then old_unit = tag
+                elseif tag ~= 'left' and tag ~= 'right' and tag ~= 'axis' and tag ~= 'allies' then old_stance = tag
+            end end
+            zone.obj.memo = old_unit .. '-' .. old_stance
+            zone.setTags({self.hand, side, unit, stance})
     end end end
 end
 
 function Battle:adjustSnaps()
     local mode, snaps = self:mode(), {}
     local y, z = mode == 'land' and 0.2 or 0, self.positionToLocal(self.commands.getPosition()).z
-    local rotation = vector(0, mode == 'land' and 0 or 33, mode == 'land' and 0 or -180)
+    local rotation = mode == 'land' and vector(0, 0, 0) or vector(0, 33, -180)
     for side, t in pairs(Battle.Snaps[mode]) do for nation, x in pairs(t.nations) do
         local snap = {position = vector(x, y, z), rotation = rotation * vector(1, side == 'axis' and 1 or -1, 1)}
         self.commands.snaps[nation] = snap
@@ -113,13 +118,19 @@ function Battle:placeUnits(sides)
     end
 end
 
-function Battle:updateDice(zone, obj, sign)
-    local stance = self.zones[zone.guid]
-    if stance and rawget(stance, 'unit') then
-        for stage, value in pairs(stance.dice) do if self.dice[stage] then
-            self.dice[stage][stance.side] = self.dice[stage][stance.side] + value * sign
+function Battle:updateDice(zone, sign)
+    local side, unit, stance
+    for _, tag in ipairs(zone.getTags()) do
+        if Nations.other[tag] then side = tag
+        elseif Units[tag] then unit = tag
+        elseif tag ~= 'left' and tag ~= 'right' then stance = tag
+    end end
+    if side and unit and stance then
+        zone = self.stances[self:mode()][side][unit][stance]
+        for stage, value in pairs(zone.dice) do if self.dice[stage] then
+            self.dice[stage][side] = self.dice[stage][side] + value * sign
         end end
-        self:updateDiceTotal(stance.side)
+        self:updateDiceTotal(side)
     end
 end
 

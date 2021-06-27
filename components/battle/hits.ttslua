@@ -116,6 +116,7 @@ function Battle:assignHits(stage, side, roll, targets, fd)
                     if Nations[stack] then eligible = eligible + 1 end
                 end end
                 unit:clearUI()
+                unit.addTag('casualty')
                 unit.next, stance.stacks.casualty = stance.stacks.casualty, unit
                 if rawget(unit, 'next') == nil then pos = stance.snaps.casualty.position
                 else pos = self.positionToLocal(unit.next.getPosition() + vector(0, unit.next.is_face_down and 0 or 0.21, 0)) end

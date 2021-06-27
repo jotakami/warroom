@@ -15,27 +15,29 @@ function Refit:main()
             debug('Removing dive token from ', command.nation, ' ', command.id)
             stash(getObjectFromGUID(command.getJoints()[1].joint_object_guid))
             command.jointTo()
-        elseif command.force == 'air' and (#command.getJoints() > 0 or command.memo) then
-            debug('Removing arrow tag from ', command.nation, ' ', command.id)
+            command.removeTag('escaped')
+        elseif command.force == 'air' then
             if #command.getJoints() > 0 then
+                debug('Removing arrow tag from ', command.nation, ' ', command.id)
                 stash(getObjectFromGUID(command.getJoints()[1].joint_object_guid))
                 command.jointTo()
+                command.addTag('landing')
             end
-            command.obj.memo, readied[command.nation] = command.memo or command:region(), false
-            setGlow(command, Color[command.nation])
-        end end
+            if command.hasTag('landing') then
+                readied[command.nation] = false
+                setGlow(command, Color[command.nation])
+        end end end
         for _, nation in turnOrder() do if readied[nation] == false then
             HUD.updateStatus(nation, false)
             Orders[nation]:enableReady(|...| self.resume(...))
         else HUD.updateStatus(nation, true) end end
         Phase.readyLoop(readied, next(readied) == nil, function (nation, ready)
             local invalid
-            for _, command in pairs(Commands[nation]) do if command.memo then if ready then
-                if not command:region() then command.obj.memo = nil else
-                    local source, dest = Map.regions[command.memo], Map.regions[command:region()]
-                    debug(command.nation, ' ', command.id, ' moves from ', source.id, ' to ', dest.id)
-                    if dest.is_sea or not Movement:airMovement(command.nation, source, dest)
-                            or dest:side() ~= 'neutral' and dest:side() ~= Nations[command.nation].side
+            for _, command in pairs(Commands[nation]) do if command.hasTag('landing') then if ready then
+                if not command:region() then command.removeTag('landing') else
+                    local dest = Map.regions[command:region()]
+                    debug(command.nation, ' ', command.id, ' lands in ', dest.id)
+                    if dest.is_sea or dest:side() ~= 'neutral' and dest:side() ~= Nations[command.nation].side
                             or dest:side() == 'neutral' and (Nations[command.nation]:isAxis() or not dest.allied) then
                         invalid = true
                         setPulse(command, Color.red)
@@ -46,7 +48,7 @@ function Refit:main()
             if invalid then return false end
         end)
     end
-    for command in Commands:all() do command.obj.memo = nil end
+    for command in Commands:all() do command.removeTag('landing') end
     HUD.updateTracker('Deploy units and reorganize commands', nil, 'deploy')
     HUD.resetStatus()
     state.step, readied = 2, {}
@@ -60,7 +62,7 @@ function Refit:main()
         coroutine.resume(coroutine.create(|| self:deployUnits(region):next(p)))
         table.insert(deploy[owner], p:next(function (units) deploy[owner][id] = units end))
     end end
-    for _, nation in turnOrder() do if #deploy[nation] > 0 then
+    for _, nation in turnOrder() do debug('Checking for deployable ', nation, ' units') if #deploy[nation] > 0 then
         Orders[nation].UI.setAttribute('ready', 'interactable', false)
         Promise.all(deploy[nation]):next(function ()
             Orders[nation].UI.setAttribute('ready', 'interactable', true)
@@ -90,11 +92,22 @@ end
 
 function Refit:deployUnits(region)
     debug('Deploying units in ', region.id)
-    while region.construction.units() > region:production() do
-        debug('Over production capacity!')
-        -- deal with this later
+    local stack, co = region.construction, coroutine.running()
+    if region:production() == 0 then
+        debug('No production capacity! Destroying all constructed units')
+        return Promise.all(Morale:casualties(stack:detach()), stack:stash())
+    elseif stack.units() > region:production() then
+        debug('Over production capacity! Select units to destroy')
+        setGlow(stack, Color.red)
+        repeat
+            for unit in pairs(stack.units) do stack.addContextMenuItem('Destroy 1 ' .. unit:proper(), function ()
+                stack.clearContextMenu()
+                stack:destroyUnit(unit):next(|| coroutine.resume(co))
+            end) end
+            coroutine.yield()
+        until stack.units() == region:production()
     end
-    local nation, units = region:owner(), region.construction.removeAttachments()
-    for _, unit in ipairs(units) do setGlow(unit, Color[nation]) end
-    return stash(region.construction):next(|| units)
+    local units = stack:detach()
+    for _, unit in ipairs(units) do setGlow(unit, Color[region:owner()]) end
+    return stack:stash():next(|| units)
 end

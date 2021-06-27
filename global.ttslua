@@ -4,8 +4,8 @@
 #include utils/colors
 #include utils/builtins
 #include utils/effects
+#include utils/tags
 
-#include config/guids
 #include config/help
 #include config/nations
 #include config/scenario
@@ -16,7 +16,7 @@
 #include components/cards
 #include components/units
 #include components/stack
-#include components/command
+#include components/commands
 #include components/hotspot
 #include components/orders
 #include components/resources
@@ -35,15 +35,19 @@
 #include phases/refit
 #include phases/morale
 #include phases/production
+#include phases/cleanup
 
--- Helper Functions --
+-- Helper functions --
 function stash(obj)
     obj.highlightOff()
     obj.setPositionSmooth(obj.getPosition() + vector(0, 3, 0))
     return Promise.condition(|| not obj.isSmoothMoving()):next(|| obj.destruct())
 end
 
+-- Global callbacks --
 function onObjectCollisionEnter(obj, info)
     local name = obj.getName()
     if name:match('stress') or name == 'medal_goods' then Morale:collisionHandler(obj, info.collision_object) end
 end
+
+function tryObjectEnterContainer(container, obj) return obj.type ~= 'Card' or container.type ~= 'Card' end

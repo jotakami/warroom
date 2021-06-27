@@ -28,30 +28,29 @@ end})
 function Setup.initialize()
     UI.setValue('scenario', Scenarios[state.scenario].label)
     UI.setValue('round', state.round == 0 and '-' or state.round)
-    Map:initialize(getObjectFromGUID(GUIDs.Map), state.scenario)
-    Morale:initialize(getObjectFromGUID(GUIDs.Morale), state.scenario)
+    Map:initialize(Tags.getObject('Map'), state.scenario)
+    Morale:initialize(Tags.getObject('Morale'), state.scenario)
     Tokens = {homeland = {}, turn = {}}
+    Cards.neutral = Tags.getObject('neutrals')
 end
 
 function Setup.initNations()
     for nation in pairs(Scenarios[state.scenario].nations) do
-        local guids = GUIDs.Nations[nation]
-        Orders[nation] = OrdersChart(getObjectFromGUID(guids.orders), nation):initialize(state.scenario)
-        Resources[nation] = ResourceChart(getObjectFromGUID(guids.resources), nation):initialize()
+        Orders[nation] = OrdersChart(Tags.getObject({nation, 'orders'}), nation):initialize(state.scenario)
+        Resources[nation] = ResourceChart(Tags.getObject({nation, 'resources'}), nation):initialize()
+        Cards[nation] = Cards(getObjectFromGUID(CardZones[nation]), nation)
         Commands.trays[nation] = {}
-        Cards[nation] = Cards(getObjectFromGUID(GUIDs.Nations[nation].card_zone), nation)
-        for force, guid in pairs(guids.trays) do Commands.trays[nation][force] = getObjectFromGUID(guid) end
-    end
+        for _, obj in Tags.forAllObjects({nation, 'static'}) do for _, tag in ipairs(obj.getTags()) do
+            if tag ~= nation and tag ~= 'static' then Commands.trays[nation][tag] = obj break end
+    end end end
 end
 
 function Setup.unpack(scenario)
-    Setup.neutrals()
     local delay, ready, i = Promise.frames(1), {}, 1
     for _, nation in ipairs(Nations:inOrder()) do if Scenarios[scenario].nations[nation] then
         local turn = i
         for resource in Resources() do UI.show('frame-' .. resource .. i) end
-        local guids = GUIDs.Nations[nation]
-        local components = getObjectFromGUID(guids.components)
+        local components = Tags.getObject({nation, 'components'})
         Tokens.homeland[nation] = Setup.homelandToken(components, i)
         Tokens.turn[nation] = Setup.turnToken(components, i)
         Wait.condition(|| Resources[nation]:loaded(), || Tokens.turn[nation].resting)
@@ -99,11 +98,12 @@ end
 
 function Setup.cards(components, nation)
     local prefix, racks, p, rack = Nations[nation].prefix, {}, Promise()
-    for i, guid in ipairs(GUIDs.Nations[nation].territories) do if i == 1 then rack = getObjectFromGUID(guid)
-    else table.insert(racks, getObjectFromGUID(guid)) end end
+    for _, obj in ipairs(getObjectsWithAllTags({nation, 'cardholder'})) do
+        if obj.value == 1 then rack = obj else racks[obj.value - 1] = obj end
+    end
     local co = coroutine.create(function (resume)
         components.takeObject({
-            position = rack.positionToWorld(rack.getSnapPoints()[1].position) + vector(0, 0.4, 0),
+            position = rack.positionToWorld({0, 0, 0.7075}) + vector(0, 0.4, 0),
             callback_function = |obj| coroutine.resume(resume, obj)
         })
         local deck = coroutine.yield()
@@ -114,7 +114,7 @@ function Setup.cards(components, nation)
         }) end end end
         for i = 0, #deck.getObjects() - 1 do
             if i > 11 and i % 12 == 0 then rack = table.remove(racks, 1) end
-            table.insert(points, rack.positionToWorld(rack.getSnapPoints()[i % 12 + 1].position) + vector(0, 0.08, 0))
+            table.insert(points, rack.positionToWorld({0, 0, 0.7075 - 0.1425 * (i % 12)}) + vector(0, 0.08, 0))
         end
         for i = max, 1, -1 do
             local id = prefix .. i
@@ -197,43 +197,6 @@ function Setup.commands(components, nation)
     return Promise.all(ps)
 end
 
-function Setup.neutrals()
-    local p, cards, pos = Promise(), {}
-    coroutine.resume(coroutine.create(function ()
-        local deck, resume = getObjectFromGUID(GUIDs.Neutrals), coroutine.running()
-        pos = deck.getPosition() + vector(0, 0.5, 0)
-        for i = #deck.getObjects(), 1, -1 do
-            local id = 'n' .. i
-            if not Map.regions[id] then deck.takeObject({
-                position = deck.getPosition() + vector(0, 5, 0),
-                smooth = false, callback_function = |obj| obj.destruct()
-            }) else
-                if not last then
-                    deck.takeObject({
-                        position = pos, smooth = false,
-                        callback_function = |obj| coroutine.resume(resume, obj)
-                    })
-                    pos, last = pos + vector(0, 0.2, 0), deck.remainder
-                    card = coroutine.yield()
-                else last.setPosition(pos) card = last end
-                card.setName(Card(card, id):colorizedName())
-                table.insert(cards, card)
-        end end
-        p:resolve()
-    end))
-    return p:skip(3):next(function ()
-        for i, card in ipairs(cards) do Wait.frames(|| card.setLock(false), i) end
-    end):when(function ()
-        for _, card in ipairs(cards) do if card ~= nil then return false end end
-        return true
-    end):skip(10):next(function () for _, hit in ipairs(Physics.cast({
-        origin = pos, direction = {0, -1, 0}, max_distance = 5
-    })) do if hit.hit_object.name == 'Deck' then
-        Cards.neutral = hit.hit_object
-        Cards.neutral.setName('Neutral territory cards')
-    end end end)
-end
-
 function Setup.hotspots()
     if Map.regions.j25 then Bags.hotspot.takeObject({
         position = Map.positionToWorld({-6.58, 0.7, -2.22}), rotation = {0, 270, 180},
@@ -247,12 +210,12 @@ function Setup.zoneEvents()
         if obj.type == 'Card' then
             zone = Cards[zone.guid]
             if zone then zone:add(Cards[obj.guid]) end
-        elseif state.phase == 4 then Battle.diceHandler(zone, obj, 1) end
+        elseif state.phase == 4 then Battle.diceHandler(zone, 1) end
     end
     function onObjectLeaveScriptingZone(zone, obj)
         if obj.type == 'Card' then
             zone = Cards[zone.guid]
             if zone then zone:remove(Cards[obj.guid]) end
-        elseif state.phase == 4 then Battle.diceHandler(zone, obj, -1) end
+        elseif state.phase == 4 then Battle.diceHandler(zone, -1) end
     end
 end

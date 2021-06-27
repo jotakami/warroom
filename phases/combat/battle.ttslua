@@ -71,7 +71,7 @@ function Combat.Battle:main(commands)
                 return army:attach(extras)
             end):next(|| self.resume(Commands:region(region.id)))
     end end end):when(|| board.UI.getAttribute('status-panel', 'active') == 'false'):next(function ()
-        if #state.battle_queue > 0 then Map.regions[table.remove(state.battle_queue, 1)].hotspot.resume() end
+        if #(state.battle_queue or {}) > 0 then Map.regions[table.remove(state.battle_queue, 1)].hotspot.resume() end
     end)
     board:reset()
     self:debrief(coroutine.yield(), mode == 'land' and aux_data or nil)
@@ -85,15 +85,18 @@ function Combat.Battle.diveSub(source, sub, subs)
             for i = #subs, 1, -1 do if subs[i].obj == nil then table.remove(subs, i)
             elseif subs[i].nation == sub.nation and Map:getRegion(subs[i]) == dest.id then table.insert(units, subs[i]) end end
             local pos, rot = sub.getPosition() + vector(0, #units * 0.21, 0), sub.getRotation()
-            local command_p, dive_p = Commands:getNew(sub.nation, 'fleet', pos, rot), Promise()
-            Bags.convoy_dive.takeObject({
-                position = pos + vector(0, 0.42, 0), rotation = rot:setAt('z', 180),
-                callback_function = |obj| dive_p:resolve(obj)
-            })
-            Promise.all(command_p, dive_p):skip(10):next(function (command, token)
+            Commands:getNew(sub.nation, 'fleet', pos, rot):next(function (command)
+                local p = Promise()
+                Bags.convoy_dive.takeObject({
+                    position = pos + vector(0, 0.42, 0), rotation = rot:setAt('z', 180),
+                    callback_function = |obj| p:resolve(command, obj)
+                })
+                return p
+            end):skip(10):next(function (command, token)
                 command.addTag('escaped')
                 command.jointTo(token, {type = 'Fixed'})
                 token.interactable = false
                 command:attach(units)
-    end) end end end
+            end)
+    end end end
 end

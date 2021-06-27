@@ -28,7 +28,7 @@ function Hotspot:activate()
         Combat[action:proper()](self, commands)
         self.addTag('busy')
         self.removeTag('active')
-        UI.setValue('combat-status' .. self.hud, '♦')
+        HUD.Combat:active(self.hud)
         return true
     end
     return false
@@ -43,11 +43,9 @@ function Hotspot:action(commands)
     if commands.axis.air or commands.axis[force] then
         side, other = 'axis', 'allies'
         japan_only = Combat.nationOnly('japan', commands.axis.air, commands.axis[force])
-        if japan_only then debug('Japan only in region ', region.id) end
     end
     if commands.allies.air or commands.allies[force] then
         ussr_only = Combat.nationOnly('ussr', commands.allies.air, commands.allies[force])
-        if ussr_only then debug('USSR only in region ', region.id) end
         if side then if state.pact_broken or not (japan_only and ussr_only) then return 'battle' end
         else side, other = 'allies', 'axis' end
     end
@@ -109,7 +107,6 @@ function Hotspot:finalize(embattled)
         if not region.is_sea then region.card:embattled(false) end
     end
     self.setTags({'inactive'})
-    UI.setValue('combat-status' .. self.hud, '✓')
-    UI.hide('combat-clear' .. self.hud)
+    HUD.Combat:done(self.hud)
     Combat.resume()
 end

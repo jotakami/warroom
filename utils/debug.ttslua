@@ -7,3 +7,13 @@ function warn(...) if Global.getVar('Debug') then log(table.concat{'[WARNING] ',
 function alert(...)
     if AlertID then printToAll(table.concat(table.pack('(', AlertID, ') ', ...))) else printToAll(...) end
 end
+
+function loadOrdersJSON(url)
+    WebRequest.get(url, function (req) if not req.is_error then
+        for nation, moves in pairs(JSON.decode(req.text)) do
+            for i, move in ipairs(moves) do
+                Orders[nation]:updateCommand(i, move.command)
+                Orders[nation]:updateTarget(i, move.target)
+        end end
+    end end)
+end

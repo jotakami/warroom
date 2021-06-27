@@ -1,0 +1,21 @@
+{
+    "germany": {
+        {"command": 33, "target": "g6"},
+        {"command": 38, "target": "g4"},
+        {"command": 48, "target": "g4"},
+        {"command": 56, "target": "g6"},
+        {"command": 72, "target": "g4"},
+        {"command": 11, "target": "g6"},
+        {"command": 12, "target": "g6"},
+        {"command": 13, "target": "g6"},
+        {"command": 3, "target": "a15"}
+    },
+    "italy": {
+        {"command": 33, "target": "g6"},
+        {"command": 38, "target": "g4"},
+        {"command": 48, "target": "g4"},
+        {"command": 56, "target": "g6"},
+        {"command": 72, "target": "g4"},
+        {"command": 11, "target": "g6"}
+    },
+}

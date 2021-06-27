@@ -1,0 +1,107 @@
+Commands = {cfighters = {}, standing = {}, trays = {}}
+setmetatable(Commands, {
+    __pairs = function (t, k) return function (t, k)
+        local v
+        repeat k, v = next(t, k)
+        until v == nil or type(v) == 'table' and Nations[k] ~= nil
+        if nil ~= v then return k, v end
+    end, t, nil end,
+    __call = function (t, obj)
+        local nation, id = obj.getName():lower():match('^%b[](%a+)%b[] (%d+)')
+        if nation and id then return t[nation][tonumber(id)] end
+    end
+})
+
+function Commands:loadJSON(data)
+    self.Setup = {}
+    for nation, commands in pairs(JSON.decode(data)) do
+        self.Setup[nation] = {}
+        for _, command in ipairs(commands) do
+            self.Setup[nation][command.id] = command
+    end end
+end
+
+Commands.Forces = {}
+setmetatable(Commands.Forces, {__call = function (t, commands)
+    local c = {axis = {}, allies = {}}
+    setmetatable(c, {__index = t})
+    if commands then for _, command in ipairs(commands) do c:add(command) end end
+    return c
+end})
+
+function Commands.Forces:add(command, side, force)
+    side, force = side or Nations[command.nation].side, force or command.force
+    self[side][force] = self[side][force] or {}
+    table.insert(self[side][force], command)
+end
+
+function Commands:all() return function (t, command)
+    local nation
+    if command ~= nil then
+        nation = command.nation
+        _, command = next(t[nation], command.id)
+    end
+    if command == nil then
+        repeat nation, command = next(t, nation)
+        until command == nil or type(command) == 'table' and Nations[nation] ~= nil
+        if command ~= nil then _, command = next(command) end
+    end
+    return command
+end, self, nil end
+
+function Commands:region(region)
+    debug('Getting commands for region ', region)
+    local forces, force = self.Forces()
+    for command in self:all() do if command:region() == region and not command.hasTag('escaped') then
+        forces:add(command)
+    end end
+    for _, cfighter in ipairs(self.cfighters) do
+        if cfighter ~= nil and Map:getRegion(cfighter) == region then
+            forces:add(cfighter, Nations[cfighter.nation].side, 'air')
+    end end
+    if self.standing[region] then forces:add(self.standing[region]) end
+    return forces
+end
+
+function Commands:byRegion()
+    debug('Getting all commands by region')
+    local forces = {}
+    for command in self:all() do
+        local id = Map:getRegion(command)
+        if id and not command.hasTag('escaped') then
+            forces[id] = forces[id] or Commands.Forces()
+            forces[id]:add(command)
+    end end
+    for _, cfighter in ipairs(self.cfighters) do
+        local id = Map:getRegion(cfighter)
+        if id then
+            forces[id] = forces[id] or Commands.Forces()
+            forces[id]:add(cfighter, Nations[cfighter.nation].side, 'air')
+    end end
+    for id, command in pairs(self.standing) do
+        forces[id] = forces[id] or Commands.Forces()
+        forces[id]:add(command)
+    end
+    return forces
+end
+
+function Commands:getNew(nation, force, pos, rot)
+    for _, command in pairs(self[nation]) do if command.force == force and not command.isSmoothMoving() then
+        if (math.abs(command.getPosition().x) > 45 or command.getPosition().z < -45) then if pos then
+            command.setPositionSmooth(pos)
+            if rot then command.setRotationSmooth(rot) end
+            return command:notMoving():next(|| command)
+        else return Promise():resolve(command) end end
+    end end
+    return Promise():reject('No free commands')
+end
+
+function Commands:verifyStacks()
+    local ps = {}
+    for command in self:all() do if command:region() and command.units() == 0 then
+        table.insert(ps, command:form())
+    end end
+    return #ps > 0 and Promise.all(ps) or Promise():resolve()
+end
+
+#include command
