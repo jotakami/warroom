@@ -90,7 +90,7 @@ function Commands:getNew(nation, force, pos, rot)
         if (math.abs(command.getPosition().x) > 45 or command.getPosition().z < -45) then if pos then
             command.setPositionSmooth(pos)
             if rot then command.setRotationSmooth(rot) end
-            return command:notMoving():next(|| command)
+            return command:notMoving()
         else return Promise():resolve(command) end end
     end end
     return Promise():reject('No free commands')

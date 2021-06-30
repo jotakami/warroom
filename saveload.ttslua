@@ -37,7 +37,7 @@ end
 function loadState()
     Setup.initialize()
     -- Identify tokens, commands, construction stacks, cfighters, and hotspots
-    for _, obj in ipairs(getAllObjects()) do
+    for _, obj in ipairs(getObjects()) do
         local name, region = obj.getName():lower(), Map:getRegion(obj)
         region = region and Map.regions[region]
         if #name > 0 and region then

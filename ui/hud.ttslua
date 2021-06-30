@@ -39,6 +39,11 @@ HUD.XML = {Defaults = {
         resolve = {height = 35, width = 78, padding = '2 2 2 2', rectAlignment = 'UpperLeft', ignoreLayout = true},
         order = {padding = '5 5 0 0', color = '#fdf2e960'}
     },
+    HorizontalLayout = {
+        scenario = {height = 35, spacing = 3, ignoreLayout = true},
+        axis = {rectAlignment = 'UpperCenter', offsetXY = '0 -12'},
+        allies = {rectAlignment = 'LowerCenter', offsetXY = '0 12'}
+    },
     VerticalLayout = {order = {image = 'order-arrow'}},
     TableLayout = {
         hud = {cellPadding = '2 2 2 2', cellBackgroundColor = 'clear'},
@@ -262,17 +267,78 @@ function HUD.XML.popouts(scenario)
 end
 
 function HUD.XML:initial() return {
-    {tag = 'Defaults', children = {self:default('Text', 'default'), self:default('Button', 'scenario'), self:default('Button', 'disabled')}},
+    {tag = 'Defaults', children = {
+        self:default('Image', 'default'),
+        self:default('Text', 'default'),
+        self:default('Button', 'scenario'),
+        self:default('Button', 'disabled'),
+        self:default('HorizontalLayout', 'scenario'),
+        self:default('HorizontalLayout', 'axis'),
+        self:default('HorizontalLayout', 'allies')
+    }},
     {tag = 'VerticalLayout', attributes = {id = 'scenarios',
-        position = '0 300', height = 200, width = 960, padding = '10 10 10 10', color = '#000000b0',
+        position = '0 180', height = 272, width = 960, padding = '10 10 10 10', color = '#000000b0',
         allowDragging = true, returnToOriginalPositionWhenReleased = false
     }, children = {
         {tag = 'Text', value = 'Choose a scenario:', attributes = {minHeight = 80, fontSize = 48, outline = 'black', outlineSize = '1.5 1.5'}},
-        {tag = 'HorizontalLayout', attributes = {minHeight = 100, spacing = 20}, children = {
-            {tag = 'Button', value = 'Global War', attributes = {class = 'scenario', id = 'global'}},
-            {tag = 'Button', value = 'Eastern Front', attributes = {class = 'scenario', id = 'eastern'}},
-            {tag = 'Button', value = 'War in Europe', attributes = {class = 'scenario', id = 'europe'}},
-            {tag = 'Button', value = 'War in the Pacific', attributes = {class = 'scenario', id = 'pacific'}}
+        {tag = 'HorizontalLayout', attributes = {minHeight = 172, spacing = 20}, children = {
+            {tag = 'Panel', children = {
+                {tag = 'Button', value = 'Global War', attributes = {class = 'scenario', id = 'global'}},
+                {tag = 'HorizontalLayout', attributes = {class = 'scenario axis', width = 105}, children = {
+                    {tag = 'Image', attributes = {image = 'germany'}},
+                    {tag = 'Image', attributes = {image = 'italy'}},
+                    {tag = 'Image', attributes = {image = 'japan'}}
+                }},
+                {tag = 'HorizontalLayout', attributes = {class = 'scenario allies', width = 140}, children = {
+                    {tag = 'Image', attributes = {image = 'usa'}},
+                    {tag = 'Image', attributes = {image = 'uk'}},
+                    {tag = 'Image', attributes = {image = 'ussr'}},
+                    {tag = 'Image', attributes = {image = 'china'}}
+                }}
+            }},
+            {tag = 'Panel', children = {
+                {tag = 'Button', value = 'War in Europe', attributes = {class = 'scenario', id = 'europe'}},
+                {tag = 'HorizontalLayout', attributes = {class = 'scenario axis', width = 70}, children = {
+                    {tag = 'Image', attributes = {image = 'germany'}},
+                    {tag = 'Image', attributes = {image = 'italy'}}
+                }},
+                {tag = 'HorizontalLayout', attributes = {class = 'scenario allies', width = 105}, children = {
+                    {tag = 'Image', attributes = {image = 'usa'}},
+                    {tag = 'Image', attributes = {image = 'uk'}},
+                    {tag = 'Image', attributes = {image = 'ussr'}}
+                }}
+            }},
+            {tag = 'Panel', children = {
+                {tag = 'Button', value = 'North Africa', attributes = {class = 'scenario', id = 'nafrica'}},
+                {tag = 'HorizontalLayout', attributes = {class = 'scenario axis', width = 70}, children = {
+                    {tag = 'Image', attributes = {image = 'germany'}},
+                    {tag = 'Image', attributes = {image = 'italy'}}
+                }},
+                {tag = 'HorizontalLayout', attributes = {class = 'scenario allies', width = 70}, children = {
+                    {tag = 'Image', attributes = {image = 'usa'}},
+                    {tag = 'Image', attributes = {image = 'uk'}}
+                }}
+            }},
+            {tag = 'Panel', children = {
+                {tag = 'Button', value = 'War in the Pacific', attributes = {class = 'scenario', id = 'pacific'}},
+                {tag = 'HorizontalLayout', attributes = {class = 'scenario axis', width = 35}, children = {
+                    {tag = 'Image', attributes = {image = 'japan'}}
+                }},
+                {tag = 'HorizontalLayout', attributes = {class = 'scenario allies', width = 105}, children = {
+                    {tag = 'Image', attributes = {image = 'usa'}},
+                    {tag = 'Image', attributes = {image = 'uk'}},
+                    {tag = 'Image', attributes = {image = 'china'}}
+                }}
+            }},
+            {tag = 'Panel', children = {
+                {tag = 'Button', value = 'Eastern Front', attributes = {class = 'scenario', id = 'eastern'}},
+                {tag = 'HorizontalLayout', attributes = {class = 'scenario axis', width = 35}, children = {
+                    {tag = 'Image', attributes = {image = 'germany'}}
+                }},
+                {tag = 'HorizontalLayout', attributes = {class = 'scenario allies', width = 35}, children = {
+                    {tag = 'Image', attributes = {image = 'ussr'}}
+                }}
+            }}
     }}}}
 } end
 

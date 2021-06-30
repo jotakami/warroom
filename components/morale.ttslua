@@ -10,7 +10,7 @@ Morale = {Zones = {
 function Morale:initialize(board, scenario)
     setmetatable(getmetatable(self).__index, {__index = board})
     self.stacks, self.stress, self.medals, self.snaps = {}, {}, {}, {}
-    local origin, flip = self.getPosition(), (scenario == 'europe' or scenario == 'pacific') and not self.is_face_down
+    local origin, flip = self.getPosition(), scenario ~= 'global' and scenario ~= 'eastern' and not self.is_face_down
     local snaps, nations, nation, unit = self.getSnapPoints(), Nations:moraleOrder()
     for i, snap in ipairs(snaps) do
         if (i - 1) % 11 == 0 then

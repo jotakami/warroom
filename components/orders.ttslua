@@ -19,9 +19,7 @@ end)
 function OrdersChart:initialize(scenario)
     log('Initializing ' .. self.nation .. ' orders')
     self.resources = {current = {oil = self.not_china and 0 or nil, iron = 0, osr = 0}}
-    local order_count = 9
-    if scenario ~= 'global' and (self.nation == 'uk' or self.nation == 'usa')
-        or self.nation == 'china' or self.nation == 'italy' then order_count = 6 end
+    local order_count = Scenarios[scenario].nations[self.nation]
     if not state.orders[self.nation] then
         state.orders[self.nation] = {}
         if self.not_china then

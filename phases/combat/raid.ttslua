@@ -101,6 +101,7 @@ function Combat.Raid:rollConvoyCluster(cluster)
         local missed = {}
         for resource in Resources() do if cluster.resources[resource] and not hits[resource] then
             table.insert(missed, resource)
+            missed[resource] = true
         end end
         if #hits.wild < #missed then
             debug('Need to assign black dice')

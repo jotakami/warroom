@@ -71,20 +71,35 @@ function Refit:main()
     Phase.readyLoop(readied, next(readied) == nil, function (nation, ready) if ready then
         local ps = {}
         for id, units in pairs(deploy[nation]) do
-            for i = #units, 1, -1 do if units[i] == nil then table.remove(units, i) end end
+            for i = #units, 1, -1 do if units[i].obj == nil then table.remove(units, i) end end
+            local fails = {}
             while #units > 0 do
-                local stack = {table.remove(units)}
-                local pos, force = stack[1].getPosition():setAt('y', 0), Units[stack[1].getName()].force
-                for i = #units, 1, -1 do if (units[i].getPosition():setAt('y', 0) - pos):magnitude() < 0.1 then
+                local stack, fail = {table.remove(units)}
+                local pos, force = stack[1].getPosition():setAt('y', 0), stack[1].force
+                if force == 'fleet' then
+                    local deploy_id = Map:getRegion(stack[1])
+                    fail = string.format('Can\'t deploy fleet from %s to %s', id, deploy_id)
+                    for _, port in ipairs(Map.regions[id].adjacent) do
+                        if deploy_id .. '$' == port then fail = nil break end
+                end end
+                for i = #units, 1, -1 do if (units[i].getPosition():setAt('y', 0) - pos):magnitude() < 0.25 then
+                    if units[i].force ~= force then fail = 'Can\'t form command with different unit types' end
                     table.insert(stack, table.remove(units, i))
                 end end
-                table.insert(ps, Commands:getNew(
+                if fail then
+                    for i = 1, #stack do table.insert(fails, stack[i]) end
+                    table.insert(ps, Promise():reject(fail))
+                else table.insert(ps, Commands:getNew(
                     nation, force, pos:setAt('y', #stack * 0.21 + 7), stack[1].getRotation()
-                ):next(|obj| Promise.condition(|| obj.resting, obj)):next(|command| command:form(nil, stack)):catch(function ()
-                    for _, unit in ipairs(stack) do table.insert(units, unit) end
-                    return Promise():reject('Failed to form new stack(s)')
+                ):next(|c| Promise.condition(|| c.resting, c)):next(
+                    |c| c:form(nil, table.pack(c, table.unpack(stack, 1, #stack)))
+                ):catch(function (reason)
+                    for _, unit in ipairs(stack) do table.insert(deploy[nation][id], unit) end
+                    return Promise():reject(reason)
                 end))
-        end end
+            end end
+            if #fails > 0 then deploy[nation][id] = fails end
+        end
         if #ps > 0 then Promise.all(ps):next(|| self.resume(nation, ready), || Orders[nation]:toggleReady(false)) end
     end end)
     self.resume = nil

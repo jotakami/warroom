@@ -1,25 +1,31 @@
 Scenarios = {
     global = {
         label = 'Global War',
-        nations = {germany = true, italy = true, japan = true, uk = true, ussr = true, usa = true, china = true},
+        nations = {germany = 9, italy = 6, japan = 9, uk = 9, ussr = 9, usa = 9, china = 6},
         capitals = {'b1', 'g1', 'j1', 'j4', 'r1', 't1', 'u1'}
     },
     europe = {
         label = 'War in Europe',
         decal = '1680367392274693386/B727DE60ADF193B136B27A731D99E7E1FABDCF9E',
-        nations = {uk = true, germany = true, italy = true, ussr = true, usa = true},
+        nations = {uk = 6, germany = 9, italy = 6, ussr = 9, usa = 6},
         capitals = {'b1', 'g1', 'r1', 't1', 'u1'}
     },
     pacific = {
         label = 'War in the Pacific',
         decal = '1680367304175510428/DF165237A2F137999172A19DB65D44EF5A46DFEE',
-        nations = {uk = true, china = true, japan = true, usa = true},
+        nations = {uk = 6, china = 6, japan = 9, usa = 6},
         capitals = {'b18', 'b24', 'j1', 'j4', 'u3', 'u4', 'u6'}
+    },
+    nafrica = {
+        label = 'North Africa',
+        decal = '1692773056648512899/81315949A25C99C3CCF0AFA9A3B14C843144E692',
+        nations = {uk = 6, germany = 6, italy = 6, usa = 6},
+        capitals = {'b1', 't1', 'u1'}
     },
     eastern = {
         label = 'Eastern Front',
         decal = '1680367392274692702/4E0B679347DBE0E2CB659E7DBDD0AF5F7F5DECC1',
-        nations = {germany = true, ussr = true},
+        nations = {germany = 9, ussr = 9},
         capitals = {'g1', 'r1'}
     }
 }

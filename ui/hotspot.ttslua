@@ -60,7 +60,7 @@ end
 
 function Hotspot:raidButtons(resources, offset)
     local xml, targets = self.UI.getXmlTable(), {}
-    for res in Resources() do targets[res == 'oil' and 'red' or res == 'iron' and 'blue' or 'yellow'] = {[res] = ''} end
+    for res in Resources() do if resources[res] then targets[Resources.Colors[res]] = {[res] = ''} end end
     local buttons = self.XML.targetButtons(targets, self.region, true)
     buttons.attributes.height, buttons.attributes.width = 120, #resources * 120
     buttons.attributes.rotation = self.XML.xmlAngle(self, offset)
